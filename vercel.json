@@ -4,6 +4,54 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/auth/login",
+      "destination": "/api/auth"
+    },
+    {
+      "source": "/api/barcode-registry/lookup/:code",
+      "destination": "/api/barcode-registry?action=lookup&code=:code"
+    },
+    {
+      "source": "/api/barcode-registry/:id",
+      "destination": "/api/barcode-registry?id=:id"
+    },
+    {
+      "source": "/api/categories/:id",
+      "destination": "/api/categories?id=:id"
+    },
+    {
+      "source": "/api/coupons/id/:id",
+      "destination": "/api/coupons?id=:id"
+    },
+    {
+      "source": "/api/coupons/:code",
+      "destination": "/api/coupons?code=:code"
+    },
+    {
+      "source": "/api/inventory/adjust",
+      "destination": "/api/inventory?action=adjust"
+    },
+    {
+      "source": "/api/inventory/receive",
+      "destination": "/api/inventory?action=receive"
+    },
+    {
+      "source": "/api/orders/:id",
+      "destination": "/api/orders?id=:id"
+    },
+    {
+      "source": "/api/products/:id",
+      "destination": "/api/products?id=:id"
+    },
+    {
+      "source": "/api/settings/password",
+      "destination": "/api/settings?action=password"
+    },
+    {
+      "source": "/api/variants/:id",
+      "destination": "/api/variants?id=:id"
+    },
+    {
       "source": "/((?!api/|assets/|favicon|robots|chaji|clad|manifest|sw|workbox|.*\\.[a-zA-Z0-9]+$).*)",
       "destination": "/index.html"
     }

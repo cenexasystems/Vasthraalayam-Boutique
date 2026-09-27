@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { sql } from '../_lib/db'
-import { methodRouter } from '../_lib/handler'
-import { issueSessionToken } from '../_lib/session'
-import { verifyPasswordHash } from '../_lib/password'
+import { sql } from './_lib/db.js'
+import { methodRouter } from './_lib/handler.js'
+import { issueSessionToken } from './_lib/session.js'
+import { verifyPasswordHash } from './_lib/password.js'
 
 /**
  * Verifies portal credentials and, on success, issues a signed session
@@ -15,6 +15,10 @@ import { verifyPasswordHash } from '../_lib/password'
  * Security > Change Password) takes priority when present; otherwise falls
  * back to the ADMIN_PASSWORD/STAFF_PASSWORD env vars, so existing
  * deployments keep working until a password is changed for the first time.
+ *
+ * Reachable at POST /api/auth/login via the vercel.json rewrite to /api/auth
+ * — kept as a single file (rather than api/auth/login.ts) so this project
+ * stays within the Hobby plan's 12 Serverless Function limit.
  */
 async function login(req: VercelRequest, res: VercelResponse) {
   const body = (req.body ?? {}) as { portalId?: string; password?: string }

@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { verifySessionToken, type Role, type SessionPayload } from './session'
+import { verifySessionToken, type Role, type SessionPayload } from './session.js'
 
 /**
  * Verifies the caller's signed session token (issued by POST /api/auth/login

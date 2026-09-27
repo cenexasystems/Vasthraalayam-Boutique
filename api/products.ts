@@ -1,8 +1,13 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { sql } from '../_lib/db'
-import { requireAuth } from '../_lib/guard'
-import { methodRouter } from '../_lib/handler'
+import { sql } from './_lib/db.js'
+import { requireAuth } from './_lib/guard.js'
+import { methodRouter } from './_lib/handler.js'
 
+// Consolidated from api/products/{index,[id]}.ts into a single file so this
+// project stays within the Hobby plan's 12 Serverless Function limit.
+// vercel.json rewrites GET/PUT /api/products/:id onto ?id=:id.
+
+// Column names are a fixed, trusted constant (not user input) — safe to inline.
 const PRODUCT_COLUMNS = `
   id, name, name_ta, tamil_name, category, category_id,
   remedy, price, offer_price, purchase_price, unit_type, unit_label,
@@ -26,7 +31,13 @@ const WRITABLE_COLUMNS = new Set([
   'item_type',
 ])
 
-async function get(req: VercelRequest, res: VercelResponse) {
+async function list(req: VercelRequest, res: VercelResponse) {
+  if (!requireAuth(req, res)) return
+  const rows = await sql.unsafe(`SELECT ${PRODUCT_COLUMNS} FROM public.products ORDER BY sort_order ASC`)
+  res.status(200).json({ data: rows })
+}
+
+async function getById(req: VercelRequest, res: VercelResponse) {
   if (!requireAuth(req, res)) return
   const id = Number(req.query.id)
   const rows = await sql.unsafe(
@@ -38,6 +49,32 @@ async function get(req: VercelRequest, res: VercelResponse) {
     return
   }
   res.status(200).json({ data: rows[0] })
+}
+
+async function get(req: VercelRequest, res: VercelResponse) {
+  if (req.query.id !== undefined) return getById(req, res)
+  return list(req, res)
+}
+
+async function create(req: VercelRequest, res: VercelResponse) {
+  if (!requireAuth(req, res)) return
+  const body = (req.body ?? {}) as Record<string, unknown>
+
+  if (!body.name || typeof body.name !== 'string' || !body.name.trim()) {
+    res.status(400).json({ error: 'Product name is required' })
+    return
+  }
+
+  const insertData: Record<string, unknown> = { is_active: true }
+  for (const [key, value] of Object.entries(body)) {
+    if (WRITABLE_COLUMNS.has(key)) insertData[key] = value
+  }
+
+  const rows = await sql`
+    INSERT INTO public.products ${sql(insertData)}
+    RETURNING id, name
+  `
+  res.status(201).json({ data: rows[0] })
 }
 
 async function put(req: VercelRequest, res: VercelResponse) {
@@ -67,4 +104,4 @@ async function put(req: VercelRequest, res: VercelResponse) {
   res.status(200).json({ data: rows[0] })
 }
 
-export default methodRouter({ GET: get, PUT: put })
+export default methodRouter({ GET: get, POST: create, PUT: put })

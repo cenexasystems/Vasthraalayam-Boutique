@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import type { JSONValue } from 'postgres'
-import { sql } from './_lib/db'
-import { requireAuth } from './_lib/guard'
-import { methodRouter } from './_lib/handler'
+import { sql } from './_lib/db.js'
+import { requireAuth } from './_lib/guard.js'
+import { methodRouter } from './_lib/handler.js'
 
 type IncomingItem = Record<string, unknown>
 
