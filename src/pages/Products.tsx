@@ -279,7 +279,7 @@ export default function Products() {
                </div>
                <h3 className="text-xl font-black mb-2 text-[#111111]">{t('products.none')}</h3>
                <p className="text-[#374151] max-w-xs mx-auto mb-6 text-sm">No products found matching your filters.</p>
-               <button onClick={clear} className="text-sm font-black text-[#D4AF37] hover:underline">Clear all filters</button>
+               <button onClick={clear} className="text-sm font-black text-[#7daa8f] hover:underline">Clear all filters</button>
             </div>
           ) : (
             <motion.div layout className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-4 items-stretch">
@@ -299,7 +299,7 @@ export default function Products() {
                 <CheckCircle2 size={32} className="text-green-600" />
              </div>
              <div>
-                <h4 className="font-black text-lg text-[#0A0A0A] leading-tight">CHAJI Premium Quality</h4>
+                <h4 className="font-black text-lg text-brand-black leading-tight">VASTHRAALAYAM Premium Quality</h4>
                 <p className="text-sm text-gray-700 mt-1">Every garment and product in our collection is curated with premium fabric and verified for quality excellence.</p>
              </div>
           </div>

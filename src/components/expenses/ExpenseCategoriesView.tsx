@@ -101,14 +101,14 @@ export const ExpenseCategoriesView: React.FC<ExpenseCategoriesViewProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6 items-start">
         {/* LEFT COLUMN: Add / Edit Category Card */}
         <div className={`bg-white border rounded-3xl p-6 shadow-xs space-y-4 transition-all ${
-          editingCategory ? 'border-[#D4AF37] ring-2 ring-[#D4AF37]/20' : 'border-gray-200'
+          editingCategory ? 'border-[#7daa8f] ring-2 ring-[#7daa8f]/20' : 'border-gray-200'
         }`}>
           <div className="flex items-center justify-between border-b border-gray-100 pb-3">
             <div className="flex items-center gap-2">
               {editingCategory ? (
-                <Edit2 size={16} className="text-[#D4AF37]" />
+                <Edit2 size={16} className="text-[#7daa8f]" />
               ) : (
-                <Tag size={16} className="text-[#D4AF37]" />
+                <Tag size={16} className="text-[#7daa8f]" />
               )}
               <h4 className="text-xs font-bold text-gray-800">
                 {editingCategory ? 'Edit Category' : 'Add Category'}
@@ -137,7 +137,7 @@ export const ExpenseCategoriesView: React.FC<ExpenseCategoriesViewProps> = ({
                 placeholder="e.g. Utility Bills, Packaging"
                 value={catName}
                 onChange={(e) => setCatName(e.target.value)}
-                className="w-full h-11 px-3 rounded-xl border border-gray-300 bg-[#FAFAFA] text-xs font-bold text-gray-900 outline-none focus:border-[#0A0A0A] focus:bg-white transition-all"
+                className="w-full h-11 px-3 rounded-xl border border-gray-300 bg-[#FAFAFA] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white transition-all"
               />
             </div>
 
@@ -145,7 +145,7 @@ export const ExpenseCategoriesView: React.FC<ExpenseCategoriesViewProps> = ({
               <button
                 type="submit"
                 disabled={loading || !catName.trim()}
-                className="flex-1 h-11 rounded-xl bg-[#0A0A0A] border border-[#D4AF37] text-[#D4AF37] text-xs font-bold hover:bg-[#1A1A1A] transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                className="flex-1 h-11 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-xs font-bold hover:bg-[#1e2817] transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
                 {editingCategory ? (
                   <>
@@ -207,14 +207,14 @@ export const ExpenseCategoriesView: React.FC<ExpenseCategoriesViewProps> = ({
                       <tr
                         key={cat.id}
                         className={`transition-colors ${
-                          isBeingEdited ? 'bg-[#D4AF37]/10' : 'hover:bg-gray-50/70'
+                          isBeingEdited ? 'bg-[#7daa8f]/10' : 'hover:bg-gray-50/70'
                         }`}
                       >
                         <td className="px-5 py-3.5 font-bold text-gray-900">
                           <div className="flex items-center gap-2">
                             <span>{cat.name}</span>
                             {isBeingEdited && (
-                              <span className="text-[10px] font-bold text-[#D4AF37] bg-[#0A0A0A] px-2 py-0.5 rounded-full">
+                              <span className="text-[10px] font-bold text-brand-onDark bg-brand-black px-2 py-0.5 rounded-full">
                                 Editing
                               </span>
                             )}
@@ -234,7 +234,7 @@ export const ExpenseCategoriesView: React.FC<ExpenseCategoriesViewProps> = ({
                               title={`Edit ${cat.name}`}
                               className={`w-8 h-8 rounded-lg inline-flex items-center justify-center transition-colors cursor-pointer ${
                                 isBeingEdited
-                                  ? 'bg-[#0A0A0A] text-[#D4AF37] border border-[#D4AF37] shadow-xs'
+                                  ? 'bg-brand-black text-brand-onDark border border-[#7daa8f] shadow-xs'
                                   : 'bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-900'
                               }`}
                             >

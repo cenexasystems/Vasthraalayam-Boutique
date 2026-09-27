@@ -72,7 +72,7 @@ export default function Footer() {
       <div className="max-w-7xl mx-auto px-4 py-10 sm:py-14 grid grid-cols-1 md:grid-cols-4 gap-8 sm:gap-10">
         <div className="md:col-span-1">
           <div className="flex items-center gap-2.5 mb-4">
-            <div className="w-10 h-10 bg-[#0A0A0A] border border-[#D4AF37]/50 rounded-xl flex items-center justify-center p-1 overflow-hidden shrink-0">
+            <div className="w-10 h-10 bg-brand-black border border-[#7daa8f]/50 rounded-xl flex items-center justify-center p-1 overflow-hidden shrink-0">
               <img src={BRAND_ICON} alt={BRAND_EN} className="w-full h-full object-contain" />
             </div>
             <div>

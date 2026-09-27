@@ -240,7 +240,7 @@ export default function DigitalInvoice() {
           pdfWindow.document.body.innerHTML = `
             <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#FBFAF6;color:#111;">
               <div style="text-align:center;padding:20px;">
-                <div style="width:36px;height:36px;border:3px solid #E8D399;border-top-color:#0A0A0A;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px auto;"></div>
+                <div style="width:36px;height:36px;border:3px solid #ead7b7;border-top-color:var(--brand-black);border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px auto;"></div>
                 <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
                 <h3 style="margin:0 0 6px 0;font-size:17px;font-weight:700;">Generating PDF Invoice...</h3>
                 <p style="margin:0;font-size:13px;color:#666;">Please wait a moment</p>
@@ -364,14 +364,14 @@ export default function DigitalInvoice() {
     <div className="digital-invoice-page bg-[#f9faf6] font-sans print:bg-white print:overflow-visible print:m-0 print:p-0">
       {/* Top action bar — uses position fixed so it always works on iOS regardless of scroll context */}
       <div className="bg-[#f9faf6]/95 backdrop-blur-sm p-4 fixed top-0 left-0 right-0 z-50 print:hidden flex items-center justify-between safe-area-inset-top" style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}>
-        <button onClick={handleBack} className="flex items-center gap-2 text-[#0A0A0A] hover:text-[#D4AF37] font-semibold text-sm transition-colors bg-white border border-[#E8D399] px-4 py-2 rounded-full shadow-sm cursor-pointer active:scale-95">
+        <button onClick={handleBack} className="flex items-center gap-2 text-brand-black hover:text-[#7daa8f] font-semibold text-sm transition-colors bg-white border border-[#ead7b7] px-4 py-2 rounded-full shadow-sm cursor-pointer active:scale-95">
           <ArrowLeft size={16} /> Back
         </button>
         <div className="flex items-center gap-2">
           <button
             onClick={downloadPdf}
             disabled={downloadingPdf}
-            className="flex items-center gap-2 bg-[#0A0A0A] text-[#D4AF37] border border-[#D4AF37] px-4 py-2 rounded-full font-bold text-sm shadow-md hover:bg-[#1A1A1A] transition-colors cursor-pointer active:scale-95 disabled:opacity-70"
+            className="flex items-center gap-2 bg-brand-black text-brand-onDark border border-[#7daa8f] px-4 py-2 rounded-full font-bold text-sm shadow-md hover:bg-[#1e2817] transition-colors cursor-pointer active:scale-95 disabled:opacity-70"
           >
             <Printer size={16} /> {downloadingPdf ? 'Generating...' : <><span className="hidden sm:inline">PDF Invoice</span><span className="sm:hidden">PDF</span></>}
           </button>

@@ -1,10 +1,13 @@
+import 'dotenv/config'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { neonApiDevPlugin } from './scripts/dev-api-plugin'
 
 export default defineConfig({
   envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
   plugins: [
+    neonApiDevPlugin(),
     react(),
     VitePWA({
       selfDestroying: true,
@@ -21,11 +24,11 @@ export default defineConfig({
         'robots.txt',
       ],
       manifest: {
-        name: 'CHAJI MENS WEAR Retail POS',
-        short_name: 'CHAJI',
-        description: 'CHAJI MENS WEAR retail billing, barcode inventory, catalog, order, receipt, and invoice administration.',
-        theme_color: '#0A0A0A',
-        background_color: '#0A0A0A',
+        name: 'VASTHRAALAYAM BOUTIQUE Retail POS',
+        short_name: 'VASTHRAALAYAM',
+        description: 'VASTHRAALAYAM BOUTIQUE retail billing, barcode inventory, catalog, order, receipt, and invoice administration.',
+        theme_color: '#2c392a',
+        background_color: '#2c392a',
         display: 'standalone',
         orientation: 'any',
         start_url: '/',

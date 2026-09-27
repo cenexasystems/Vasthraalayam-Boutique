@@ -82,7 +82,7 @@ export const CreateCustomSizeModal: React.FC<CreateCustomSizeModalProps> = ({
       <div className="absolute inset-0" onClick={onClose} />
       <div className="relative z-10 bg-white rounded-none sm:rounded-2xl max-w-2xl w-full h-screen h-[100dvh] sm:h-auto sm:max-h-[90vh] border-0 sm:border border-[#E5E7EB] shadow-2xl overflow-hidden flex flex-col">
         {/* Header - fixed top */}
-        <div className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-3.5 border-b border-gray-200 bg-[#0A0A0A] text-white shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-3.5 border-b border-gray-200 bg-brand-black text-white shrink-0">
           <h3 className="text-base font-black tracking-wide text-white">Create Custom Size</h3>
           <button
             type="button"
@@ -122,7 +122,7 @@ export const CreateCustomSizeModal: React.FC<CreateCustomSizeModalProps> = ({
                     placeholder="e.g. custom 50x38"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-[#0A0A0A] focus:bg-white"
+                    className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white"
                   />
                 </div>
 
@@ -133,7 +133,7 @@ export const CreateCustomSizeModal: React.FC<CreateCustomSizeModalProps> = ({
                   <select
                     value={labelsPerRow}
                     onChange={(e) => setLabelsPerRow(Number(e.target.value))}
-                    className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-[#0A0A0A] focus:bg-white"
+                    className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white"
                   >
                     <option value={1}>1</option>
                     <option value={2}>2</option>
@@ -152,7 +152,7 @@ export const CreateCustomSizeModal: React.FC<CreateCustomSizeModalProps> = ({
                     placeholder="50"
                     value={widthMm}
                     onChange={(e) => setWidthMm(e.target.value)}
-                    className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-[#0A0A0A] focus:bg-white"
+                    className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white"
                   />
                 </div>
 
@@ -167,7 +167,7 @@ export const CreateCustomSizeModal: React.FC<CreateCustomSizeModalProps> = ({
                     placeholder="38"
                     value={heightMm}
                     onChange={(e) => setHeightMm(e.target.value)}
-                    className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-[#0A0A0A] focus:bg-white"
+                    className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white"
                   />
                 </div>
 
@@ -181,7 +181,7 @@ export const CreateCustomSizeModal: React.FC<CreateCustomSizeModalProps> = ({
                     placeholder="2"
                     value={horizontalGapMm}
                     onChange={(e) => setHorizontalGapMm(e.target.value)}
-                    className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-[#0A0A0A] focus:bg-white"
+                    className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white"
                   />
                   <p className="mt-1 text-[10px] text-gray-500 font-medium">
                     ℹ Use 0 when label size is configured in printer settings
@@ -194,7 +194,7 @@ export const CreateCustomSizeModal: React.FC<CreateCustomSizeModalProps> = ({
                 <span className="text-[11px] font-black uppercase tracking-wider text-gray-600 mb-2">
                   Preview ({labelsPerRow})
                 </span>
-                <div className="w-full min-h-[190px] rounded-2xl bg-[#FFF9E6] border border-[#E8D399] p-4 flex items-center justify-center relative shadow-inner overflow-hidden">
+                <div className="w-full min-h-[190px] rounded-2xl bg-[#FFF9E6] border border-[#ead7b7] p-4 flex items-center justify-center relative shadow-inner overflow-hidden">
                   {/* Labels Layout */}
                   <div className="flex items-center justify-center gap-3">
                     {Array.from({ length: labelsPerRow }).map((_, idx) => (
@@ -259,7 +259,7 @@ export const CreateCustomSizeModal: React.FC<CreateCustomSizeModalProps> = ({
             </button>
             <button
               type="submit"
-              className="px-5 sm:px-6 py-2 rounded-xl bg-[#0A0A0A] border border-[#D4AF37] text-[#D4AF37] text-xs font-black uppercase tracking-wider hover:bg-[#1A1A1A] transition-all shadow-md cursor-pointer"
+              className="px-5 sm:px-6 py-2 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] transition-all shadow-md cursor-pointer"
             >
               Save Custom Size
             </button>

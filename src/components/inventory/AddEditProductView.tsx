@@ -10,8 +10,8 @@ import {
   ArrowLeft,
   Edit2,
 } from 'lucide-react'
-import { supabase } from '../../lib/supabase'
-import { useProductStore, type Product } from '../../store/store'
+import { neonApi } from '../../lib/neonApi'
+import { useProductStore, useSettingsStore, type Product } from '../../store/store'
 import { fetchVariantsByProduct } from '../../services/variantService'
 import { inventoryService, type CategoryRecord } from '../../services/inventoryService'
 import { normalizeBarcode } from '../../lib/barcode'
@@ -37,6 +37,7 @@ export const AddEditProductView: React.FC<{
   initialProductId?: number | string | null
 }> = ({ onStockUpdated, initialProductId }) => {
   const { products, fetchProducts } = useProductStore()
+  const defaultLowStockAlert = useSettingsStore((state) => state.settings?.lowStockThreshold ?? 5)
   const [categories, setCategories] = useState<CategoryRecord[]>([])
   const [search, setSearch] = useState('')
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null)
@@ -51,10 +52,11 @@ export const AddEditProductView: React.FC<{
   const [price, setPrice] = useState<string>('')
   const [purchasePrice, setPurchasePrice] = useState<string>('')
   const [stockQuantity, setStockQuantity] = useState<string>('0')
-  const [lowStockAlert, setLowStockAlert] = useState<string>('5')
+  const [lowStockAlert, setLowStockAlert] = useState<string>(() => String(defaultLowStockAlert))
   const [barcode, setBarcode] = useState<string>('')
   const [description, setDescription] = useState<string>('')
   const [hasVariants, setHasVariants] = useState<boolean>(false)
+  const [itemType, setItemType] = useState<'product' | 'service'>('product')
 
   // Variants Rows for dynamic addition
   const [variantRows, setVariantRows] = useState<VariantInputRow[]>([])
@@ -75,10 +77,11 @@ export const AddEditProductView: React.FC<{
     setPrice('')
     setPurchasePrice('')
     setStockQuantity('0')
-    setLowStockAlert('5')
+    setLowStockAlert(String(defaultLowStockAlert))
     setBarcode('')
     setDescription('')
     setHasVariants(false)
+    setItemType('product')
     setVariantRows([])
     setStatusMessage(null)
   }
@@ -104,10 +107,11 @@ export const AddEditProductView: React.FC<{
     setPrice(String(p.price || ''))
     setPurchasePrice(String(p.purchasePrice || ''))
     setStockQuantity(String(p.stockQuantity ?? p.stock ?? 0))
-    setLowStockAlert(p.lowStockAlert ? String(p.lowStockAlert) : '5')
+    setLowStockAlert(p.lowStockAlert ? String(p.lowStockAlert) : String(defaultLowStockAlert))
     setBarcode(p.barcode || '')
     setDescription(p.description || '')
     setHasVariants(Boolean(p.hasVariants))
+    setItemType(p.itemType === 'service' ? 'service' : 'product')
     setStatusMessage(null)
 
     if (p.hasVariants) {
@@ -295,7 +299,7 @@ export const AddEditProductView: React.FC<{
 
     const selectedCat = categories.find((c) => Number(c.id) === Number(categoryId))
     const categoryName = selectedCat ? selectedCat.name_en : 'General'
-    const alertThreshold = Number(lowStockAlert) > 0 ? Number(lowStockAlert) : 5
+    const alertThreshold = Number(lowStockAlert) > 0 ? Number(lowStockAlert) : defaultLowStockAlert
 
     setLoading(true)
 
@@ -303,41 +307,45 @@ export const AddEditProductView: React.FC<{
       if (selectedProductId) {
         // UPDATE EXISTING PRODUCT
         if (!hasVariants) {
+          const isService = itemType === 'service'
           const inputStock = Math.max(0, parseInt(stockQuantity) || 0)
 
-          // Check previous stock
-          const { data: currentProd } = await supabase
-            .from('products')
-            .select('stock_quantity, stock')
-            .eq('id', selectedProductId)
-            .single()
+          const updatePayload: Record<string, unknown> = {
+            name: trimmedName,
+            name_ta: nameTa.trim() || '',
+            category: categoryName,
+            category_id: categoryId ? Number(categoryId) : null,
+            price: priceNum,
+            offer_price: priceNum,
+            purchase_price: costNum,
+            barcode: barcode.trim() || null,
+            description: description.trim() || '',
+            has_variants: false,
+            item_type: itemType,
+          }
+          // Services carry no stock — omit these entirely rather than
+          // sending 0/null, so a product's existing stock data is left
+          // untouched if it's ever switched back from Service to Product.
+          if (!isService) {
+            updatePayload.low_stock_alert = alertThreshold
+            updatePayload.stock_quantity = inputStock
+            updatePayload.stock = inputStock
+          }
 
-          const prevStock = currentProd ? (currentProd.stock_quantity ?? currentProd.stock ?? 0) : 0
+          // Check previous stock (products only — services have none to diff)
+          let prevStock = 0
+          if (!isService) {
+            const { data: currentProd } = await neonApi.get<{ stock_quantity?: number; stock?: number }>(`/products/${selectedProductId}`)
+            prevStock = currentProd ? (currentProd.stock_quantity ?? currentProd.stock ?? 0) : 0
+          }
           const delta = inputStock - prevStock
 
-          const { error: updErr } = await supabase
-            .from('products')
-            .update({
-              name: trimmedName,
-              name_ta: nameTa.trim() || '',
-              category: categoryName,
-              category_id: categoryId ? Number(categoryId) : null,
-              price: priceNum,
-              offer_price: priceNum,
-              purchase_price: costNum,
-              low_stock_alert: alertThreshold,
-              barcode: barcode.trim() || null,
-              description: description.trim() || '',
-              has_variants: false,
-              stock_quantity: inputStock,
-              stock: inputStock,
-            })
-            .eq('id', selectedProductId)
+          const { error: updErr } = await neonApi.put(`/products/${selectedProductId}`, updatePayload)
 
           if (updErr) throw updErr
 
-          if (delta !== 0) {
-            await supabase.from('inventory_movements').insert({
+          if (!isService && delta !== 0) {
+            await neonApi.post('/inventory-movements', {
               product_id: selectedProductId,
               variant_id: null,
               movement_type: delta > 0 ? 'RESTOCK' : 'CORRECTION',
@@ -352,20 +360,18 @@ export const AddEditProductView: React.FC<{
           }
 
           if (normalizeBarcode(barcode)) {
-            await supabase.from('barcode_registry').upsert(
-              {
-                barcode_value: normalizeBarcode(barcode),
-                product_id: selectedProductId,
-                variant_id: null,
-                is_active: true,
-              },
-              { onConflict: 'barcode_value' }
-            )
+            await neonApi.post('/barcode-registry', {
+              barcode_value: normalizeBarcode(barcode),
+              product_id: selectedProductId,
+              variant_id: null,
+            })
           }
 
           setStatusMessage({
             type: 'success',
-            text: `Product "${trimmedName}" updated successfully with ${inputStock} stock units! Ready in POS Catalog.`,
+            text: isService
+              ? `Service "${trimmedName}" updated successfully! Ready in POS Catalog.`
+              : `Product "${trimmedName}" updated successfully with ${inputStock} stock units! Ready in POS Catalog.`,
           })
         } else {
           // Multi-variant update
@@ -379,23 +385,18 @@ export const AddEditProductView: React.FC<{
 
             if (v.id.startsWith('var_')) {
               // Insert new variant
-              const { data: createdVar, error: vErr } = await supabase
-                .from('product_variants')
-                .insert({
-                  product_id: selectedProductId,
-                  variant_name: v.variantName.trim(),
-                  size_label: v.sizeLabel?.trim() || v.variantName.trim(),
-                  price: vPrice,
-                  purchase_price: vCost,
-                  stock: vStock,
-                  barcode: v.customBarcode?.trim() || null,
-                  is_active: true,
-                })
-                .select()
-                .single()
+              const { data: createdVar, error: vErr } = await neonApi.post<{ id: string }>('/variants', {
+                product_id: selectedProductId,
+                variant_name: v.variantName.trim(),
+                size_label: v.sizeLabel?.trim() || v.variantName.trim(),
+                price: vPrice,
+                purchase_price: vCost,
+                stock: vStock,
+                barcode: v.customBarcode?.trim() || null,
+              })
 
               if (!vErr && createdVar && vStock > 0) {
-                await supabase.from('inventory_movements').insert({
+                await neonApi.post('/inventory-movements', {
                   product_id: selectedProductId,
                   variant_id: createdVar.id,
                   movement_type: 'RESTOCK',
@@ -410,29 +411,22 @@ export const AddEditProductView: React.FC<{
               }
             } else {
               // Update existing variant
-              const { data: curVar } = await supabase
-                .from('product_variants')
-                .select('stock')
-                .eq('id', v.id)
-                .single()
+              const { data: curVar } = await neonApi.get<{ stock?: number }>(`/variants/${v.id}`)
 
               const prevVarStock = curVar?.stock ?? 0
               const varDelta = vStock - prevVarStock
 
-              await supabase
-                .from('product_variants')
-                .update({
-                  variant_name: v.variantName.trim(),
-                  size_label: v.sizeLabel?.trim() || v.variantName.trim(),
-                  price: vPrice,
-                  purchase_price: vCost,
-                  stock: vStock,
-                  barcode: v.customBarcode?.trim() || null,
-                })
-                .eq('id', v.id)
+              await neonApi.put(`/variants/${v.id}`, {
+                variant_name: v.variantName.trim(),
+                size_label: v.sizeLabel?.trim() || v.variantName.trim(),
+                price: vPrice,
+                purchase_price: vCost,
+                stock: vStock,
+                barcode: v.customBarcode?.trim() || null,
+              })
 
               if (varDelta !== 0) {
-                await supabase.from('inventory_movements').insert({
+                await neonApi.post('/inventory-movements', {
                   product_id: selectedProductId,
                   variant_id: v.id,
                   movement_type: varDelta > 0 ? 'RESTOCK' : 'CORRECTION',
@@ -449,24 +443,22 @@ export const AddEditProductView: React.FC<{
           }
 
           // Update parent product
-          await supabase
-            .from('products')
-            .update({
-              name: trimmedName,
-              name_ta: nameTa.trim() || '',
-              category: categoryName,
-              category_id: categoryId ? Number(categoryId) : null,
-              price: priceNum,
-              offer_price: priceNum,
-              purchase_price: costNum,
-              low_stock_alert: alertThreshold,
-              barcode: null,
-              description: description.trim() || '',
-              has_variants: true,
-              stock_quantity: totalVariantStock,
-              stock: totalVariantStock,
-            })
-            .eq('id', selectedProductId)
+          await neonApi.put(`/products/${selectedProductId}`, {
+            name: trimmedName,
+            name_ta: nameTa.trim() || '',
+            category: categoryName,
+            category_id: categoryId ? Number(categoryId) : null,
+            price: priceNum,
+            offer_price: priceNum,
+            purchase_price: costNum,
+            low_stock_alert: alertThreshold,
+            barcode: null,
+            description: description.trim() || '',
+            has_variants: true,
+            item_type: itemType,
+            stock_quantity: totalVariantStock,
+            stock: totalVariantStock,
+          })
 
           setStatusMessage({
             type: 'success',
@@ -476,45 +468,44 @@ export const AddEditProductView: React.FC<{
       } else {
         // CREATE NEW PRODUCT
         if (!hasVariants) {
+          const isService = itemType === 'service'
           const inputStock = Math.max(0, parseInt(stockQuantity) || 0)
 
-          const { data: newProd, error: insErr } = await supabase
-            .from('products')
-            .insert({
-              name: trimmedName,
-              name_ta: nameTa.trim() || '',
-              category: categoryName,
-              category_id: categoryId ? Number(categoryId) : null,
-              price: priceNum,
-              offer_price: priceNum,
-              purchase_price: costNum,
-              low_stock_alert: alertThreshold,
-              barcode: barcode.trim() || null,
-              description: description.trim() || '',
-              has_variants: false,
-              stock_quantity: inputStock,
-              stock: inputStock,
-              is_active: true,
-            })
-            .select('id, name')
-            .single()
+          const createPayload: Record<string, unknown> = {
+            name: trimmedName,
+            name_ta: nameTa.trim() || '',
+            category: categoryName,
+            category_id: categoryId ? Number(categoryId) : null,
+            price: priceNum,
+            offer_price: priceNum,
+            purchase_price: costNum,
+            barcode: barcode.trim() || null,
+            description: description.trim() || '',
+            has_variants: false,
+            item_type: itemType,
+          }
+          // Services carry no stock — omit these so the DB's defaults apply
+          // instead of writing a meaningless 0/threshold for a non-stocked item.
+          if (!isService) {
+            createPayload.low_stock_alert = alertThreshold
+            createPayload.stock_quantity = inputStock
+            createPayload.stock = inputStock
+          }
+
+          const { data: newProd, error: insErr } = await neonApi.post<{ id: number; name: string }>('/products', createPayload)
 
           if (insErr || !newProd) throw insErr || new Error('Failed to create product')
 
           if (normalizeBarcode(barcode)) {
-            await supabase.from('barcode_registry').upsert(
-              {
-                barcode_value: normalizeBarcode(barcode),
-                product_id: newProd.id,
-                variant_id: null,
-                is_active: true,
-              },
-              { onConflict: 'barcode_value' }
-            )
+            await neonApi.post('/barcode-registry', {
+              barcode_value: normalizeBarcode(barcode),
+              product_id: newProd.id,
+              variant_id: null,
+            })
           }
 
-          if (inputStock > 0) {
-            await supabase.from('inventory_movements').insert({
+          if (!isService && inputStock > 0) {
+            await neonApi.post('/inventory-movements', {
               product_id: newProd.id,
               variant_id: null,
               movement_type: 'RESTOCK',
@@ -530,7 +521,9 @@ export const AddEditProductView: React.FC<{
 
           setStatusMessage({
             type: 'success',
-            text: `Product "${trimmedName}" created with ${inputStock} stock units! Immediately ready in catalog & billing.`,
+            text: isService
+              ? `Service "${trimmedName}" created! Immediately ready in catalog & billing.`
+              : `Product "${trimmedName}" created with ${inputStock} stock units! Immediately ready in catalog & billing.`,
           })
           resetForm()
         } else {
@@ -542,26 +535,22 @@ export const AddEditProductView: React.FC<{
             }
           })
 
-          const { data: newProd, error: insErr } = await supabase
-            .from('products')
-            .insert({
-              name: trimmedName,
-              name_ta: nameTa.trim() || '',
-              category: categoryName,
-              category_id: categoryId ? Number(categoryId) : null,
-              price: priceNum,
-              offer_price: priceNum,
-              purchase_price: costNum,
-              low_stock_alert: alertThreshold,
-              barcode: null,
-              description: description.trim() || '',
-              has_variants: true,
-              stock_quantity: totalVariantStock,
-              stock: totalVariantStock,
-              is_active: true,
-            })
-            .select('id, name')
-            .single()
+          const { data: newProd, error: insErr } = await neonApi.post<{ id: number; name: string }>('/products', {
+            name: trimmedName,
+            name_ta: nameTa.trim() || '',
+            category: categoryName,
+            category_id: categoryId ? Number(categoryId) : null,
+            price: priceNum,
+            offer_price: priceNum,
+            purchase_price: costNum,
+            low_stock_alert: alertThreshold,
+            barcode: null,
+            description: description.trim() || '',
+            has_variants: true,
+            item_type: itemType,
+            stock_quantity: totalVariantStock,
+            stock: totalVariantStock,
+          })
 
           if (insErr || !newProd) throw insErr || new Error('Failed to create product')
 
@@ -571,35 +560,26 @@ export const AddEditProductView: React.FC<{
             const vCost = Number(v.costPrice) > 0 ? Number(v.costPrice) : costNum
             const vStock = Math.max(0, Number(v.stock) || 0)
 
-            const { data: createdVar } = await supabase
-              .from('product_variants')
-              .insert({
-                product_id: newProd.id,
-                variant_name: v.variantName.trim(),
-                size_label: v.sizeLabel?.trim() || v.variantName.trim(),
-                price: vPrice,
-                purchase_price: vCost,
-                stock: vStock,
-                barcode: v.customBarcode?.trim() || null,
-                is_active: true,
-              })
-              .select('id')
-              .single()
+            const { data: createdVar } = await neonApi.post<{ id: string }>('/variants', {
+              product_id: newProd.id,
+              variant_name: v.variantName.trim(),
+              size_label: v.sizeLabel?.trim() || v.variantName.trim(),
+              price: vPrice,
+              purchase_price: vCost,
+              stock: vStock,
+              barcode: v.customBarcode?.trim() || null,
+            })
 
             if (createdVar && normalizeBarcode(v.customBarcode)) {
-              await supabase.from('barcode_registry').upsert(
-                {
-                  barcode_value: normalizeBarcode(v.customBarcode),
-                  product_id: newProd.id,
-                  variant_id: createdVar.id,
-                  is_active: true,
-                },
-                { onConflict: 'barcode_value' }
-              )
+              await neonApi.post('/barcode-registry', {
+                barcode_value: normalizeBarcode(v.customBarcode),
+                product_id: newProd.id,
+                variant_id: createdVar.id,
+              })
             }
 
             if (createdVar && vStock > 0) {
-              await supabase.from('inventory_movements').insert({
+              await neonApi.post('/inventory-movements', {
                 product_id: newProd.id,
                 variant_id: createdVar.id,
                 movement_type: 'RESTOCK',
@@ -662,13 +642,13 @@ export const AddEditProductView: React.FC<{
   return (
     <div className="flex flex-col gap-3">
       {/* Mobile Switch: Product List vs Add/Edit Form */}
-      <div className="lg:hidden flex items-center p-1 bg-white border border-[#E8D399] rounded-2xl shadow-xs shrink-0">
+      <div className="lg:hidden flex items-center p-1 bg-white border border-[#ead7b7] rounded-2xl shadow-xs shrink-0">
         <button
           type="button"
           onClick={() => setMobileView('list')}
           className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
             mobileView === 'list'
-              ? 'bg-[#0A0A0A] text-[#D4AF37] shadow-sm'
+              ? 'bg-brand-black text-brand-onDark shadow-sm'
               : 'text-gray-600 hover:text-black'
           }`}
         >
@@ -684,7 +664,7 @@ export const AddEditProductView: React.FC<{
           }}
           className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
             mobileView === 'form'
-              ? 'bg-[#0A0A0A] text-[#D4AF37] shadow-sm'
+              ? 'bg-brand-black text-brand-onDark shadow-sm'
               : 'text-gray-600 hover:text-black'
           }`}
         >
@@ -699,7 +679,7 @@ export const AddEditProductView: React.FC<{
         }`}>
           <div className="p-3.5 border-b border-gray-200 bg-[#FAFAFA] shrink-0">
             <h4 className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
-              <Package size={14} className="text-[#D4AF37]" />
+              <Package size={14} className="text-[#7daa8f]" />
               Product Catalog ({activeProducts.length})
             </h4>
             <p className="text-[10px] text-gray-500 font-medium mt-0.5">
@@ -715,7 +695,7 @@ export const AddEditProductView: React.FC<{
                 placeholder="Search products, SKUs, barcode..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-[#0A0A0A]"
+                className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
               />
             </div>
           </div>
@@ -734,7 +714,7 @@ export const AddEditProductView: React.FC<{
                     onClick={() => void startEditProduct(p)}
                     className={`group p-3 sm:p-3.5 cursor-pointer flex items-center justify-between gap-2.5 transition-all ${
                       isSelected
-                        ? 'bg-[#FFF9E6] border-l-4 border-[#D4AF37] ring-1 ring-[#D4AF37]/40 shadow-xs'
+                        ? 'bg-[#FFF9E6] border-l-4 border-[#7daa8f] ring-1 ring-[#7daa8f]/40 shadow-xs'
                         : 'hover:bg-[#FBFAF6] border-l-4 border-transparent hover:border-l-gray-300'
                     }`}
                   >
@@ -744,7 +724,7 @@ export const AddEditProductView: React.FC<{
                           {p.name}
                         </span>
                         {isSelected && (
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-[#0A0A0A] text-[#D4AF37] shrink-0">
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-brand-black text-brand-onDark shrink-0">
                             Editing
                           </span>
                         )}
@@ -771,13 +751,13 @@ export const AddEditProductView: React.FC<{
                           }}
                           className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
                             isSelected
-                              ? 'bg-[#0A0A0A] text-[#D4AF37] border-[#D4AF37] shadow-xs'
-                              : 'border-gray-200 bg-white text-gray-600 hover:bg-[#0A0A0A] hover:text-[#D4AF37] hover:border-black'
+                              ? 'bg-brand-black text-brand-onDark border-[#7daa8f] shadow-xs'
+                              : 'border-gray-200 bg-white text-gray-600 hover:bg-brand-black hover:text-brand-onDark hover:border-black'
                           }`}
                           title={`Edit "${p.name}"`}
                           aria-label={`Edit ${p.name}`}
                         >
-                          <Edit2 size={13} className={isSelected ? 'text-[#D4AF37]' : ''} />
+                          <Edit2 size={13} className={isSelected ? 'text-[#7daa8f]' : ''} />
                         </button>
 
                         <button
@@ -817,7 +797,7 @@ export const AddEditProductView: React.FC<{
               </button>
               <div className="min-w-0">
                 <h3 className="text-sm font-bold text-black flex items-center gap-2 truncate">
-                  <Package size={16} className="text-[#D4AF37] shrink-0" />
+                  <Package size={16} className="text-[#7daa8f] shrink-0" />
                   <span className="truncate">{selectedProductId ? 'Edit Product & Stock Details' : 'Add New Product to Catalog'}</span>
                   {selectedProductId && (
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-300 shrink-0">
@@ -894,7 +874,7 @@ export const AddEditProductView: React.FC<{
                   placeholder="e.g. Linen Cotton Shirt"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-[#0A0A0A]"
+                  className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
                 />
               </div>
 
@@ -907,13 +887,13 @@ export const AddEditProductView: React.FC<{
                   placeholder="e.g. காட்டன் சட்டை"
                   value={nameTa}
                   onChange={(e) => setNameTa(e.target.value)}
-                  className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-[#0A0A0A]"
+                  className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
                 />
               </div>
             </div>
 
-            {/* Category, Barcode, and Low Stock Alert */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {/* Category, Barcode, and (Products only) Low Stock Alert */}
+            <div className={`grid grid-cols-1 gap-3 ${itemType === 'product' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
               <div>
                 <label className="block text-[11px] font-bold text-gray-700 mb-1.5 h-4 flex items-center">
                   Category
@@ -921,7 +901,7 @@ export const AddEditProductView: React.FC<{
                 <select
                   value={categoryId}
                   onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full h-10 px-3 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-[#0A0A0A]"
+                  className="w-full h-10 px-3 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
                 >
                   <option value="">-- Select Category --</option>
                   {categories.map((c) => (
@@ -942,28 +922,30 @@ export const AddEditProductView: React.FC<{
                   placeholder={hasVariants ? 'Defined at variant level' : 'e.g. 8901234567'}
                   value={barcode}
                   onChange={(e) => setBarcode(e.target.value)}
-                  className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-[#0A0A0A] disabled:bg-gray-100 disabled:text-gray-400"
+                  className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black disabled:bg-gray-100 disabled:text-gray-400"
                 />
               </div>
 
-              <div>
-                <label className="block text-[11px] font-bold text-gray-700 mb-1.5 h-4 flex items-center">
-                  Low Stock Alert Threshold
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  placeholder="5"
-                  value={lowStockAlert}
-                  onChange={(e) => setLowStockAlert(e.target.value)}
-                  className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-[#0A0A0A]"
-                />
-              </div>
+              {itemType === 'product' && (
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 mb-1.5 h-4 flex items-center">
+                    Low Stock Alert Threshold
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="5"
+                    value={lowStockAlert}
+                    onChange={(e) => setLowStockAlert(e.target.value)}
+                    className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
+                  />
+                </div>
+              )}
             </div>
 
-            {/* Base Pricing & Received Stock (only if no variants) */}
+            {/* Base Pricing & (Products only) Received Stock (only if no variants) */}
             {!hasVariants && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 bg-white border border-gray-200 rounded-xl items-start">
+              <div className={`grid grid-cols-1 gap-3 p-3.5 bg-white border border-gray-200 rounded-xl items-start ${itemType === 'product' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
                 <div>
                   <label className="block text-[11px] font-bold text-gray-700 mb-1.5 h-4 flex items-center">
                     Selling Price (₹) <span className="text-red-500 ml-0.5">*</span>
@@ -976,7 +958,7 @@ export const AddEditProductView: React.FC<{
                     placeholder="0.00"
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
-                    className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-[#0A0A0A]"
+                    className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
                   />
                 </div>
 
@@ -991,24 +973,26 @@ export const AddEditProductView: React.FC<{
                     placeholder="0.00"
                     value={purchasePrice}
                     onChange={(e) => setPurchasePrice(e.target.value)}
-                    className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-[#0A0A0A]"
+                    className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
                   />
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-bold text-emerald-800 mb-1.5 h-4 flex items-center gap-1">
-                    <Boxes size={13} className="text-emerald-600 shrink-0" />
-                    <span>Received / Current Stock</span>
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    placeholder="0"
-                    value={stockQuantity}
-                    onChange={(e) => setStockQuantity(e.target.value)}
-                    className="w-full h-10 px-3.5 rounded-xl border border-emerald-300 bg-emerald-50/50 text-xs font-bold text-emerald-950 outline-none focus:border-emerald-600 focus:bg-white"
-                  />
-                </div>
+                {itemType === 'product' && (
+                  <div>
+                    <label className="block text-[11px] font-bold text-emerald-800 mb-1.5 h-4 flex items-center gap-1">
+                      <Boxes size={13} className="text-emerald-600 shrink-0" />
+                      <span>Received / Current Stock</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="0"
+                      value={stockQuantity}
+                      onChange={(e) => setStockQuantity(e.target.value)}
+                      className="w-full h-10 px-3.5 rounded-xl border border-emerald-300 bg-emerald-50/50 text-xs font-bold text-emerald-950 outline-none focus:border-emerald-600 focus:bg-white"
+                    />
+                  </div>
+                )}
               </div>
             )}
 
@@ -1022,8 +1006,49 @@ export const AddEditProductView: React.FC<{
                 placeholder="Product material, care instructions, or rack location notes..."
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="w-full p-3 rounded-xl border border-gray-300 bg-white text-xs font-medium text-gray-900 outline-none focus:border-[#0A0A0A] resize-none"
+                className="w-full p-3 rounded-xl border border-gray-300 bg-white text-xs font-medium text-gray-900 outline-none focus:border-brand-black resize-none"
               />
+            </div>
+
+            {/* Type: Product vs Service */}
+            <div>
+              <label className="block text-[11px] font-bold text-gray-700 mb-1.5 h-4 flex items-center">
+                Type
+              </label>
+              <div className="flex rounded-xl border border-gray-300 bg-white p-1 gap-1">
+                <button
+                  type="button"
+                  onClick={() => setItemType('product')}
+                  className={`flex-1 h-9 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                    itemType === 'product'
+                      ? 'bg-brand-black text-white'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  <Package size={13} /> Product
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setItemType('service')
+                    // Services carry no stock — clear any values entered
+                    // while this was a Product so stale stock data can't
+                    // leak into the save payload.
+                    setStockQuantity('0')
+                    setLowStockAlert(String(defaultLowStockAlert))
+                  }}
+                  className={`flex-1 h-9 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                    itemType === 'service'
+                      ? 'bg-brand-black text-white'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  <Tag size={13} /> Service
+                </button>
+              </div>
+              <p className="mt-1 text-[10px] text-gray-400 font-medium">
+                Products = physical items sold. Services = tailoring, stitching, alterations.
+              </p>
             </div>
 
             {/* Variant Switch & Matrix */}
@@ -1031,7 +1056,7 @@ export const AddEditProductView: React.FC<{
               <div className="flex items-center justify-between">
                 <div>
                   <span className="text-xs font-black text-black flex items-center gap-1.5">
-                    <Tag size={14} className="text-[#D4AF37]" /> Multi-Variant Product (Sizes, Colors, SKUs)
+                    <Tag size={14} className="text-[#7daa8f]" /> Multi-Variant Product (Sizes, Colors, SKUs)
                   </span>
                   <p className="text-[11px] text-gray-500 font-medium">
                     Enable if this product comes in multiple sizes (e.g. S, M, L, XL) or colors
@@ -1046,14 +1071,14 @@ export const AddEditProductView: React.FC<{
                     }}
                     className="sr-only peer"
                   />
-                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#0A0A0A]" />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-black" />
                 </label>
               </div>
 
               {hasVariants && (
                 <div className="space-y-4 pt-3 border-t border-gray-100">
                   {/* Standardized Partitioned Size Selector & Custom Variant Bar */}
-                  <div className="bg-[#FBFAF6] border border-[#E8D399] rounded-xl p-3 space-y-3">
+                  <div className="bg-[#FBFAF6] border border-[#ead7b7] rounded-xl p-3 space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-1 p-0.5 bg-white border border-gray-200 rounded-lg">
                         <button
@@ -1061,7 +1086,7 @@ export const AddEditProductView: React.FC<{
                           onClick={() => setSizePartition('alpha')}
                           className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
                             sizePartition === 'alpha'
-                              ? 'bg-[#0A0A0A] text-[#D4AF37] shadow-xs'
+                              ? 'bg-brand-black text-brand-onDark shadow-xs'
                               : 'text-gray-600 hover:text-black'
                           }`}
                         >
@@ -1072,7 +1097,7 @@ export const AddEditProductView: React.FC<{
                           onClick={() => setSizePartition('numeric')}
                           className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
                             sizePartition === 'numeric'
-                              ? 'bg-[#0A0A0A] text-[#D4AF37] shadow-xs'
+                              ? 'bg-brand-black text-brand-onDark shadow-xs'
                               : 'text-gray-600 hover:text-black'
                           }`}
                         >
@@ -1083,7 +1108,7 @@ export const AddEditProductView: React.FC<{
                           onClick={() => setSizePartition('custom')}
                           className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
                             sizePartition === 'custom'
-                              ? 'bg-[#0A0A0A] text-[#D4AF37] shadow-xs'
+                              ? 'bg-brand-black text-brand-onDark shadow-xs'
                               : 'text-gray-600 hover:text-black'
                           }`}
                         >
@@ -1094,7 +1119,7 @@ export const AddEditProductView: React.FC<{
                       <button
                         type="button"
                         onClick={() => handleAddFullPack(sizePartition)}
-                        className="px-2.5 py-1 rounded-lg bg-white border border-[#D4AF37] text-[#0A0A0A] text-[11px] font-bold hover:bg-[#FFF9E6] transition-colors cursor-pointer"
+                        className="px-2.5 py-1 rounded-lg bg-white border border-[#7daa8f] text-brand-black text-[11px] font-bold hover:bg-[#FFF9E6] transition-colors cursor-pointer"
                       >
                         + Add Full Size Set ({sizePartition === 'alpha' ? 'S to 2XL' : sizePartition === 'numeric' ? '28 to 38' : 'Standard Specials'})
                       </button>
@@ -1123,7 +1148,7 @@ export const AddEditProductView: React.FC<{
                             className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all border ${
                               isSelected
                                 ? 'bg-emerald-50 text-emerald-800 border-emerald-300 opacity-60 cursor-default'
-                                : 'bg-white text-gray-800 border-gray-300 hover:border-[#D4AF37] hover:bg-[#FFF9E6] cursor-pointer'
+                                : 'bg-white text-gray-800 border-gray-300 hover:border-[#7daa8f] hover:bg-[#FFF9E6] cursor-pointer'
                             }`}
                           >
                             {isSelected ? `✓ ${sz}` : `+ ${sz}`}
@@ -1133,7 +1158,7 @@ export const AddEditProductView: React.FC<{
                     </div>
 
                     {/* Flexible Custom Variant Input Bar */}
-                    <div className="pt-2 border-t border-[#E8D399]/60 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <div className="pt-2 border-t border-[#ead7b7]/60 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                       <div className="flex-1 relative">
                         <input
                           type="text"
@@ -1146,14 +1171,14 @@ export const AddEditProductView: React.FC<{
                               handleAddCustomNamedVariant(customVariantInput)
                             }
                           }}
-                          className="w-full h-8 px-3 rounded-lg border border-gray-300 bg-white text-xs font-semibold text-gray-900 placeholder:text-gray-400 focus:border-[#0A0A0A] outline-none"
+                          className="w-full h-8 px-3 rounded-lg border border-gray-300 bg-white text-xs font-semibold text-gray-900 placeholder:text-gray-400 focus:border-brand-black outline-none"
                         />
                       </div>
                       <button
                         type="button"
                         onClick={() => handleAddCustomNamedVariant(customVariantInput)}
                         disabled={!customVariantInput.trim()}
-                        className="h-8 px-3.5 rounded-lg bg-[#0A0A0A] text-[#D4AF37] text-xs font-bold hover:bg-[#1A1A1A] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all flex items-center justify-center gap-1.5 shrink-0"
+                        className="h-8 px-3.5 rounded-lg bg-brand-black text-brand-onDark text-xs font-bold hover:bg-[#1e2817] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all flex items-center justify-center gap-1.5 shrink-0"
                       >
                         <Plus size={13} /> Add Custom
                       </button>
@@ -1186,7 +1211,7 @@ export const AddEditProductView: React.FC<{
                     <button
                       type="button"
                       onClick={handleAddVariantRow}
-                      className="px-3 py-1 rounded-lg bg-[#0A0A0A] text-[#D4AF37] text-xs font-black flex items-center gap-1 hover:bg-[#1A1A1A] cursor-pointer"
+                      className="px-3 py-1 rounded-lg bg-brand-black text-brand-onDark text-xs font-black flex items-center gap-1 hover:bg-[#1e2817] cursor-pointer"
                     >
                       <Plus size={12} /> Add Blank Variant Row
                     </button>
@@ -1218,7 +1243,7 @@ export const AddEditProductView: React.FC<{
                             placeholder="e.g. M, L, 32, 34"
                             value={v.variantName}
                             onChange={(e) => handleUpdateVariantRow(v.id, 'variantName', e.target.value)}
-                            className="w-full h-8 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-[#0A0A0A]"
+                            className="w-full h-8 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
                           />
                         </div>
 
@@ -1234,7 +1259,7 @@ export const AddEditProductView: React.FC<{
                             placeholder="0.00"
                             value={v.price || ''}
                             onChange={(e) => handleUpdateVariantRow(v.id, 'price', parseFloat(e.target.value) || 0)}
-                            className="w-full h-8 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-[#0A0A0A]"
+                            className="w-full h-8 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
                           />
                         </div>
 
@@ -1249,7 +1274,7 @@ export const AddEditProductView: React.FC<{
                             placeholder="0.00"
                             value={v.costPrice || ''}
                             onChange={(e) => handleUpdateVariantRow(v.id, 'costPrice', parseFloat(e.target.value) || 0)}
-                            className="w-full h-8 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-[#0A0A0A]"
+                            className="w-full h-8 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
                           />
                         </div>
 
@@ -1276,7 +1301,7 @@ export const AddEditProductView: React.FC<{
                             placeholder="Optional"
                             value={v.customBarcode || ''}
                             onChange={(e) => handleUpdateVariantRow(v.id, 'customBarcode', e.target.value)}
-                            className="w-full h-8 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-[#0A0A0A]"
+                            className="w-full h-8 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
                           />
                         </div>
 
@@ -1311,11 +1336,11 @@ export const AddEditProductView: React.FC<{
             <button
               type="submit"
               disabled={loading}
-              className="px-5 py-2 sm:px-6 sm:py-2.5 rounded-xl bg-[#0A0A0A] border border-[#D4AF37] text-[#D4AF37] text-xs font-black uppercase tracking-wider hover:bg-[#1A1A1A] transition-all shadow-md flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              className="px-5 py-2 sm:px-6 sm:py-2.5 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] transition-all shadow-md flex items-center gap-2 cursor-pointer disabled:opacity-50"
             >
               {loading ? (
                 <>
-                  <span className="w-3.5 h-3.5 border-2 border-[#D4AF37]/30 border-t-[#D4AF37] rounded-full animate-spin inline-block" />
+                  <span className="w-3.5 h-3.5 border-2 border-[#7daa8f]/30 border-t-[#7daa8f] rounded-full animate-spin inline-block" />
                   Saving Product...
                 </>
               ) : (

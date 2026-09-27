@@ -152,18 +152,18 @@ export const AdjustStockModal: React.FC<AdjustStockModalProps> = ({
   return createPortal(
     <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-screen h-screen h-[100dvh] z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
       <div className="absolute inset-0" onClick={onClose} />
-      <div className="relative z-10 bg-white rounded-none sm:rounded-3xl max-w-lg w-full h-screen h-[100dvh] sm:h-auto sm:max-h-[92vh] border-0 sm:border border-[#E8D399] shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative z-10 bg-white rounded-none sm:rounded-3xl max-w-lg w-full h-screen h-[100dvh] sm:h-auto sm:max-h-[92vh] border-0 sm:border border-[#ead7b7] shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
-        <div className="shrink-0 bg-[#0A0A0A] px-4 py-3 sm:px-5 sm:py-3.5 border-b border-[#D4AF37]/30 flex items-center justify-between text-white">
+        <div className="shrink-0 bg-brand-black px-4 py-3 sm:px-5 sm:py-3.5 border-b border-[#7daa8f]/30 flex items-center justify-between text-white">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#1A1A1A] border border-[#D4AF37] flex items-center justify-center text-[#D4AF37]">
+            <div className="w-8 h-8 rounded-lg bg-[#1e2817] border border-[#7daa8f] flex items-center justify-center text-[#7daa8f]">
               <SlidersHorizontal size={16} />
             </div>
             <div>
               <h2 className="text-sm sm:text-base font-black tracking-wide text-white leading-tight">
                 Adjust Inventory Stock ({BRAND_EN})
               </h2>
-              <p className="text-[11px] text-[#D4AF37] font-semibold leading-tight">
+              <p className="text-[11px] text-[#7daa8f] font-semibold leading-tight">
                 Restock, remove stock, or reconcile physical count
               </p>
             </div>
@@ -188,10 +188,10 @@ export const AdjustStockModal: React.FC<AdjustStockModalProps> = ({
             )}
 
             {/* Target SKU card */}
-            <div className="bg-[#FBFAF6] border border-[#E8D399] rounded-xl p-3">
+            <div className="bg-[#FBFAF6] border border-[#ead7b7] rounded-xl p-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="text-[10px] font-black uppercase tracking-wider text-[#B48811] flex items-center gap-1">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-[#5f6d59] flex items-center gap-1">
                     <Package size={11} /> Target SKU / Product
                   </div>
                   <div className="text-xs sm:text-sm font-black text-black truncate mt-0.5">
@@ -212,7 +212,7 @@ export const AdjustStockModal: React.FC<AdjustStockModalProps> = ({
                 </div>
               </div>
               {item.barcode && (
-                <div className="mt-1.5 pt-1.5 border-t border-[#E8D399]/40 flex items-center gap-1.5 text-[11px] font-semibold text-gray-600">
+                <div className="mt-1.5 pt-1.5 border-t border-[#ead7b7]/40 flex items-center gap-1.5 text-[11px] font-semibold text-gray-600">
                   <span>Barcode:</span>
                   <strong className="font-mono text-black bg-white px-1.5 py-0.2 rounded border border-gray-200">
                     {item.barcode}
@@ -263,11 +263,11 @@ export const AdjustStockModal: React.FC<AdjustStockModalProps> = ({
                   onClick={() => { setMode('CORRECTION'); setError('') }}
                   className={`flex flex-col items-center justify-center p-2 sm:p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
                     mode === 'CORRECTION'
-                      ? 'bg-amber-50 border-[#D4AF37] text-amber-950 shadow-sm ring-2 ring-[#D4AF37]/30'
+                      ? 'bg-amber-50 border-[#7daa8f] text-amber-950 shadow-sm ring-2 ring-[#7daa8f]/30'
                       : 'bg-[#FBFAF6] border-gray-200 text-gray-700 hover:bg-gray-100'
                   }`}
                 >
-                  <Target size={17} className={mode === 'CORRECTION' ? 'text-[#D4AF37]' : 'text-gray-400'} />
+                  <Target size={17} className={mode === 'CORRECTION' ? 'text-[#7daa8f]' : 'text-gray-400'} />
                   <span className="text-xs font-black mt-0.5">Reconciliation</span>
                   <span className="text-[9px] font-semibold text-gray-500">Set Exact Count</span>
                 </button>
@@ -461,7 +461,7 @@ export const AdjustStockModal: React.FC<AdjustStockModalProps> = ({
 
             {/* MODE 3: RECONCILIATION COUNT INPUT */}
             {mode === 'CORRECTION' && (
-              <div className="space-y-2.5 bg-amber-50/60 border border-[#E8D399] p-3 sm:p-3.5 rounded-xl">
+              <div className="space-y-2.5 bg-amber-50/60 border border-[#ead7b7] p-3 sm:p-3.5 rounded-xl">
                 <div>
                   <label className="block text-[11px] font-black uppercase tracking-wider text-amber-950 mb-1">
                     Actual Audited Physical Count <span className="text-red-500">*</span>
@@ -490,7 +490,7 @@ export const AdjustStockModal: React.FC<AdjustStockModalProps> = ({
                       onBlur={() => {
                         if (correctedQuantity === '') setCorrectedQuantity(0)
                       }}
-                      className="flex-1 text-center font-black text-xl py-1.5 rounded-lg border-2 border-[#D4AF37] bg-white text-black focus:border-black outline-none shadow-sm"
+                      className="flex-1 text-center font-black text-xl py-1.5 rounded-lg border-2 border-[#7daa8f] bg-white text-black focus:border-black outline-none shadow-sm"
                     />
                     <button
                       type="button"
@@ -505,7 +505,7 @@ export const AdjustStockModal: React.FC<AdjustStockModalProps> = ({
             )}
 
             {/* Real-time Math Preview Banner */}
-            <div className="bg-[#FBFAF6] border border-[#E8D399] rounded-xl p-2.5 sm:p-3 flex items-center justify-between text-xs font-bold">
+            <div className="bg-[#FBFAF6] border border-[#ead7b7] rounded-xl p-2.5 sm:p-3 flex items-center justify-between text-xs font-bold">
               <div className="flex items-center gap-1.5 sm:gap-2">
                 <span className="text-gray-500 text-[11px]">Current:</span>
                 <span className="text-black font-black text-xs sm:text-sm">{currentStock}</span>
@@ -552,7 +552,7 @@ export const AdjustStockModal: React.FC<AdjustStockModalProps> = ({
                 }
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                className="w-full py-2 px-3 rounded-xl border border-gray-300 bg-white text-xs text-gray-900 outline-none focus:border-[#0A0A0A]"
+                className="w-full py-2 px-3 rounded-xl border border-gray-300 bg-white text-xs text-gray-900 outline-none focus:border-brand-black"
               />
             </div>
           </div>
@@ -571,10 +571,10 @@ export const AdjustStockModal: React.FC<AdjustStockModalProps> = ({
               disabled={submitting || delta === 0}
               className={`flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs font-black transition-all shadow-md disabled:opacity-50 cursor-pointer ${
                 mode === 'RESTOCK'
-                  ? 'bg-[#0A0A0A] border border-[#D4AF37] text-[#D4AF37] hover:bg-[#1A1A1A]'
+                  ? 'bg-brand-black border border-[#7daa8f] text-brand-onDark hover:bg-[#1e2817]'
                   : mode === 'REMOVE'
                   ? 'bg-rose-700 text-white hover:bg-rose-800 border border-rose-800'
-                  : 'bg-[#0A0A0A] border border-[#D4AF37] text-[#D4AF37] hover:bg-[#1A1A1A]'
+                  : 'bg-brand-black border border-[#7daa8f] text-brand-onDark hover:bg-[#1e2817]'
               }`}
             >
               {submitting ? (

@@ -1,4 +1,4 @@
-import { isSupabaseConfigured, supabase } from '../lib/supabase'
+import { neonApi } from '../lib/neonApi'
 
 export type ProductVariant = {
   id: string
@@ -37,9 +37,6 @@ export type VariantInput = {
   imageUrl?: string | null
 }
 
-const VARIANT_COLS =
-  'id, product_id, variant_name, size_label, weight_value, weight_unit, sku, barcode, purchase_price, mrp, price, stock, is_default, is_active, sort_order, image_url, group_name'
-
 function mapVariant(r: Record<string, unknown>): ProductVariant {
   return {
     id:          String(r.id || ''),
@@ -62,74 +59,57 @@ function mapVariant(r: Record<string, unknown>): ProductVariant {
   }
 }
 
+// Variants now live in Neon (Phase 1 + this Dashboard-CRUD pass) — see neon/README.md.
+
 // ── Read ──────────────────────────────────────────────────────────
 
 export async function fetchAllVariants(): Promise<{ data: ProductVariant[]; error: string | null }> {
-  if (!isSupabaseConfigured) return { data: [], error: null }
-
-  const { data, error } = await supabase
-    .from('product_variants')
-    .select(VARIANT_COLS)
-    .eq('is_active', true)
-    .order('sort_order', { ascending: true })
+  const { data, error } = await neonApi.get<Array<Record<string, unknown>>>('/variants')
 
   if (error) return { data: [], error: error.message }
   return {
-    data: (data || []).map(r => mapVariant(r as Record<string, unknown>)),
+    data: (data || []).map(r => mapVariant(r)),
     error: null,
   }
 }
 
 export async function fetchVariantsByProduct(productId: string): Promise<ProductVariant[]> {
-  if (!isSupabaseConfigured) return []
-
-  const { data } = await supabase
-    .from('product_variants')
-    .select(VARIANT_COLS)
-    .eq('product_id', productId)
-    .eq('is_active', true)
-    .order('sort_order', { ascending: true })
-
-  return (data || []).map(r => mapVariant(r as Record<string, unknown>))
+  const { data, error } = await neonApi.get<Array<Record<string, unknown>>>(`/variants?product_id=${encodeURIComponent(productId)}`)
+  if (error) {
+    console.error('[variantService.fetchVariantsByProduct] Error:', error)
+    return []
+  }
+  return (data || []).map(r => mapVariant(r))
 }
 
 // ── Write (admin only) ────────────────────────────────────────────
 
 export async function createVariant(input: VariantInput): Promise<{ data: ProductVariant | null; error: string | null }> {
-  if (!isSupabaseConfigured) return { data: null, error: 'Not configured' }
+  const { data, error } = await neonApi.post<Record<string, unknown>>('/variants', {
+    product_id:   input.productId,
+    variant_name: input.variantName,
+    size_label:   input.sizeLabel ?? null,
+    weight_value: input.weightValue ?? null,
+    weight_unit:  input.weightUnit ?? null,
+    sku:          input.sku ?? null,
+    barcode:      input.barcode ?? null,
+    purchase_price: input.purchasePrice ?? null,
+    mrp:          input.mrp ?? null,
+    price:        input.price,
+    stock:        input.stock ?? 0,
+    is_default:   input.isDefault ?? false,
+    sort_order:   input.sortOrder ?? 0,
+    image_url:    input.imageUrl ?? null,
+  })
 
-  const { data, error } = await supabase
-    .from('product_variants')
-    .insert({
-      product_id:   input.productId,
-      variant_name: input.variantName,
-      size_label:   input.sizeLabel ?? null,
-      weight_value: input.weightValue ?? null,
-      weight_unit:  input.weightUnit ?? null,
-      sku:          input.sku ?? null,
-      barcode:      input.barcode ?? null,
-      purchase_price: input.purchasePrice ?? null,
-      mrp:          input.mrp ?? null,
-      price:        input.price,
-      stock:        input.stock ?? 0,
-      is_default:   input.isDefault ?? false,
-      sort_order:   input.sortOrder ?? 0,
-      image_url:    input.imageUrl ?? null,
-      is_active:    true,
-    })
-    .select(VARIANT_COLS)
-    .single()
-
-  if (error) return { data: null, error: error.message }
-  return { data: mapVariant(data as Record<string, unknown>), error: null }
+  if (error || !data) return { data: null, error: error?.message ?? 'Failed to create variant' }
+  return { data: mapVariant(data), error: null }
 }
 
 export async function updateVariant(
   id: string,
   updates: Partial<VariantInput>,
 ): Promise<{ error: string | null }> {
-  if (!isSupabaseConfigured) return { error: 'Not configured' }
-
   const payload: Record<string, unknown> = {}
   if (updates.variantName !== undefined) payload.variant_name = updates.variantName
   if (updates.sizeLabel   !== undefined) payload.size_label   = updates.sizeLabel
@@ -145,41 +125,23 @@ export async function updateVariant(
   if (updates.sortOrder     !== undefined) payload.sort_order     = updates.sortOrder
   if (updates.imageUrl      !== undefined) payload.image_url      = updates.imageUrl
 
-  const { error } = await supabase
-    .from('product_variants')
-    .update(payload)
-    .eq('id', id)
-
+  const { error } = await neonApi.put(`/variants/${id}`, payload)
   return { error: error?.message ?? null }
 }
 
 export async function deleteVariant(id: string): Promise<{ error: string | null }> {
-  if (!isSupabaseConfigured) return { error: 'Not configured' }
-
-  const { error } = await supabase
-    .from('product_variants')
-    .update({ is_active: false })
-    .eq('id', id)
-
+  const { error } = await neonApi.delete(`/variants/${id}`)
   return { error: error?.message ?? null }
 }
 
 export async function setDefaultVariant(
   variantId: string,
-  productId: string,
+  _productId: string,
 ): Promise<{ error: string | null }> {
-  if (!isSupabaseConfigured) return { error: 'Not configured' }
-
-  // Clear current defaults
-  await supabase
-    .from('product_variants')
-    .update({ is_default: false })
-    .eq('product_id', productId)
-
-  const { error } = await supabase
-    .from('product_variants')
-    .update({ is_default: true })
-    .eq('id', variantId)
-
+  // ensure_one_default_variant_trigger (neon/migrations/0001) automatically
+  // clears is_default on the product's other variants — a single update
+  // suffices (the Supabase version's separate "clear defaults first" call
+  // was redundant with the same trigger already present there).
+  const { error } = await neonApi.put(`/variants/${variantId}`, { is_default: true })
   return { error: error?.message ?? null }
 }

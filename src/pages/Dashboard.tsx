@@ -4,7 +4,8 @@ import {
   Box, AlertCircle, ArrowUp, ArrowDown, Power, Download, TrendingUp, TrendingDown,
   Package, Search, RefreshCw, ShieldCheck, ShieldOff, Trophy,
   MessageCircle, ChevronDown, Eye, FileText, Printer, MoreVertical, X, Layers, Receipt,
-  SlidersHorizontal, Tag, Ticket, Percent, CheckCircle2, Info, Sparkles,
+  SlidersHorizontal, Tag, Ticket, Percent, CheckCircle2, Info, Sparkles, Settings as SettingsIcon, Check,
+  Banknote, QrCode, CreditCard,
 } from 'lucide-react'
 
 // Custom Malaysian Ringgit icon — replaces the generic dollar-sign icon
@@ -36,8 +37,9 @@ const RMIcon = ({ size = 16, className = '' }: { size?: number; className?: stri
 )
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
+import { neonApi } from '../lib/neonApi'
 import { debounce } from '../lib/debounce'
-import { useAuthStore, useProductStore, useAdminAuthStore, type Product } from '../store/store'
+import { useAuthStore, useProductStore, useAdminAuthStore, useSettingsStore, type Product } from '../store/store'
 import { useAlarmStore } from '../store/alarmStore'
 import { alarmSound } from '../lib/alarmAudio'
 import { uploadProductImage } from '../lib/storage'
@@ -57,6 +59,7 @@ import type { AdvanceOrder } from '../services/advanceOrderService'
 import { InventoryTable } from '../components/inventory/InventoryTable'
 import { CategoryManagerView } from '../components/inventory/CategoryManagerView'
 import { ExpensesView } from '../components/expenses/ExpensesView'
+import { SettingsView } from '../components/settings/SettingsView'
 import { expenseService, type ExpenseRecord } from '../services/expenseService'
 import { useNavigationStore } from '../store/navigationStore'
 import { useHardwareBarcodeScanner } from '../hooks/useHardwareBarcodeScanner'
@@ -79,9 +82,9 @@ type DashboardOrder = {
   id: string; invoice_no: string; customer_name: string; phone: string; address: string
   created_at: string; total: number; status: string; order_mode: string; order_type: string; user_id: string | null; items: unknown
   coupon_code: string; discount_amount: number; manual_discount_amount: number; delivery_charge: number
-  total_gst: number; payment_mode: string; payment_method?: string; invoice_pdf_url: string; remarks?: string; reference_number?: string
+  total_gst: number; payment_mode: string; payment_method?: string; invoice_pdf_url: string; remarks?: string; tailor_name?: string; reference_number?: string
 }
-type DashboardOrderItem = { order_id: string; product_name: string; category?: string; quantity: number; line_total: number; is_manual?: boolean | null }
+type DashboardOrderItem = { order_id: string; product_id?: string | number | null; product_name: string; category?: string; quantity: number; line_total: number; is_manual?: boolean | null }
 type DashboardCoupon = {
   id: number
   code: string
@@ -92,12 +95,18 @@ type DashboardCoupon = {
   usage_count: number
   min_order_value: number
 }
-type TabKey = 'overview' | 'whatsapp' | 'pos_analytics' | 'billing' | 'advance_orders' | 'inventory' | 'expenses' | 'products' | 'categories' | 'coupons' | 'users' | 'history'
+type TabKey = 'overview' | 'whatsapp' | 'pos_analytics' | 'billing' | 'advance_orders' | 'inventory' | 'expenses' | 'products' | 'categories' | 'coupons' | 'users' | 'history' | 'settings'
 type PosAnalyticsTab = 'revenue' | 'today' | 'products' | 'categories' | 'coupons'
 type ProfileUser = { id: string; email: string; name: string; mobile: string; role: string; created_at: string }
 
 const normalizeStatus = (v: unknown) => String(v || '').trim().toLowerCase()
 const normalizeOrderType = (v: unknown) => String(v || '').trim().toLowerCase() || 'pos_sale'
+// 'upi' (used by the Advance Orders payment flow) and 'qr' (used by the POS
+// billing panel) are the same payment rail, just named differently by caller.
+const normalizePaymentMode = (v: unknown) => {
+  const m = String(v || '').trim().toLowerCase()
+  return m === 'upi' ? 'qr' : m
+}
 const isCompletedStatus = (v: unknown) => {
   const status = normalizeStatus(v)
   return status === 'completed' || status === 'paid'
@@ -187,6 +196,7 @@ export default function Dashboard() {
   const location = useLocation()
   const navigate = useNavigate()
   const role = useAdminAuthStore(state => state.role)
+  const logoUrl = useSettingsStore((state) => state.settings?.logoUrl) || BRAND_ICON
   const [tab, setTab] = useState<TabKey>(() => {
     const params = new URLSearchParams(location.search)
     const tabParam = params.get('tab') as TabKey | null
@@ -385,6 +395,7 @@ export default function Dashboard() {
     payment_mode: String(row.payment_mode || row.payment_method || ''),
     invoice_pdf_url: String(row.invoice_pdf_url || ''),
     remarks: row.remarks ? String(row.remarks) : undefined,
+    tailor_name: row.tailor_name ? String(row.tailor_name) : undefined,
     reference_number: row.reference_number ? String(row.reference_number) : undefined,
   })
 
@@ -426,7 +437,7 @@ export default function Dashboard() {
     }
     setOrders(current => [completed, ...current.filter(order => order.id !== completed.id)])
     setSearchResults(current => [completed, ...current.filter(order => order.id !== completed.id)].slice(0, 100))
-    setOrderItems(current => [...completedItems.map(item => ({ order_id: completed.id, product_name: String(item.name || 'Product'), category: String(item.category || advance.category || ''), quantity: Number(item.quantity || 1), line_total: Number(item.line_total || 0), is_manual: false })), ...current.filter(row => row.order_id !== completed.id)])
+    setOrderItems(current => [...completedItems.map(item => ({ order_id: completed.id, product_id: null, product_name: String(item.name || 'Product'), category: String(item.category || advance.category || ''), quantity: Number(item.quantity || 1), line_total: Number(item.line_total || 0), is_manual: false })), ...current.filter(row => row.order_id !== completed.id)])
   }, [user?.id])
 
   // Analytics (date-aware)
@@ -465,14 +476,19 @@ export default function Dashboard() {
     const onlinePosRevenue   = onlinePOS.reduce((s, o) => s + getOrderTotal(o), 0)
     const manualRevenue      = manualSales.reduce((s, o) => s + getOrderTotal(o), 0)
 
-    // Expenses & Net Profit calculation:
-    // Net Profit = Revenue (total selling based on orders) - Total Expense (from expense tracker)
+    // Payment method breakdown (cash/QR/card — 'online' bills use a separate
+    // payment rail and are intentionally not part of this split).
+    const cashRevenue = billableCompleted.filter(o => normalizePaymentMode(o.payment_mode) === 'cash').reduce((s, o) => s + getOrderTotal(o), 0)
+    const qrRevenue   = billableCompleted.filter(o => normalizePaymentMode(o.payment_mode) === 'qr').reduce((s, o) => s + getOrderTotal(o), 0)
+    const cardRevenue = billableCompleted.filter(o => normalizePaymentMode(o.payment_mode) === 'card').reduce((s, o) => s + getOrderTotal(o), 0)
+
+    // Expenses (from the expense tracker). Net Profit is finalized further
+    // down, once item-level Product/Service revenue and COGS are known:
+    // Net Profit = Total Revenue (Product + Service) - COGS - Total Expenses
     let datedExpenses = expenses
     if (analyticsDateFrom) datedExpenses = datedExpenses.filter(e => e.expense_date >= analyticsDateFrom)
     if (analyticsDateTo)   datedExpenses = datedExpenses.filter(e => e.expense_date <= analyticsDateTo)
     const totalExpenses = datedExpenses.reduce((s, e) => s + (Number(e.amount) || 0), 0)
-    const netProfit = completedRevenue - totalExpenses
-    const isProfitable = netProfit >= 0
 
     const toLocalDateKey = (value: string | Date) => {
       const date = value instanceof Date ? value : new Date(value)
@@ -556,6 +572,7 @@ export default function Dashboard() {
       ? orderItems.filter(item => completedIds.has(item.order_id))
       : completedOrders.flatMap(order => parseOrderItems(order.items).map(row => ({
           order_id: order.id,
+          product_id: (row as Record<string,unknown>).product_id as string | number | null | undefined,
           product_name: String((row as Record<string,unknown>).product_name || (row as Record<string,unknown>).name || 'Product'),
           category: String((row as Record<string,unknown>).category || ''),
           quantity: toNumber((row as Record<string,unknown>).quantity ?? (row as Record<string,unknown>).qty, 0),
@@ -566,12 +583,21 @@ export default function Dashboard() {
     const productMap    = new Map<string, { name: string; variant: string; qty: number; revenue: number; billCount: number }>()
     const productOrders = new Map<string, Set<string>>()
     const categoryMap   = new Map<string, { name: string; qty: number; revenue: number }>()
-    const prodCatLookup = new Map(products.map(p => [String(p.name || '').trim().toLowerCase(), p.category || 'Uncategorized']))
+    const prodCatLookup  = new Map(products.map(p => [String(p.name || '').trim().toLowerCase(), p.category || 'Uncategorized']))
+    // Product vs Service split (feature: catalog item type) + COGS, keyed by
+    // product_id first (reliable) and falling back to name match for manual/
+    // unregistered items that never had a product_id.
+    const prodTypeById   = new Map(products.map(p => [String(p.id), p.itemType === 'service' ? 'service' as const : 'product' as const]))
+    const prodTypeByName = new Map(products.map(p => [String(p.name || '').trim().toLowerCase(), p.itemType === 'service' ? 'service' as const : 'product' as const]))
+    const prodCostById   = new Map(products.map(p => [String(p.id), toNumber(p.purchasePrice, 0)]))
 
     let totalProductsSold = 0
     let totalManualRevenue = 0
+    let productRevenue = 0
+    let serviceRevenue = 0
+    let cogs = 0
 
-    completedItems.forEach(({ product_name, category, quantity, line_total, order_id, is_manual }) => {
+    completedItems.forEach(({ product_id, product_name, category, quantity, line_total, order_id, is_manual }) => {
       const qty = toNumber(quantity, 0)
       const rev = toNumber(line_total, 0)
       totalProductsSold += qty
@@ -592,7 +618,17 @@ export default function Dashboard() {
       cc.qty += qty; cc.revenue += rev; categoryMap.set(catName, cc)
 
       if (is_manual) totalManualRevenue += rev
+
+      const idKey = product_id != null ? String(product_id) : ''
+      const itemType = (idKey && prodTypeById.get(idKey)) || prodTypeByName.get(mainName.toLowerCase()) || 'product'
+      if (itemType === 'service') serviceRevenue += rev
+      else productRevenue += rev
+      cogs += (idKey ? (prodCostById.get(idKey) || 0) : 0) * qty
     })
+
+    const totalRevenue = productRevenue + serviceRevenue
+    const netProfit = totalRevenue - cogs - totalExpenses
+    const isProfitable = netProfit >= 0
 
     for (const [key, orderSet] of productOrders) {
       const p = productMap.get(key); if (p) { p.billCount = orderSet.size; productMap.set(key, p) }
@@ -746,7 +782,10 @@ export default function Dashboard() {
       .map(([name, count]) => ({ name, count }))
 
     return {
-      totalCompletedRevenue: completedRevenue,
+      totalCompletedRevenue: totalRevenue,
+      productRevenue,
+      serviceRevenue,
+      cogs,
       averageRevenuePerBill,
       todaySales,
       todayCompletedOrdersCount,
@@ -772,6 +811,9 @@ export default function Dashboard() {
       completedOrders: billableCompleted.length,
       posRevenue,
       onlinePosRevenue,
+      cashRevenue,
+      qrRevenue,
+      cardRevenue,
       // Keep the bill count separate from revenue so the TOTAL ONLINE BILLS
       // card stays visible and always reflects the current completed orders.
       onlineBillCount: onlinePOS.length,
@@ -817,21 +859,18 @@ export default function Dashboard() {
 
   // Load dashboard data
   const loadData = useCallback(async () => {
-    if (!isSupabaseConfigured) return
+    // Categories/coupons/products/orders/order_items now come from Neon (see
+    // neon/README.md). Expenses are not migrated in this pass and still
+    // require Supabase — that part is a no-op until Supabase is configured.
     setLoading(true)
     try {
       const productsPromise = fetchProducts(true)
-      const [cRes, oRes, couponRes, expList] = await Promise.all([
-        supabase.from('categories').select('id, name_en, name_ta, is_active, sort_order').order('sort_order'),
-        supabase.from('orders')
-          .select('id, invoice_no, customer_name, phone, address, created_at, total, status, order_mode, order_type, user_id, items, coupon_code, discount_amount, manual_discount_amount, delivery_charge, total_gst, gst_amount, payment_mode, payment_method, remarks, reference_number')
-          .order('created_at', { ascending: false })
-          .limit(1000),
-        supabase.from('coupons')
-          .select('id, code, percentage, is_active, expiry_date, usage_limit, usage_count, min_order_value')
-          .order('created_at', { ascending: false }),
-        expenseService.getExpenses(),
+      const [cRes, couponRes, oRes] = await Promise.all([
+        neonApi.get<Category[]>('/categories'),
+        neonApi.get<DashboardCoupon[]>('/coupons'),
+        neonApi.get<unknown[]>('/orders?limit=1000'),
       ])
+      const expList = await expenseService.getExpenses()
       if (cRes.error) throw cRes.error
       if (oRes.error) throw oRes.error
       const mappedOrders = (oRes.data || []).map(r => toDashboardOrder(r as Record<string, unknown>))
@@ -843,23 +882,11 @@ export default function Dashboard() {
 
       const orderIds = mappedOrders.map(o => o.id).filter(Boolean)
       if (orderIds.length > 0) {
-        let oi: unknown[] | null = null
-        let orderItemsError: unknown = null
-        const orderItemsResult = await supabase
-          .from('order_items').select('order_id,product_name,category,quantity,line_total,is_manual')
-          .in('order_id', orderIds)
-        oi = orderItemsResult.data
-        orderItemsError = orderItemsResult.error
-
-        if (orderItemsError) {
-          const fallbackItemsResult = await supabase
-            .from('order_items').select('order_id,product_name,quantity,line_total')
-            .in('order_id', orderIds)
-          oi = fallbackItemsResult.data
-        }
+        const { data: oi } = await neonApi.get<unknown[]>(`/order-items?order_ids=${orderIds.join(',')}`)
 
         setOrderItems((oi || []).map(r => ({
           order_id: String((r as Record<string,unknown>).order_id || ''),
+          product_id: (r as Record<string,unknown>).product_id as string | number | null,
           product_name: String((r as Record<string,unknown>).product_name || 'Product'),
           category: String((r as Record<string,unknown>).category || ''),
           quantity: toNumber((r as Record<string,unknown>).quantity, 0),
@@ -886,12 +913,8 @@ export default function Dashboard() {
   }, [])
 
   const loadCoupons = useCallback(async () => {
-    if (!isSupabaseConfigured) return
-    const { data } = await supabase
-      .from('coupons')
-      .select('id, code, percentage, is_active, expiry_date, usage_limit, usage_count, min_order_value')
-      .order('created_at', { ascending: false })
-    setCoupons((data || []) as DashboardCoupon[])
+    const { data } = await neonApi.get<DashboardCoupon[]>('/coupons')
+    setCoupons(data || [])
   }, [])
 
   const toggleUserRole = async (u: ProfileUser) => {
@@ -905,24 +928,22 @@ export default function Dashboard() {
   }
 
   const updateOrderStatus = async (orderId: string, newStatus: string) => {
-    await supabase.from('orders').update({ status: newStatus }).eq('id', orderId)
+    await neonApi.patch(`/orders/${orderId}`, { status: newStatus })
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o))
     setSearchResults(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o))
   }
 
   const deleteOrder = async (orderId: string, invoiceNo: string) => {
+    // Order deletion is admin-only, enforced server-side (api/orders/[id].ts).
+    // This replaces the old client-side "enter admin password" prompt for
+    // staff — that password was a hardcoded string visible in the JS bundle,
+    // not a real permission check.
     if (role === 'staff') {
-      const pwd = window.prompt(`Enter admin password to delete order ${invoiceNo}:`)
-      if (pwd !== '192267') {
-        alert('Incorrect password. Deletion cancelled.')
-        return
-      }
-    } else {
-      if (!window.confirm(`Are you sure you want to completely delete order ${invoiceNo}? This cannot be undone.`)) return
+      alert('Deleting an order requires an admin account.')
+      return
     }
-    // Clear FK reference in advance_orders first (if this order was created from an advance order)
-    await supabase.from('advance_orders').update({ completed_order_id: null }).eq('completed_order_id', orderId)
-    const { error } = await supabase.from('orders').delete().eq('id', orderId)
+    if (!window.confirm(`Are you sure you want to completely delete order ${invoiceNo}? This cannot be undone.`)) return
+    const { error } = await neonApi.delete(`/orders/${orderId}`)
     if (error) {
       alert(`Error deleting order: ${error.message}`)
       return
@@ -1066,23 +1087,18 @@ export default function Dashboard() {
       usage_limit: couponForm.usage_limit ? toNumber(couponForm.usage_limit, 0) : null,
       min_order_value: toNumber(couponForm.min_order_value, 0),
     }
-    let error: unknown = null
+    let error: Error | null = null
     if (editingCouponId !== null) {
       // Update existing - don't change code (it's the PK equivalent)
-      const res = await supabase.from('coupons').update({ ...payload }).eq('id', editingCouponId)
+      const res = await neonApi.put(`/coupons/id/${editingCouponId}`, payload)
       error = res.error
     } else {
       // Insert new coupon - UNIQUE constraint on code catches duplicates
-      const res = await supabase.from('coupons').insert(payload)
+      const res = await neonApi.post('/coupons', payload)
       error = res.error
     }
     if (error) {
-      const msg = (error as { message?: string }).message || 'Failed to save coupon'
-      if (msg.toLowerCase().includes('row-level security')) {
-        setCouponSaveError('Coupon save was blocked by Supabase RLS. Confirm your user has the admin role.')
-      } else {
-        setCouponSaveError(msg.includes('unique') || msg.includes('duplicate') ? `Coupon code "${code}" already exists` : msg)
-      }
+      setCouponSaveError(error.message || 'Failed to save coupon')
     } else {
       setCouponForm({ code: '', percentage: 10, expiry_date: '', usage_limit: '', min_order_value: '' })
       setEditingCouponId(null)
@@ -1113,12 +1129,12 @@ export default function Dashboard() {
 
   const deleteCoupon = async (coupon: DashboardCoupon) => {
     if (!window.confirm(`Delete coupon "${coupon.code}"? This cannot be undone.`)) return
-    await supabase.from('coupons').delete().eq('id', coupon.id)
+    await neonApi.delete(`/coupons/id/${coupon.id}`)
     await loadCoupons()
   }
 
   const toggleCoupon = async (coupon: DashboardCoupon) => {
-    await supabase.from('coupons').update({ is_active: !coupon.is_active }).eq('id', coupon.id)
+    await neonApi.put(`/coupons/id/${coupon.id}`, { is_active: !coupon.is_active })
     await loadCoupons()
   }
 
@@ -1132,16 +1148,20 @@ export default function Dashboard() {
   useEffect(() => {
     if (!isAdmin) return
     void loadData()
-    if (!isSupabaseConfigured) return
+
+    // Products/coupons now live in Neon, which has no Realtime service —
+    // poll for changes made from elsewhere (e.g. a POS sale in another tab).
+    // Every mutation this page makes itself already calls loadData() directly.
+    const pollId = window.setInterval(() => debouncedLoadRef.current?.(), 30000)
+
+    if (!isSupabaseConfigured) return () => window.clearInterval(pollId)
     const handleChange = () => debouncedLoadRef.current?.()
     const ch = supabase.channel('dashboard-live')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, handleChange)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, handleChange)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, handleChange)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, handleChange)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'coupons' }, handleChange)
       .subscribe()
-    return () => { void supabase.removeChannel(ch) }
+    return () => { window.clearInterval(pollId); void supabase.removeChannel(ch) }
   }, [isAdmin, loadData])
 
   useEffect(() => {
@@ -1219,63 +1239,20 @@ export default function Dashboard() {
       const custInput = search.customerName.trim()
       const hasQuery = Boolean(qText || invInput || phoneInput || custInput)
 
-      let q = supabase.from('orders')
-        .select('id, invoice_no, customer_name, phone, address, created_at, total, status, order_mode, order_type, items, coupon_code, discount_amount, manual_discount_amount, delivery_charge, total_gst, gst_amount, payment_mode, payment_method, remarks, reference_number')
-        .neq('order_type', 'online_request')
-        .order('created_at', { ascending: false })
-        .limit(hasQuery ? 1000 : 500)
-
-      if (qText) {
-        const digitsOnly = qText.replace(/\D/g, '')
-        const nonZeroDigits = digitsOnly.replace(/^0+/, '')
-        const conds = [
-          `invoice_no.ilike.%${qText}%`,
-          `customer_name.ilike.%${qText}%`,
-          `phone.ilike.%${qText}%`
-        ]
-        if (digitsOnly && digitsOnly !== qText) {
-          conds.push(`invoice_no.ilike.%${digitsOnly}%`)
-          if (digitsOnly.length >= 4) conds.push(`phone.ilike.%${digitsOnly}%`)
-        }
-        if (nonZeroDigits && nonZeroDigits !== digitsOnly && nonZeroDigits !== qText) {
-          conds.push(`invoice_no.ilike.%${nonZeroDigits}%`)
-        }
-        q = q.or(conds.join(','))
-      }
-
-      if (invInput) {
-        const digitsOnly = invInput.replace(/\D/g, '')
-        const nonZeroDigits = digitsOnly.replace(/^0+/, '')
-        const conds = [`invoice_no.ilike.%${invInput}%`]
-        if (digitsOnly && digitsOnly !== invInput) conds.push(`invoice_no.ilike.%${digitsOnly}%`)
-        if (nonZeroDigits && nonZeroDigits !== digitsOnly && nonZeroDigits !== invInput) conds.push(`invoice_no.ilike.%${nonZeroDigits}%`)
-        q = q.or(conds.join(','))
-      }
-
-      if (phoneInput) {
-        const digitsOnly = phoneInput.replace(/\D/g, '')
-        if (digitsOnly && digitsOnly.length >= 4) {
-          q = q.or(`phone.ilike.%${phoneInput}%,phone.ilike.%${digitsOnly}%`)
-        } else {
-          q = q.ilike('phone', `%${phoneInput}%`)
-        }
-      }
-
-      if (custInput) {
-        q = q.ilike('customer_name', `%${custInput}%`)
-      }
-
+      const qs = new URLSearchParams({ exclude_online_request: 'true' })
+      if (qText) qs.set('q', qText)
+      if (invInput) qs.set('invoice', invInput)
+      if (phoneInput) qs.set('phone', phoneInput)
+      if (custInput) qs.set('customer', custInput)
       // Apply date filters only if no specific text query is active or if custom date range was selected
       if (!hasQuery || datePreset === 'custom') {
-        if (search.dateFrom) q = q.gte('created_at', `${search.dateFrom}T00:00:00`)
-        if (search.dateTo)   q = q.lte('created_at', `${search.dateTo}T23:59:59`)
+        if (search.dateFrom) qs.set('date_from', search.dateFrom)
+        if (search.dateTo) qs.set('date_to', search.dateTo)
       }
+      if (billTypeFilter !== 'all') qs.set('bill_type', billTypeFilter)
+      qs.set('limit', hasQuery ? '1000' : '500')
 
-      if (billTypeFilter === 'manual')       q = q.eq('order_type', 'manual_sale')
-      else if (billTypeFilter === 'offline') q = q.eq('order_type', 'pos_sale').eq('order_mode', 'offline')
-      else if (billTypeFilter === 'online')  q = q.eq('order_type', 'pos_sale').eq('order_mode', 'online')
-
-      const { data, error } = await q
+      const { data, error } = await neonApi.get<unknown[]>(`/orders?${qs.toString()}`)
       if (error) throw error
 
       let results = (data || []).map(r => toDashboardOrder(r as Record<string, unknown>))
@@ -1388,8 +1365,8 @@ export default function Dashboard() {
       }
 
       const { error } = editingProd
-        ? await supabase.from('products').update(payload).eq('id', editingProd.id)
-        : await supabase.from('products').insert(payload)
+        ? await neonApi.put(`/products/${editingProd.id}`, payload)
+        : await neonApi.post('/products', payload)
       if (error) throw error
       setProductNotice(editingProd ? 'Product updated!' : 'Product added!')
       setEditingProd(null); setProdForm(emptyForm)
@@ -1424,7 +1401,7 @@ export default function Dashboard() {
   }
 
   const handleToggleActive = async (p: Product) => {
-    const { error } = await supabase.from('products').update({ is_active: !p.isActive }).eq('id', p.id)
+    const { error } = await neonApi.put(`/products/${p.id}`, { is_active: !p.isActive })
     if (error) { setProductNotice(error.message); return }
     setProductNotice(`Product ${p.isActive ? 'deactivated' : 'activated'}`)
     await loadData()
@@ -1432,7 +1409,7 @@ export default function Dashboard() {
 
   const handleDeleteProd = async (id: string | number) => {
     if (!window.confirm('Permanently deactivate this product?')) return
-    const { error } = await supabase.from('products').update({ is_active: false }).eq('id', id)
+    const { error } = await neonApi.put(`/products/${id}`, { is_active: false })
     if (error) { setProductNotice(error.message); return }
     setProductNotice('Product deactivated'); await loadData()
   }
@@ -1472,7 +1449,7 @@ export default function Dashboard() {
         setVariantNotice('Variant added!')
         // Ensure product has_variants = true
         if (!editingProd.hasVariants) {
-          await supabase.from('products').update({ has_variants: true }).eq('id', editingProd.id)
+          await neonApi.put(`/products/${editingProd.id}`, { has_variants: true })
         }
       }
       setVariantForm({ name: '', sizeLabel: '', price: '', purchasePrice: '', mrp: '', sku: '', barcode: '', stock: '50', weightValue: '', weightUnit: '', isDefault: false })
@@ -1520,8 +1497,8 @@ export default function Dashboard() {
     if (!newCat.name_en.trim()) return
     const payload = { ...newCat, name_en: newCat.name_en.trim() }
     const { error } = editingCategoryId === null
-      ? await supabase.from('categories').insert({ ...payload, is_active: true })
-      : await supabase.from('categories').update(payload).eq('id', editingCategoryId)
+      ? await neonApi.post('/categories', { ...payload, is_active: true })
+      : await neonApi.put(`/categories/${editingCategoryId}`, payload)
     if (error) {
       setCategoryNotice({ type: 'error', text: error.message || 'Could not add category.' })
       return
@@ -1535,23 +1512,22 @@ export default function Dashboard() {
 
   const deleteCat = async (c: Category) => {
     if (!window.confirm(`Delete "${c.name_en}"? This cannot be undone.`)) return
-    const { error: linkedProductsError } = await supabase
-      .from('products')
-      .update({ category: 'Uncategorized', category_id: null })
-      .eq('category_id', c.id)
-    if (linkedProductsError) {
-      setCategoryNotice({ type: 'error', text: linkedProductsError.message || 'Could not unlink products from category.' })
-      return
+    // Unlink any products still pointing at this category (by id, or by the
+    // legacy free-text category name) before deleting it — products.category_id
+    // has no ON DELETE behavior that does this for us.
+    const linkedProducts = products.filter(
+      (p) => p.categoryId === c.id || p.category === c.name_en,
+    )
+    for (const p of linkedProducts) {
+      const { error: linkedProductsError } = await neonApi.put(`/products/${p.id}`, {
+        category: 'Uncategorized', category_id: null,
+      })
+      if (linkedProductsError) {
+        setCategoryNotice({ type: 'error', text: linkedProductsError.message || 'Could not unlink products from category.' })
+        return
+      }
     }
-    const { error: legacyProductsError } = await supabase
-      .from('products')
-      .update({ category: 'Uncategorized', category_id: null })
-      .eq('category', c.name_en)
-    if (legacyProductsError) {
-      setCategoryNotice({ type: 'error', text: legacyProductsError.message || 'Could not sync products.' })
-      return
-    }
-    const { error } = await supabase.from('categories').delete().eq('id', c.id)
+    const { error } = await neonApi.delete(`/categories/${c.id}`)
     if (error) {
       setCategoryNotice({ type: 'error', text: error.message || 'Could not delete category.' })
       return
@@ -1566,7 +1542,7 @@ export default function Dashboard() {
   const toggleCat = async (c: Category) => {
     // Optimistic update
     setCats(prev => prev.map(cat => cat.id === c.id ? { ...cat, is_active: !c.is_active } : cat))
-    const { error } = await supabase.from('categories').update({ is_active: !c.is_active }).eq('id', c.id)
+    const { error } = await neonApi.put(`/categories/${c.id}`, { is_active: !c.is_active })
     if (error) {
       setCategoryNotice({ type: 'error', text: 'Failed to update category status.' })
       // Revert on error
@@ -1589,8 +1565,8 @@ export default function Dashboard() {
       setCats(normalizedCats.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)))
       
       await Promise.all([
-        supabase.from('categories').update({ sort_order: currentNormalized.sort_order }).eq('id', c.id),
-        supabase.from('categories').update({ sort_order: prevNormalized.sort_order }).eq('id', prevCat.id)
+        neonApi.put(`/categories/${c.id}`, { sort_order: currentNormalized.sort_order }),
+        neonApi.put(`/categories/${prevCat.id}`, { sort_order: prevNormalized.sort_order }),
       ])
     } else if (dir === 'down' && currentIndex < cats.length - 1) {
       const nextCat = cats[currentIndex + 1]
@@ -1605,8 +1581,8 @@ export default function Dashboard() {
       setCats(normalizedCats.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)))
       
       await Promise.all([
-        supabase.from('categories').update({ sort_order: currentNormalized.sort_order }).eq('id', c.id),
-        supabase.from('categories').update({ sort_order: nextNormalized.sort_order }).eq('id', nextCat.id)
+        neonApi.put(`/categories/${c.id}`, { sort_order: currentNormalized.sort_order }),
+        neonApi.put(`/categories/${nextCat.id}`, { sort_order: nextNormalized.sort_order }),
       ])
     }
   }
@@ -1651,6 +1627,7 @@ export default function Dashboard() {
         { id: 'history',        icon: <List size={18} />,         label: 'Order History' },
         { id: 'pos_analytics',  icon: <BarChart2 size={18} />,    label: 'Analytics Dashboard' },
         { id: 'coupons',        icon: <Box size={18} />,          label: 'Coupons' },
+        { id: 'settings',       icon: <SettingsIcon size={18} />, label: 'Settings' },
       ]
 
   return (
@@ -1658,7 +1635,7 @@ export default function Dashboard() {
       {/* Sidebar */}
       <aside
         className={[
-          'w-full bg-[#0A0A0A] text-white border-b lg:border-b-0 lg:border-r border-[#D4AF37]/20 flex flex-col shrink-0 h-auto lg:h-full lg:max-h-screen',
+          'w-full bg-brand-black text-white border-b lg:border-b-0 lg:border-r border-[#7daa8f]/20 flex flex-col shrink-0 h-auto lg:h-full lg:max-h-screen',
           'transition-[width] duration-300 ease-in-out overflow-hidden',
           sidebarCollapsed ? 'lg:w-[76px]' : 'lg:w-[240px] xl:w-[250px]',
         ].join(' ')}
@@ -1666,13 +1643,13 @@ export default function Dashboard() {
         {/* Desktop brand header */}
         <div className={`hidden lg:flex items-center relative transition-all duration-300 shrink-0 ${sidebarCollapsed ? 'flex-col items-center pt-4 pb-3 px-2 gap-2' : 'px-4 py-3.5 justify-between border-b border-white/5'}`}>
           <Link to="/pos" title="Go to Billing Panel" className={`flex items-center gap-2.5 min-w-0 transition-all duration-300 ${sidebarCollapsed ? 'justify-center' : 'flex-1'}`}>
-            <div className="flex items-center justify-center shrink-0 w-9 h-9 rounded-xl bg-[#141414] border border-[#D4AF37]/50 shadow-sm hover:scale-105 transition-transform p-0.5 overflow-hidden">
-              <img src={BRAND_ICON} alt={BRAND_EN} className="w-full h-full object-contain" />
+            <div className="flex items-center justify-center shrink-0 w-9 h-9 rounded-xl bg-[#223126] border border-[#7daa8f]/50 shadow-sm hover:scale-105 transition-transform p-0.5 overflow-hidden">
+              <img src={logoUrl} alt={BRAND_EN} className="w-full h-full object-contain" />
             </div>
             {!sidebarCollapsed && (
               <div className="flex flex-col min-w-0">
                 <h1 className="text-[15px] font-black text-white break-words tracking-wider">{BRAND_EN}</h1>
-                <span className={`text-[8.5px] font-black uppercase tracking-widest px-1.5 py-0.2 rounded w-fit ${role === 'admin' ? 'bg-[#D4AF37]/20 text-[#D4AF37] border border-[#D4AF37]/40' : 'bg-gray-800 text-gray-300 border border-gray-700'}`}>
+                <span className={`text-[8.5px] font-black uppercase tracking-widest px-1.5 py-0.2 rounded w-fit ${role === 'admin' ? 'bg-[#7daa8f]/20 text-[#7daa8f] border border-[#7daa8f]/40' : 'bg-gray-800 text-gray-300 border border-gray-700'}`}>
                   {role === 'admin' ? 'ADMIN' : 'STAFF'}
                 </span>
               </div>
@@ -1689,16 +1666,16 @@ export default function Dashboard() {
           </button>
         </div>
         {/* Mobile mini-header */}
-        <div className="flex lg:hidden items-center justify-between px-3 py-2 border-b border-white/10 bg-[#0A0A0A] shrink-0 gap-2">
+        <div className="flex lg:hidden items-center justify-between px-3 py-2 border-b border-white/10 bg-brand-black shrink-0 gap-2">
           <Link to="/pos" title="Go to Billing Panel" className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#141414] border border-[#D4AF37]/50 shrink-0 shadow-sm hover:scale-105 transition-transform p-0.5 overflow-hidden">
-              <img src={BRAND_ICON} alt={BRAND_EN} className="w-full h-full object-contain" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#223126] border border-[#7daa8f]/50 shrink-0 shadow-sm hover:scale-105 transition-transform p-0.5 overflow-hidden">
+              <img src={logoUrl} alt={BRAND_EN} className="w-full h-full object-contain" />
             </div>
             <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
               <span className="text-[13px] sm:text-[14px] font-black text-white tracking-wide truncate min-w-0">
                 {BRAND_EN}
               </span>
-              <span className={`shrink-0 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded whitespace-nowrap ${role === 'admin' ? 'bg-[#D4AF37]/20 text-[#D4AF37] border border-[#D4AF37]/40' : 'bg-gray-800 text-gray-300 border border-gray-700'}`}>
+              <span className={`shrink-0 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded whitespace-nowrap ${role === 'admin' ? 'bg-[#7daa8f]/20 text-[#7daa8f] border border-[#7daa8f]/40' : 'bg-gray-800 text-gray-300 border border-gray-700'}`}>
                 {role === 'admin' ? 'ADMIN' : 'STAFF'}
               </span>
             </div>
@@ -1731,7 +1708,7 @@ export default function Dashboard() {
                 sidebarCollapsed ? 'lg:w-[42px] lg:justify-center mx-auto' : 'lg:px-3',
                 'px-1 py-1 lg:py-0',
                 'rounded-xl font-medium text-[10px] lg:text-[12.5px] xl:text-[13px] transition-all overflow-hidden cursor-pointer',
-                tab === item.id ? 'bg-[#D4AF37] text-[#0A0A0A] font-black shadow-md' : 'text-white/70 hover:bg-white/10 hover:text-[#D4AF37]',
+                tab === item.id ? 'bg-[#7daa8f] text-brand-black font-black shadow-md' : 'text-brand-onDark hover:bg-white/10',
               ].join(' ')}
             >
               <span className="shrink-0 flex items-center">
@@ -1756,7 +1733,7 @@ export default function Dashboard() {
               'gap-2.5',
               'w-full h-[38px] xl:h-[40px]',
               sidebarCollapsed ? 'lg:w-[42px] lg:justify-center mx-auto' : 'lg:px-3',
-              'rounded-xl font-medium text-[12.5px] xl:text-[13px] transition-all text-white/70 hover:bg-rose-500/20 hover:text-rose-400 overflow-hidden cursor-pointer',
+              'rounded-xl font-medium text-[12.5px] xl:text-[13px] transition-all text-brand-onDark hover:bg-rose-500/20 hover:text-rose-400 overflow-hidden cursor-pointer',
             ].join(' ')}
           >
             <span className="shrink-0"><Power size={17} /></span>
@@ -1777,7 +1754,7 @@ export default function Dashboard() {
         {tab === 'overview' && (() => {
           const latestPOS = searchResults.slice(0, 10)
           return (
-          <div className="space-y-6 rounded-[28px] bg-[#0A0A0A] p-5 sm:p-6 lg:p-7 shadow-2xl border border-white/10 text-white">
+          <div className="space-y-6 rounded-[28px] bg-brand-black p-5 sm:p-6 lg:p-7 shadow-2xl border border-white/10 text-white">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-xl font-black text-[#111111]">{l('Analytics Dashboard', 'பகுப்பாய்வு தட்டு')}</h2>
               <div className="flex items-center gap-2">
@@ -1933,13 +1910,13 @@ export default function Dashboard() {
                 <div className="bg-white rounded-2xl border border-[#E5E7EB]/30 p-5 shadow-sm">
                   <h3 className="text-base font-black text-[#111111] mb-4">Low Stock Alerts</h3>
                   <div className="space-y-3">
-                    {products.filter(p => p.stock <= (p.lowStockAlert || 5)).slice(0, 10).map((p, i) => (
+                    {products.filter(p => p.itemType !== 'service' && p.stock <= (p.lowStockAlert || 5)).slice(0, 10).map((p, i) => (
                       <div key={i} className="flex justify-between items-center bg-red-50 border border-red-100 p-3 rounded-xl">
                         <p className="text-[13px] font-bold text-red-900">{p.name}</p>
                         <p className="text-[14px] font-black text-red-700">{p.stock} left</p>
                       </div>
                     ))}
-                    {products.filter(p => p.stock <= (p.lowStockAlert || 5)).length === 0 && (
+                    {products.filter(p => p.itemType !== 'service' && p.stock <= (p.lowStockAlert || 5)).length === 0 && (
                       <p className="text-[13px] text-[#374151]">No low stock alerts.</p>
                     )}
                   </div>
@@ -2164,6 +2141,9 @@ export default function Dashboard() {
                                       {Boolean(order.remarks) && (
                                         <div className="w-full mt-1 border-t border-blue-50 pt-2"><span className="font-black text-[#374151]">Remarks: </span><span className="font-bold text-[#111111]">{order.remarks}</span></div>
                                       )}
+                                      {Boolean(order.tailor_name) && (
+                                        <div className="w-full border-t border-blue-50 pt-2"><span className="font-black text-[#374151]">Tailor Name: </span><span className="font-bold text-[#111111]">{order.tailor_name}</span></div>
+                                      )}
                                       {Boolean(order.reference_number) && (
                                         <div className="w-full mt-1 border-t border-blue-50 pt-2"><span className="font-black text-[#374151]">Ref Number: </span><span className="font-bold text-[#111111]">{order.reference_number}</span></div>
                                       )}
@@ -2337,10 +2317,10 @@ export default function Dashboard() {
                       dateTo: analyticsDateTo,
                     })
                   }}
-                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white border border-[#E8D399] text-[#0A0A0A] font-bold text-xs hover:bg-[#FBFAF6] shadow-xs transition-all cursor-pointer hover:scale-[1.02]"
+                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white border border-[#ead7b7] text-brand-black font-bold text-xs hover:bg-[#FBFAF6] shadow-xs transition-all cursor-pointer hover:scale-[1.02]"
                   title="Export current analytics view to CSV"
                 >
-                  <Download size={14} className="text-[#B48811]" />
+                  <Download size={14} className="text-[#5f6d59]" />
                   <span>Export CSV</span>
                 </button>
 
@@ -2363,13 +2343,13 @@ export default function Dashboard() {
                       setExportingPdf(false)
                     }
                   }}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0A0A0A] border border-[#D4AF37] text-[#D4AF37] font-black text-xs hover:bg-[#1A1A1A] shadow-md transition-all cursor-pointer hover:scale-[1.02] disabled:opacity-60"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark font-black text-xs hover:bg-[#1e2817] shadow-md transition-all cursor-pointer hover:scale-[1.02] disabled:opacity-60"
                   title="Export formatted executive PDF with chart diagrams"
                 >
                   {exportingPdf ? (
-                    <RefreshCw size={14} className="animate-spin text-[#D4AF37]" />
+                    <RefreshCw size={14} className="animate-spin text-brand-onDark" />
                   ) : (
-                    <FileText size={14} className="text-[#D4AF37]" />
+                    <FileText size={14} className="text-brand-onDark" />
                   )}
                   <span>{exportingPdf ? 'Generating PDF...' : 'Export PDF (Charts)'}</span>
                 </button>
@@ -2393,11 +2373,11 @@ export default function Dashboard() {
                       onClick={() => setPosAnalyticsTab(id as PosAnalyticsTab)}
                       className={`inline-flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-[13px] font-black tracking-wide transition-all whitespace-nowrap cursor-pointer shrink-0 ${
                         isActive
-                          ? 'bg-white text-[#B48811] shadow-sm'
+                          ? 'bg-white text-[#5f6d59] shadow-sm'
                           : 'text-[#6B7280] hover:text-[#111111] hover:bg-white/60'
                       }`}
                     >
-                      <span className={isActive ? 'text-[#B48811]' : 'text-gray-400'}>
+                      <span className={isActive ? 'text-[#5f6d59]' : 'text-gray-400'}>
                         {icon}
                       </span>
                       <span>{label}</span>
@@ -2413,7 +2393,7 @@ export default function Dashboard() {
                     <span className="text-[10px] font-bold uppercase text-[#6B7280] ml-1 mr-1">Period:</span>
                     {(['all', 'today', 'week', 'month', 'year'] as const).map(preset => (
                       <button key={preset} type="button" onClick={() => applyAnalyticsPreset(preset)}
-                        className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase transition-all ${analyticsDatePreset === preset ? 'bg-[#0A0A0A] text-white shadow-sm' : 'text-[#6B7280] hover:text-[#111111]'}`}>
+                        className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase transition-all ${analyticsDatePreset === preset ? 'bg-brand-black text-white shadow-sm' : 'text-[#6B7280] hover:text-[#111111]'}`}>
                         {preset === 'all' ? 'All Time' : preset === 'today' ? 'Today' : preset === 'week' ? 'This Week' : preset === 'month' ? 'This Month' : 'This Year'}
                       </button>
                     ))}
@@ -2447,13 +2427,29 @@ export default function Dashboard() {
                     },
                     {
                       label: analytics.isProfitable ? 'Net Profit' : 'Net Loss',
-                      helper: `Revenue (${formatCurrency(analytics.totalCompletedRevenue)}) − Expenses (${formatCurrency(analytics.totalExpenses)})`,
+                      helper: `Revenue (${formatCurrency(analytics.totalCompletedRevenue)}) − COGS (${formatCurrency(analytics.cogs)}) − Expenses (${formatCurrency(analytics.totalExpenses)})`,
                       value: formatCurrency(Math.abs(analytics.netProfit)),
                       icon: analytics.isProfitable ? <TrendingUp size={16} /> : <TrendingDown size={16} />,
                       color: analytics.isProfitable ? 'text-emerald-600' : 'text-rose-600',
                       bg: analytics.isProfitable ? 'bg-emerald-50' : 'bg-rose-50',
                       valueColor: analytics.isProfitable ? 'text-emerald-600' : 'text-rose-600',
                       arrow: analytics.isProfitable ? '↑' : '↓',
+                    },
+                    {
+                      label: 'Product Revenue',
+                      helper: 'POS retail sales',
+                      value: formatCurrency(analytics.productRevenue),
+                      icon: <Package size={16} />,
+                      color: 'text-emerald-500',
+                      bg: 'bg-emerald-50',
+                    },
+                    {
+                      label: 'Service Revenue',
+                      helper: 'Tailoring / advance orders',
+                      value: formatCurrency(analytics.serviceRevenue),
+                      icon: <Tag size={16} />,
+                      color: 'text-cyan-500',
+                      bg: 'bg-cyan-50',
                     },
                     {
                       label: 'Total Expenses',
@@ -2464,20 +2460,28 @@ export default function Dashboard() {
                       bg: 'bg-amber-50',
                     },
                     {
-                      label: 'Completed Bills',
-                      helper: 'POS + manual bills',
-                      value: String(analytics.completedOrders),
-                      icon: <Trophy size={16} />,
-                      color: 'text-emerald-500',
-                      bg: 'bg-emerald-50',
+                      label: 'Cash Revenue',
+                      helper: 'Paid in cash',
+                      value: formatCurrency(analytics.cashRevenue),
+                      icon: <Banknote size={16} />,
+                      color: 'text-green-600',
+                      bg: 'bg-green-50',
                     },
                     {
-                      label: 'Offline Revenue',
-                      helper: 'Walk-in POS sales',
-                      value: formatCurrency(analytics.posRevenue),
-                      icon: <RMIcon size={16} />,
-                      color: 'text-cyan-500',
-                      bg: 'bg-cyan-50',
+                      label: 'QR Revenue',
+                      helper: 'Paid via QR / UPI',
+                      value: formatCurrency(analytics.qrRevenue),
+                      icon: <QrCode size={16} />,
+                      color: 'text-indigo-600',
+                      bg: 'bg-indigo-50',
+                    },
+                    {
+                      label: 'Card Revenue',
+                      helper: 'Paid by card',
+                      value: formatCurrency(analytics.cardRevenue),
+                      icon: <CreditCard size={16} />,
+                      color: 'text-blue-600',
+                      bg: 'bg-blue-50',
                     },
                     {
                       label: 'Total Offline Bills',
@@ -2546,7 +2550,7 @@ export default function Dashboard() {
                   <div className="xl:col-span-2 bg-white rounded-card border border-borderLight p-6 shadow-soft">
                     <div className="flex items-center justify-between gap-4 mb-4">
                       <h3 className="text-[16px] font-bold text-[#111111]">Revenue Trend {analytics.chartYear}</h3>
-                      <span className="text-[12px] font-bold text-[#0A0A0A] bg-red-50 px-2.5 py-1 rounded-md">Avg {formatCurrency(analytics.monthlyRevenue || 0)}/mo</span>
+                      <span className="text-[12px] font-bold text-brand-black bg-red-50 px-2.5 py-1 rounded-md">Avg {formatCurrency(analytics.monthlyRevenue || 0)}/mo</span>
                     </div>
                     <div className="h-[192px] w-full min-w-0 relative">
                       <ResponsiveContainer width="100%" height={192} minWidth={0} minHeight={0}>
@@ -2555,7 +2559,7 @@ export default function Dashboard() {
                           <XAxis dataKey="month" tick={{ fill: '#6B7280', fontSize: 9, fontWeight: 700 }} axisLine={false} tickLine={false} interval={0} angle={-45} textAnchor="end" height={60} />
                           <YAxis hide />
                           <Tooltip cursor={{ fill: '#F9FAFB' }} formatter={(value) => formatCurrency(toNumber(value as number | string, 0))} />
-                          <Bar dataKey="revenue" fill="#D4AF37" radius={[4, 4, 0, 0]} barSize={12} />
+                          <Bar dataKey="revenue" fill="#7daa8f" radius={[4, 4, 0, 0]} barSize={12} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -2566,11 +2570,11 @@ export default function Dashboard() {
                       <div className="space-y-4">
                         <div>
                           <div className="flex justify-between text-[12px] font-bold mb-2">
-                            <span className="text-[#0A0A0A] uppercase">Offline</span>
+                            <span className="text-brand-black uppercase">Offline</span>
                             <span className="text-[#111111]">{analytics.completedOrders}</span>
                           </div>
                           <div className="w-full bg-[#F3F4F6] rounded-full h-2.5">
-                            <div className="bg-[#0A0A0A] h-2.5 rounded-full" style={{ width: '100%' }}></div>
+                            <div className="bg-brand-black h-2.5 rounded-full" style={{ width: '100%' }}></div>
                           </div>
                         </div>
                         <div>
@@ -2595,7 +2599,7 @@ export default function Dashboard() {
                               <span className="font-bold text-[#111111] truncate max-w-[120px]">{p.name}</span>
                             </div>
                             <div className="flex items-center gap-4">
-                              <span className="font-bold text-[#0A0A0A]">{formatCurrency(p.revenue)}</span>
+                              <span className="font-bold text-brand-black">{formatCurrency(p.revenue)}</span>
                               <span className="text-[#6B7280] text-[11px] w-8 text-right">{Math.round(p.qty)} pcs</span>
                             </div>
                           </div>
@@ -2613,10 +2617,10 @@ export default function Dashboard() {
                         <p className="mt-1 text-[12px] text-[#6B7280]">Monday to Sunday sales view for the current week.</p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="rounded-full bg-[#F9FAFB] px-3 py-1 text-[11px] font-bold text-[#D4AF37]">
+                        <span className="rounded-full bg-[#F9FAFB] px-3 py-1 text-[11px] font-bold text-[#7daa8f]">
                           Week {(() => { const now = new Date(); const start = new Date(now.getFullYear(), 0, 1); const diff = Math.floor((now.getTime() - start.getTime()) / 86400000); return Math.ceil((diff + start.getDay() + 1) / 7) })()} of {new Date().getFullYear()}
                         </span>
-                        <span className="rounded-full bg-[#F9FAFB] px-3 py-1 text-[11px] font-bold text-[#D4AF37]">
+                        <span className="rounded-full bg-[#F9FAFB] px-3 py-1 text-[11px] font-bold text-[#7daa8f]">
                           Today: {formatCurrency(analytics.todaySales)}
                         </span>
                       </div>
@@ -2719,7 +2723,7 @@ export default function Dashboard() {
                       placeholder="Search by invoice number..."
                       value={todayBillsSearch}
                       onChange={e => setTodayBillsSearch(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-[#F9FAFB] border border-[#E5E7EB]/60 rounded-xl text-[13px] font-bold text-[#111111] placeholder:text-[#8A9384] focus:outline-none focus:border-[#D4AF37] transition-colors"
+                      className="w-full px-4 py-2.5 bg-[#F9FAFB] border border-[#E5E7EB]/60 rounded-xl text-[13px] font-bold text-[#111111] placeholder:text-[#8A9384] focus:outline-none focus:border-[#7daa8f] transition-colors"
                     />
                   </div>
                   {(() => {
@@ -2772,9 +2776,9 @@ export default function Dashboard() {
                 {/* Key metrics row: Revenue is 1st KPI card */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   {[
-                    { label: 'Total Product Revenue', value: formatCurrency(analytics.totalCompletedRevenue), icon: <RMIcon size={18} />, from: 'from-emerald-500 to-teal-600' },
+                    { label: 'Total Product Revenue', value: formatCurrency(analytics.productRevenue), icon: <RMIcon size={18} />, from: 'from-emerald-500 to-teal-600' },
                     { label: 'Total Products Sold', value: String(Math.round(analytics.totalProductsSold)), icon: <Package size={18} />, from: 'from-blue-500 to-indigo-600' },
-                    { label: 'Average Product Revenue', value: `${formatCurrency(analytics.averageProductRevenue)} / Product`, icon: <RMIcon size={18} />, from: 'from-violet-500 to-purple-600' },
+                    { label: 'Average Product Revenue', value: formatCurrency(analytics.averageProductRevenue), icon: <RMIcon size={18} />, from: 'from-violet-500 to-purple-600' },
                     { label: 'Top Product', value: analytics.bestProduct || 'No sales yet', icon: <Trophy size={18} />, from: 'from-amber-500 to-orange-600' },
                   ].map((card, i) => (
                     <div key={i} className={`relative overflow-hidden rounded-2xl p-5 shadow-lg border border-white/20 bg-gradient-to-br ${card.from} flex flex-col justify-between min-h-[120px]`}>
@@ -2805,7 +2809,7 @@ export default function Dashboard() {
                       placeholder="Search by Product Name, SKU, or Category..."
                       value={productAnalyticsSearch}
                       onChange={e => setProductAnalyticsSearch(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-[#F9FAFB] border border-[#E5E7EB]/60 rounded-xl text-[13px] font-bold text-[#111111] placeholder:text-[#8A9384] focus:outline-none focus:border-[#D4AF37] transition-colors"
+                      className="w-full px-4 py-2.5 bg-[#F9FAFB] border border-[#E5E7EB]/60 rounded-xl text-[13px] font-bold text-[#111111] placeholder:text-[#8A9384] focus:outline-none focus:border-[#7daa8f] transition-colors"
                     />
                   </div>
                   {(() => {
@@ -3158,7 +3162,7 @@ export default function Dashboard() {
                       <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                       <input
                         type="text"
-                        className="w-full h-11 pl-9 pr-8 rounded-xl bg-[#F9FAFB] border border-gray-200 text-xs sm:text-[13px] font-semibold text-[#111111] placeholder:text-gray-400 focus:outline-none focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37] transition-all"
+                        className="w-full h-11 pl-9 pr-8 rounded-xl bg-[#F9FAFB] border border-gray-200 text-xs sm:text-[13px] font-semibold text-[#111111] placeholder:text-gray-400 focus:outline-none focus:border-[#7daa8f] focus:ring-1 focus:ring-[#7daa8f] transition-all"
                         placeholder={l('Search by Invoice, Customer, Phone...', 'பில் எண், வாடிக்கையாளர், போன் எண்...')}
                         value={historyQuickSearch}
                         onChange={e => setHistoryQuickSearch(e.target.value)}
@@ -3179,7 +3183,7 @@ export default function Dashboard() {
                     <button
                       type="submit"
                       disabled={searchLoading}
-                      className="h-11 px-3.5 sm:px-4 rounded-xl bg-[#D4AF37] text-white text-xs font-bold shadow-sm flex items-center justify-center gap-1.5 shrink-0 hover:bg-[#b89528] disabled:opacity-50 transition-colors cursor-pointer"
+                      className="h-11 px-3.5 sm:px-4 rounded-xl bg-[#7daa8f] text-white text-xs font-bold shadow-sm flex items-center justify-center gap-1.5 shrink-0 hover:bg-[#5f6d59] disabled:opacity-50 transition-colors cursor-pointer"
                     >
                       {searchLoading ? (
                         <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -3197,7 +3201,7 @@ export default function Dashboard() {
                       <select
                         value={billTypeFilter}
                         onChange={e => setBillTypeFilter(e.target.value as typeof billTypeFilter)}
-                        className="w-full lg:w-32 h-11 appearance-none pl-2.5 pr-6 rounded-xl bg-[#F9FAFB] border border-gray-200 text-xs font-bold text-gray-800 focus:outline-none focus:border-[#D4AF37] cursor-pointer hover:bg-gray-100 transition-colors truncate"
+                        className="w-full lg:w-32 h-11 appearance-none pl-2.5 pr-6 rounded-xl bg-[#F9FAFB] border border-gray-200 text-xs font-bold text-gray-800 focus:outline-none focus:border-[#7daa8f] cursor-pointer hover:bg-gray-100 transition-colors truncate"
                       >
                         <option value="all">{l('All Bills', 'அனைத்து')}</option>
                         <option value="offline">{l('Offline', 'ஆஃப்லைன்')}</option>
@@ -3223,7 +3227,7 @@ export default function Dashboard() {
                             }
                           }
                         }}
-                        className="w-full lg:w-32 h-11 appearance-none pl-2.5 pr-6 rounded-xl bg-[#F9FAFB] border border-gray-200 text-xs font-bold text-gray-800 focus:outline-none focus:border-[#D4AF37] cursor-pointer hover:bg-gray-100 transition-colors truncate"
+                        className="w-full lg:w-32 h-11 appearance-none pl-2.5 pr-6 rounded-xl bg-[#F9FAFB] border border-gray-200 text-xs font-bold text-gray-800 focus:outline-none focus:border-[#7daa8f] cursor-pointer hover:bg-gray-100 transition-colors truncate"
                       >
                         <option value="">{l('All Dates', 'தேதி: அனைத்து')}</option>
                         <option value="today">{l('Today', 'இன்று')}</option>
@@ -3248,7 +3252,7 @@ export default function Dashboard() {
                       <SlidersHorizontal size={12} className="shrink-0" />
                       <span className="truncate">{l('Filters', 'வடிகட்டி')}</span>
                       {activeHistoryFiltersCount > 0 && (
-                        <span className="w-4 h-4 rounded-full bg-[#D4AF37] text-black text-[9px] font-black flex items-center justify-center shrink-0">
+                        <span className="w-4 h-4 rounded-full bg-[#7daa8f] text-black text-[9px] font-black flex items-center justify-center shrink-0">
                           {activeHistoryFiltersCount}
                         </span>
                       )}
@@ -3286,7 +3290,7 @@ export default function Dashboard() {
                             <label className="text-[10px] font-bold text-gray-500 uppercase block mb-0.5">From Date</label>
                             <input
                               type="date"
-                              className="w-full h-10 px-3 rounded-lg bg-white border border-gray-300 text-xs font-semibold text-gray-800 focus:outline-none focus:border-[#D4AF37]"
+                              className="w-full h-10 px-3 rounded-lg bg-white border border-gray-300 text-xs font-semibold text-gray-800 focus:outline-none focus:border-[#7daa8f]"
                               value={search.dateFrom}
                               onChange={e => setSearch(s => ({ ...s, dateFrom: e.target.value }))}
                             />
@@ -3295,7 +3299,7 @@ export default function Dashboard() {
                             <label className="text-[10px] font-bold text-gray-500 uppercase block mb-0.5">To Date</label>
                             <input
                               type="date"
-                              className="w-full h-10 px-3 rounded-lg bg-white border border-gray-300 text-xs font-semibold text-gray-800 focus:outline-none focus:border-[#D4AF37]"
+                              className="w-full h-10 px-3 rounded-lg bg-white border border-gray-300 text-xs font-semibold text-gray-800 focus:outline-none focus:border-[#7daa8f]"
                               value={search.dateTo}
                               onChange={e => setSearch(s => ({ ...s, dateTo: e.target.value }))}
                             />
@@ -3310,7 +3314,7 @@ export default function Dashboard() {
                         <label className="text-[10px] font-bold text-gray-500 uppercase block mb-0.5">{l('Invoice / Bill No', 'பில் எண்')}</label>
                         <input
                           type="text"
-                          className="w-full h-10 px-3 rounded-lg bg-[#F9FAFB] border border-gray-200 text-xs font-semibold text-gray-900 focus:outline-none focus:border-[#D4AF37]"
+                          className="w-full h-10 px-3 rounded-lg bg-[#F9FAFB] border border-gray-200 text-xs font-semibold text-gray-900 focus:outline-none focus:border-[#7daa8f]"
                           placeholder="e.g. INV000001"
                           value={search.invoiceNo}
                           onChange={e => setSearch(s => ({ ...s, invoiceNo: e.target.value }))}
@@ -3320,7 +3324,7 @@ export default function Dashboard() {
                         <label className="text-[10px] font-bold text-gray-500 uppercase block mb-0.5">{l('Customer Name', 'வாடிக்கையாளர் பெயர்')}</label>
                         <input
                           type="text"
-                          className="w-full h-10 px-3 rounded-lg bg-[#F9FAFB] border border-gray-200 text-xs font-semibold text-gray-900 focus:outline-none focus:border-[#D4AF37]"
+                          className="w-full h-10 px-3 rounded-lg bg-[#F9FAFB] border border-gray-200 text-xs font-semibold text-gray-900 focus:outline-none focus:border-[#7daa8f]"
                           placeholder="e.g. Priya"
                           value={search.customerName}
                           onChange={e => setSearch(s => ({ ...s, customerName: e.target.value }))}
@@ -3330,7 +3334,7 @@ export default function Dashboard() {
                         <label className="text-[10px] font-bold text-gray-500 uppercase block mb-0.5">{l('Mobile Number', 'மொபைல் எண்')}</label>
                         <input
                           type="text"
-                          className="w-full h-10 px-3 rounded-lg bg-[#F9FAFB] border border-gray-200 text-xs font-semibold text-gray-900 focus:outline-none focus:border-[#D4AF37]"
+                          className="w-full h-10 px-3 rounded-lg bg-[#F9FAFB] border border-gray-200 text-xs font-semibold text-gray-900 focus:outline-none focus:border-[#7daa8f]"
                           placeholder="e.g. 9876543210"
                           value={search.phone}
                           onChange={e => setSearch(s => ({ ...s, phone: e.target.value }))}
@@ -3373,7 +3377,7 @@ export default function Dashboard() {
                   <button
                     type="button"
                     onClick={() => exportCSV(filteredSearchResults)}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold text-[#D4AF37] hover:text-[#b89528] transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-[#7daa8f] hover:text-[#5f6d59] transition-colors cursor-pointer"
                   >
                     <Download size={11} /> Export CSV
                   </button>
@@ -3429,6 +3433,12 @@ export default function Dashboard() {
                             <p className="font-semibold text-[#374151] break-words">{(o as unknown as Record<string,unknown>).remarks as string}</p>
                           </div>
                         )}
+                        {((o as unknown as Record<string,unknown>).tailor_name as string) && (
+                          <div className="col-span-2">
+                            <p className="text-[#9BAB9A] uppercase text-[11px] font-black">Tailor Name</p>
+                            <p className="font-semibold text-[#374151] break-words">{(o as unknown as Record<string,unknown>).tailor_name as string}</p>
+                          </div>
+                        )}
                       </div>
                       <div className="flex flex-col sm:flex-row gap-2 pt-1">
                         <div className="flex gap-2 w-full sm:flex-1">
@@ -3452,7 +3462,7 @@ export default function Dashboard() {
                           </span>
                         )}
                         {role === 'admin' && (
-                          <button onClick={() => void deleteOrder(o.id, o.invoice_no)} className="h-10 w-10 sm:h-11 sm:w-11 shrink-0 rounded-xl border border-[#E5E7EB]/60 text-[#D4AF37] transition-colors hover:bg-[#D4AF37]/5" title="Delete Order">
+                          <button onClick={() => void deleteOrder(o.id, o.invoice_no)} className="h-10 w-10 sm:h-11 sm:w-11 shrink-0 rounded-xl border border-[#E5E7EB]/60 text-[#7daa8f] transition-colors hover:bg-[#7daa8f]/5" title="Delete Order">
                             <Trash2 size={14} className="mx-auto" />
                           </button>
                         )}
@@ -3510,7 +3520,7 @@ export default function Dashboard() {
                                 </span>
                               )}
                               {role === 'admin' && (
-                                <button onClick={() => void deleteOrder(o.id, o.invoice_no)} className="rounded-lg p-1 text-[#D4AF37] transition-colors hover:bg-[#D4AF37]/5" title="Delete Order">
+                                <button onClick={() => void deleteOrder(o.id, o.invoice_no)} className="rounded-lg p-1 text-[#7daa8f] transition-colors hover:bg-[#7daa8f]/5" title="Delete Order">
                                   <Trash2 size={13} />
                                 </button>
                               )}
@@ -3551,6 +3561,10 @@ export default function Dashboard() {
                                 <div>
                                   <p className="text-[10px] font-black uppercase text-[#9BAB9A] tracking-wider mb-1">Remarks</p>
                                   <p className="font-semibold text-[#374151] break-words">{(o as unknown as Record<string,unknown>).remarks as string || '—'}</p>
+                                </div>
+                                <div>
+                                  <p className="text-[10px] font-black uppercase text-[#9BAB9A] tracking-wider mb-1">Tailor Name</p>
+                                  <p className="font-semibold text-[#374151] break-words">{(o as unknown as Record<string,unknown>).tailor_name as string || '—'}</p>
                                 </div>
                                 <div>
                                   <p className="text-[10px] font-black uppercase text-[#9BAB9A] tracking-wider mb-1">Customer</p>
@@ -3603,8 +3617,8 @@ export default function Dashboard() {
                           const baseQty = opt.value === 'weight' ? 100 : opt.value === 'volume' ? 250 : 1
                           setProdForm(f => ({ ...f, unitType: opt.value, unitLabel, baseQuantity: baseQty, predefinedOptionsText: defaults, allowDecimalQuantity: opt.value === 'weight' || opt.value === 'volume' }))
                         }}
-                        className={`p-3 rounded-xl text-left border-2 transition-colors ${prodForm.unitType === opt.value ? 'border-[#D4AF37] bg-[#0A0A0A]/5' : 'border-[#F3F4F6] hover:border-[#D1D5DB]'}`}>
-                        <p className={`text-[13px] font-black ${prodForm.unitType === opt.value ? 'text-[#0A0A0A]' : 'text-[#111111]'}`}>{opt.label}</p>
+                        className={`p-3 rounded-xl text-left border-2 transition-colors ${prodForm.unitType === opt.value ? 'border-[#7daa8f] bg-brand-black/5' : 'border-[#F3F4F6] hover:border-[#D1D5DB]'}`}>
+                        <p className={`text-[13px] font-black ${prodForm.unitType === opt.value ? 'text-brand-black' : 'text-[#111111]'}`}>{opt.label}</p>
                         <p className="text-[11px] text-[#6B7280] leading-tight mt-1">{opt.hint}</p>
                       </button>
                     ))}
@@ -3614,18 +3628,18 @@ export default function Dashboard() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
                     <label className="block text-[11px] font-black uppercase text-[#6B7280] tracking-wider mb-1">{l('Product Name', 'பொருள் பெயர்')} *</label>
-                    <input required className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#D4AF37] rounded-xl text-[13px] font-bold outline-none transition-colors"
+                    <input required className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#7daa8f] rounded-xl text-[13px] font-bold outline-none transition-colors"
                       placeholder="e.g. Manjal Podi" value={prodForm.name} onChange={e => setProdForm(f => ({...f, name: e.target.value}))} />
                   </div>
                   <div className="col-span-2">
                     <label className="block text-[11px] font-black uppercase text-[#6B7280] tracking-wider mb-1">{l('Tamil Name', 'தமிழ் பெயர்')}</label>
-                    <input className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#D4AF37] rounded-xl text-[13px] font-bold outline-none transition-colors"
+                    <input className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#7daa8f] rounded-xl text-[13px] font-bold outline-none transition-colors"
                       placeholder="எ.கா. மஞ்சள் பொடி" value={prodForm.nameTa} onChange={e => setProdForm(f => ({...f, nameTa: e.target.value}))} />
                   </div>
                   <div>
                     <label className="block text-[11px] font-black uppercase text-[#6B7280] tracking-wider mb-1">{l('Price (INR)', 'விலை (INR)')} *</label>
                     <input required type="number" min="0" step="0.01"
-                      className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#D4AF37] rounded-xl text-[13px] font-bold outline-none transition-colors"
+                      className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#7daa8f] rounded-xl text-[13px] font-bold outline-none transition-colors"
                       value={prodForm.price} onChange={e => setProdForm(f => ({...f, price: Number(e.target.value)}))} />
                     <p className="text-[11px] text-[#6B7280] mt-1">
                       {prodForm.unitType === 'weight' ? `Per ${prodForm.baseQuantity}g` : prodForm.unitType === 'volume' ? `Per ${prodForm.baseQuantity}ml` : 'Per piece/bundle'}
@@ -3634,42 +3648,42 @@ export default function Dashboard() {
                   <div>
                     <label className="block text-[11px] font-black uppercase text-[#6B7280] tracking-wider mb-1">{l('Purchase Price (INR)', 'வாங்கிய விலை')} *</label>
                     <input required type="number" min="0" step="0.01"
-                      className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#D4AF37] rounded-xl text-[13px] font-bold outline-none transition-colors"
+                      className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#7daa8f] rounded-xl text-[13px] font-bold outline-none transition-colors"
                       value={prodForm.purchasePrice} onChange={e => setProdForm(f => ({...f, purchasePrice: Number(e.target.value)}))} />
                   </div>
                   <div>
                     <label className="block text-[11px] font-black uppercase text-[#6B7280] tracking-wider mb-1">{l('MRP (INR)', 'MRP (INR)')}</label>
                     <input type="number" min="0" step="0.01"
-                      className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#D4AF37] rounded-xl text-[13px] font-bold outline-none transition-colors"
+                      className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#7daa8f] rounded-xl text-[13px] font-bold outline-none transition-colors"
                       placeholder="Maximum Retail Price"
                       value={prodForm.mrp} onChange={e => setProdForm(f => ({...f, mrp: e.target.value}))} />
                   </div>
                   <div>
                     <label className="block text-[11px] font-black uppercase text-[#6B7280] tracking-wider mb-1">{l('Offer Price (INR)', 'சலுகை விலை')}</label>
                     <input type="number" min="0" step="0.01"
-                      className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#D4AF37] rounded-xl text-[13px] font-bold outline-none transition-colors"
+                      className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#7daa8f] rounded-xl text-[13px] font-bold outline-none transition-colors"
                       placeholder="Leave blank for no discount"
                       value={prodForm.offerPrice} onChange={e => setProdForm(f => ({...f, offerPrice: e.target.value}))} />
                   </div>
                   <div>
                     <label className="block text-[11px] font-black uppercase text-[#6B7280] tracking-wider mb-1">{l('SKU', 'SKU')}</label>
-                    <input className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#D4AF37] rounded-xl text-[13px] font-bold outline-none transition-colors"
+                    <input className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#7daa8f] rounded-xl text-[13px] font-bold outline-none transition-colors"
                       placeholder="e.g. MP-100G" value={prodForm.sku} onChange={e => setProdForm(f => ({...f, sku: e.target.value}))} />
                   </div>
                   <div>
                     <label className="block text-[11px] font-black uppercase text-[#6B7280] tracking-wider mb-1">{l('Barcode', 'பார்கோடு')}</label>
-                    <input className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#D4AF37] rounded-xl text-[13px] font-bold outline-none transition-colors"
+                    <input className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#7daa8f] rounded-xl text-[13px] font-bold outline-none transition-colors"
                       placeholder="e.g. 8998765432100" value={prodForm.barcode} onChange={e => setProdForm(f => ({...f, barcode: e.target.value}))} />
                   </div>
                   <div>
                     <label className="block text-[11px] font-black uppercase text-[#6B7280] tracking-wider mb-1">{l('Stock', 'இருப்பு')} *</label>
                     <input required type="number" min="0"
-                      className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#D4AF37] rounded-xl text-[13px] font-bold outline-none transition-colors"
+                      className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#7daa8f] rounded-xl text-[13px] font-bold outline-none transition-colors"
                       value={prodForm.stockQuantity} onChange={e => setProdForm(f => ({...f, stockQuantity: Number(e.target.value)}))} />
                   </div>
                   <div className="col-span-2 sm:col-span-1">
                     <label className="block text-[11px] font-black uppercase text-[#6B7280] tracking-wider mb-1">{l('Category', 'வகை')} *</label>
-                    <select required className="w-full min-w-0 h-11 px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#D4AF37] rounded-xl text-[13px] font-bold outline-none transition-colors touch-manipulation"
+                    <select required className="w-full min-w-0 h-11 px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#7daa8f] rounded-xl text-[13px] font-bold outline-none transition-colors touch-manipulation"
                       value={prodForm.category}
                       onChange={e => {
                         const sel = cats.find(c => c.name_en === e.target.value)
@@ -3681,7 +3695,7 @@ export default function Dashboard() {
                     <button
                       type="button"
                       onClick={() => setCategoryManagerOpen(open => !open)}
-                      className="mt-2 text-[11px] font-black text-[#0A0A0A] hover:underline"
+                      className="mt-2 text-[11px] font-black text-brand-black hover:underline"
                     >
                       {categoryManagerOpen ? 'Hide categories' : 'Manage categories'}
                     </button>
@@ -3719,7 +3733,7 @@ export default function Dashboard() {
                     <label className="block text-[11px] font-black uppercase text-[#6B7280] tracking-wider mb-1">
                       {prodForm.unitType === 'weight' ? 'Alpha Size Options (S, M, L...)' : 'Numeric Size Options (28, 30, 32...)'}
                     </label>
-                    <input className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#D4AF37] rounded-xl text-[13px] font-bold outline-none transition-colors"
+                    <input className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#7daa8f] rounded-xl text-[13px] font-bold outline-none transition-colors"
                       placeholder={prodForm.unitType === 'weight' ? 'XS, S, M, L, XL, 2XL' : '28, 30, 32, 34, 36, 38'}
                       value={prodForm.predefinedOptionsText}
                       onChange={e => setProdForm(f => ({...f, predefinedOptionsText: e.target.value}))} />
@@ -3729,14 +3743,14 @@ export default function Dashboard() {
 
                 <div>
                   <label className="block text-[11px] font-black uppercase text-[#6B7280] tracking-wider mb-1">{l('Description', 'விளக்கம்')}</label>
-                  <textarea rows={2} className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#D4AF37] rounded-xl text-[13px] font-bold outline-none transition-colors resize-none"
+                  <textarea rows={2} className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#7daa8f] rounded-xl text-[13px] font-bold outline-none transition-colors resize-none"
                     placeholder="Short product description..." value={prodForm.description}
                     onChange={e => setProdForm(f => ({...f, description: e.target.value}))} />
                 </div>
 
                 <div>
                   <label className="block text-[11px] font-black uppercase text-[#6B7280] tracking-wider mb-1">{l('Benefits / Health Tags', 'நன்மைகள்')}</label>
-                  <input className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#D4AF37] rounded-xl text-[13px] font-bold outline-none transition-colors"
+                  <input className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#7daa8f] rounded-xl text-[13px] font-bold outline-none transition-colors"
                     placeholder="Immunity, Digestion (comma-separated)"
                     value={prodForm.benefits}
                     onChange={e => setProdForm(f => ({...f, benefits: e.target.value}))} />
@@ -3745,13 +3759,13 @@ export default function Dashboard() {
                 {/* Image */}
                 <div className="space-y-3">
                   <label className="block text-[11px] font-black uppercase text-[#6B7280] tracking-wider">{l('Product Image', 'படம்')}</label>
-                  <input className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#D4AF37] rounded-xl text-[13px] font-bold outline-none transition-colors"
+                  <input className="w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#F3F4F6] focus:border-[#7daa8f] rounded-xl text-[13px] font-bold outline-none transition-colors"
                     placeholder="https://... (image URL)"
                     value={prodForm.image} onChange={e => setProdForm(f => ({...f, image: e.target.value}))} />
                   <input type="file" accept="image/*"
                     className="w-full px-4 py-2 bg-[#FAFAFA] border border-[#F3F4F6] rounded-xl text-[12px] text-[#6B7280]"
                     onChange={e => void handleUploadImage(e.target.files?.[0])} />
-                  {imageUploading && <p className="text-[12px] text-[#0A0A0A] font-bold">{l('Uploading image...', 'படம் பதிவேற்றுகிறது...')}</p>}
+                  {imageUploading && <p className="text-[12px] text-brand-black font-bold">{l('Uploading image...', 'படம் பதிவேற்றுகிறது...')}</p>}
                   {prodForm.image && (
                     <div className="w-20 h-20 rounded-xl overflow-hidden bg-[#FAFAFA] border border-borderLight shadow-sm">
                       <img src={prodForm.image} alt="preview" className="w-full h-full object-cover" />
@@ -3762,7 +3776,7 @@ export default function Dashboard() {
                 <div className="flex items-center gap-3 pt-2">
                   <input type="checkbox" id="isActive" checked={prodForm.isActive}
                     onChange={e => setProdForm(f => ({...f, isActive: e.target.checked}))}
-                    className="w-4 h-4 text-[#0A0A0A] rounded focus:ring-maroon-dark accent-maroon-dark"
+                    className="w-4 h-4 text-brand-black rounded focus:ring-maroon-dark accent-maroon-dark"
                   />
                   <label htmlFor="isActive" className="text-[14px] font-bold text-[#111111]">{l('Active (visible in store)', 'கடையில் காட்டு')}</label>
                 </div>
@@ -3770,7 +3784,7 @@ export default function Dashboard() {
                   <input type="checkbox" id="hasVariants"
                     checked={!!prodForm.hasVariants}
                     onChange={e => setProdForm(f => ({...f, hasVariants: e.target.checked} as typeof f))}
-                    className="w-4 h-4 text-[#0A0A0A] rounded focus:ring-maroon-dark accent-maroon-dark"
+                    className="w-4 h-4 text-brand-black rounded focus:ring-maroon-dark accent-maroon-dark"
                   />
                   <label htmlFor="hasVariants" className="text-[14px] font-bold text-[#111111]">
                     {l('Has Variants (brands/sizes)', 'வகைகள் உள்ளன')}
@@ -3779,7 +3793,7 @@ export default function Dashboard() {
 
                 <div className="flex gap-3 pt-3 border-t border-borderLight">
                   <button type="submit" disabled={loading}
-                    className="flex-grow py-3 bg-[#0A0A0A] hover:bg-[#721528] text-white font-black rounded-xl disabled:opacity-60 transition-colors shadow-sm text-[13px]">
+                    className="flex-grow py-3 bg-brand-black hover:bg-[#721528] text-white font-black rounded-xl disabled:opacity-60 transition-colors shadow-sm text-[13px]">
                     {loading ? l('Saving...','சேமிக்கிறது...') : editingProd ? l('Update Product','புதுப்பி') : l('Add Product','சேர்க்கவும்')}
                   </button>
                   <button type="button" onClick={() => { setEditingProd(null); setProdForm(emptyForm); setProductNotice('') }}
@@ -3805,7 +3819,7 @@ export default function Dashboard() {
                         placeholder={l('Search items...', 'பொருட்களை தேட...')}
                         value={inventorySearch}
                         onChange={e => setInventorySearch(e.target.value)}
-                        className="pl-10 pr-4 py-2 rounded-xl border border-[#F3F4F6] text-[13px] bg-[#FAFAFA] focus:bg-white outline-none focus:border-[#D4AF37] w-[180px] lg:w-[240px] transition-colors shadow-sm"
+                        className="pl-10 pr-4 py-2 rounded-xl border border-[#F3F4F6] text-[13px] bg-[#FAFAFA] focus:bg-white outline-none focus:border-[#7daa8f] w-[180px] lg:w-[240px] transition-colors shadow-sm"
                       />
                     </div>
                   </div>
@@ -3854,7 +3868,7 @@ export default function Dashboard() {
                           <td className="px-4 py-4 font-bold text-[#111111]">{formatCurrency(p.price)}</td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end gap-2">
-                              <button onClick={() => handleEdit(p)} title="Edit product" className="p-2 text-[#6B7280] hover:text-[#0A0A0A] hover:bg-[#0A0A0A]/5 rounded-lg transition-colors shadow-sm bg-white border border-[#F3F4F6]">
+                              <button onClick={() => handleEdit(p)} title="Edit product" className="p-2 text-[#6B7280] hover:text-brand-black hover:bg-brand-black/5 rounded-lg transition-colors shadow-sm bg-white border border-[#F3F4F6]">
                                 <Edit2 size={16} />
                               </button>
                               <button onClick={() => void handleToggleActive(p)} title={p.isActive ? 'Deactivate' : 'Activate'} className={`p-2 rounded-lg transition-colors shadow-sm bg-white border border-[#F3F4F6] ${p.isActive ? 'text-amber-500 hover:bg-amber-50' : 'text-green-600 hover:bg-green-50'}`}>
@@ -3903,7 +3917,7 @@ export default function Dashboard() {
                       <div className="col-span-2">
                         <label className="block text-[11px] font-black uppercase tracking-wider text-[#6B7280] mb-1">{l('Variant Name *', 'வகை பெயர் *')}</label>
                         <input required
-                          className="w-full px-4 py-2.5 bg-white rounded-xl border border-[#D1D5DB] text-[13px] font-bold outline-none focus:border-[#D4AF37] transition-colors shadow-sm"
+                          className="w-full px-4 py-2.5 bg-white rounded-xl border border-[#D1D5DB] text-[13px] font-bold outline-none focus:border-[#7daa8f] transition-colors shadow-sm"
                           placeholder={l('e.g. Cycle Brand / 25g', 'e.g. Cycle Brand / 25g')}
                           value={variantForm.name}
                           onChange={e => setVariantForm(f => ({...f, name: e.target.value}))} />
@@ -3911,7 +3925,7 @@ export default function Dashboard() {
                       <div>
                         <label className="block text-[11px] font-black uppercase tracking-wider text-[#6B7280] mb-1">{l('Size Label', 'அளவு பட்டை')}</label>
                         <input
-                          className="w-full px-4 py-2.5 bg-white rounded-xl border border-[#D1D5DB] text-[13px] font-bold outline-none focus:border-[#D4AF37] transition-colors shadow-sm"
+                          className="w-full px-4 py-2.5 bg-white rounded-xl border border-[#D1D5DB] text-[13px] font-bold outline-none focus:border-[#7daa8f] transition-colors shadow-sm"
                           placeholder="25g / 250ml / 1 pack"
                           value={variantForm.sizeLabel}
                           onChange={e => setVariantForm(f => ({...f, sizeLabel: e.target.value}))} />
@@ -3919,7 +3933,7 @@ export default function Dashboard() {
                       <div>
                         <label className="block text-[11px] font-black uppercase tracking-wider text-[#6B7280] mb-1">{l('Purchase Price (INR)', 'வாங்கிய விலை')}</label>
                         <input type="number" min="0" step="0.01"
-                          className="w-full px-4 py-2.5 bg-white rounded-xl border border-[#D1D5DB] text-[13px] font-bold outline-none focus:border-[#D4AF37] transition-colors shadow-sm"
+                          className="w-full px-4 py-2.5 bg-white rounded-xl border border-[#D1D5DB] text-[13px] font-bold outline-none focus:border-[#7daa8f] transition-colors shadow-sm"
                           placeholder="30"
                           value={variantForm.purchasePrice}
                           onChange={e => setVariantForm(f => ({...f, purchasePrice: e.target.value}))} />
@@ -3927,7 +3941,7 @@ export default function Dashboard() {
                       <div>
                         <label className="block text-[11px] font-black uppercase tracking-wider text-[#6B7280] mb-1">{l('MRP (INR)', 'MRP (INR)')}</label>
                         <input type="number" min="0" step="0.01"
-                          className="w-full px-4 py-2.5 bg-white rounded-xl border border-[#D1D5DB] text-[13px] font-bold outline-none focus:border-[#D4AF37] transition-colors shadow-sm"
+                          className="w-full px-4 py-2.5 bg-white rounded-xl border border-[#D1D5DB] text-[13px] font-bold outline-none focus:border-[#7daa8f] transition-colors shadow-sm"
                           placeholder="50"
                           value={variantForm.mrp}
                           onChange={e => setVariantForm(f => ({...f, mrp: e.target.value}))} />
@@ -3935,21 +3949,21 @@ export default function Dashboard() {
                       <div>
                         <label className="block text-[11px] font-black uppercase tracking-wider text-[#6B7280] mb-1">{l('Selling Price (INR) *', 'விற்பனை விலை *')}</label>
                         <input required type="number" min="0" step="0.01"
-                          className="w-full px-4 py-2.5 bg-white rounded-xl border border-[#D1D5DB] text-[13px] font-bold outline-none focus:border-[#D4AF37] transition-colors shadow-sm"
+                          className="w-full px-4 py-2.5 bg-white rounded-xl border border-[#D1D5DB] text-[13px] font-bold outline-none focus:border-[#7daa8f] transition-colors shadow-sm"
                           placeholder="40"
                           value={variantForm.price}
                           onChange={e => setVariantForm(f => ({...f, price: e.target.value}))} />
                       </div>
                       <div>
                         <label className="block text-[11px] font-black uppercase tracking-wider text-[#6B7280] mb-1">{l('SKU', 'SKU')}</label>
-                        <input className="w-full px-4 py-2.5 bg-white rounded-xl border border-[#D1D5DB] text-[13px] font-bold outline-none focus:border-[#D4AF37] transition-colors shadow-sm"
+                        <input className="w-full px-4 py-2.5 bg-white rounded-xl border border-[#D1D5DB] text-[13px] font-bold outline-none focus:border-[#7daa8f] transition-colors shadow-sm"
                           placeholder="SKU-123"
                           value={variantForm.sku}
                           onChange={e => setVariantForm(f => ({...f, sku: e.target.value}))} />
                       </div>
                       <div>
                         <label className="block text-[11px] font-black uppercase tracking-wider text-[#6B7280] mb-1">{l('Barcode', 'பார்கோடு')}</label>
-                        <input className="w-full px-4 py-2.5 bg-white rounded-xl border border-[#D1D5DB] text-[13px] font-bold outline-none focus:border-[#D4AF37] transition-colors shadow-sm"
+                        <input className="w-full px-4 py-2.5 bg-white rounded-xl border border-[#D1D5DB] text-[13px] font-bold outline-none focus:border-[#7daa8f] transition-colors shadow-sm"
                           placeholder="890..."
                           value={variantForm.barcode}
                           onChange={e => setVariantForm(f => ({...f, barcode: e.target.value}))} />
@@ -3957,7 +3971,7 @@ export default function Dashboard() {
                       <div>
                         <label className="block text-[11px] font-black uppercase tracking-wider text-[#6B7280] mb-1">{l('Stock *', 'இருப்பு *')}</label>
                         <input required type="number" min="0"
-                          className="w-full px-4 py-2.5 bg-white rounded-xl border border-[#D1D5DB] text-[13px] font-bold outline-none focus:border-[#D4AF37] transition-colors shadow-sm"
+                          className="w-full px-4 py-2.5 bg-white rounded-xl border border-[#D1D5DB] text-[13px] font-bold outline-none focus:border-[#7daa8f] transition-colors shadow-sm"
                           placeholder="50"
                           value={variantForm.stock}
                           onChange={e => setVariantForm(f => ({...f, stock: e.target.value}))} />
@@ -3965,7 +3979,7 @@ export default function Dashboard() {
                       <div>
                         <label className="block text-[11px] font-black uppercase tracking-wider text-[#6B7280] mb-1">{l('Weight/Vol Value', 'எடை மதிப்பு')}</label>
                         <input type="number" min="0" step="0.001"
-                          className="w-full px-4 py-2.5 bg-white rounded-xl border border-[#D1D5DB] text-[13px] font-bold outline-none focus:border-[#D4AF37] transition-colors shadow-sm"
+                          className="w-full px-4 py-2.5 bg-white rounded-xl border border-[#D1D5DB] text-[13px] font-bold outline-none focus:border-[#7daa8f] transition-colors shadow-sm"
                           placeholder="250"
                           value={variantForm.weightValue}
                           onChange={e => setVariantForm(f => ({...f, weightValue: e.target.value}))} />
@@ -3973,7 +3987,7 @@ export default function Dashboard() {
                       <div>
                         <label className="block text-[11px] font-black uppercase tracking-wider text-[#6B7280] mb-1">{l('Unit', 'அலகு')}</label>
                         <select
-                          className="w-full px-4 py-2.5 bg-white rounded-xl border border-[#D1D5DB] text-[13px] font-bold outline-none focus:border-[#D4AF37] transition-colors shadow-sm appearance-none"
+                          className="w-full px-4 py-2.5 bg-white rounded-xl border border-[#D1D5DB] text-[13px] font-bold outline-none focus:border-[#7daa8f] transition-colors shadow-sm appearance-none"
                           value={variantForm.weightUnit}
                           onChange={e => setVariantForm(f => ({...f, weightUnit: e.target.value}))}>
                           <option value="">-</option>
@@ -3988,7 +4002,7 @@ export default function Dashboard() {
                     <div className="flex items-center gap-3 pt-2">
                       <input type="checkbox" id="varIsDefault" checked={variantForm.isDefault}
                         onChange={e => setVariantForm(f => ({...f, isDefault: e.target.checked}))}
-                        className="w-4 h-4 text-[#0A0A0A] rounded focus:ring-maroon-dark accent-maroon-dark"
+                        className="w-4 h-4 text-brand-black rounded focus:ring-maroon-dark accent-maroon-dark"
                       />
                       <label htmlFor="varIsDefault" className="text-[13px] font-bold text-[#111111]">{l('Default variant (shown first)', 'முதல் வகை (முதலில் காட்டு)')}</label>
                     </div>
@@ -4021,10 +4035,10 @@ export default function Dashboard() {
                       <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
                         {getVariants(String(editingProd.id)).map((v: ProductVariant) => (
                           <div key={v.id}
-                            className={`flex items-center justify-between gap-3 p-4 rounded-xl border transition-colors bg-white shadow-sm ${editingVariantId === v.id ? 'border-[#D4AF37] ring-1 ring-maroon-dark/20' : 'border-[#F3F4F6] hover:border-[#D1D5DB]'}`}>
+                            className={`flex items-center justify-between gap-3 p-4 rounded-xl border transition-colors bg-white shadow-sm ${editingVariantId === v.id ? 'border-[#7daa8f] ring-1 ring-maroon-dark/20' : 'border-[#F3F4F6] hover:border-[#D1D5DB]'}`}>
                             <div className="flex items-center gap-3 min-w-0">
                               {v.isDefault && (
-                                <span className="w-5 h-5 rounded-full bg-[#0A0A0A] text-white text-[10px] font-black flex items-center justify-center shrink-0">★</span>
+                                <span className="w-5 h-5 rounded-full bg-brand-black text-white text-[10px] font-black flex items-center justify-center shrink-0">★</span>
                               )}
                               <div className="min-w-0">
                                 <p className="text-[14px] font-bold text-[#111111] truncate">{v.variantName}</p>
@@ -4036,7 +4050,7 @@ export default function Dashboard() {
                             <div className="flex items-center gap-2 shrink-0">
                               {!v.isDefault && (
                                 <button onClick={() => void handleSetDefault(v.id)}
-                                  className="px-2 py-1.5 text-[#6B7280] hover:text-[#0A0A0A] hover:bg-[#0A0A0A]/5 rounded-lg text-[10px] font-black uppercase transition-colors">
+                                  className="px-2 py-1.5 text-[#6B7280] hover:text-brand-black hover:bg-brand-black/5 rounded-lg text-[10px] font-black uppercase transition-colors">
                                   {l('Set Default', 'முதல்')}
                                 </button>
                               )}
@@ -4067,7 +4081,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ——— COUPON MANAGEMENT (BLACK & GOLD PREMIUM THEME) ——— */}
+        {/* ——— COUPON MANAGEMENT (BOTTLE GREEN PREMIUM THEME) ——— */}
         {tab === 'coupons' && (
           <div className="space-y-6">
             {/* Header with Title & Refresh Action */}
@@ -4081,10 +4095,10 @@ export default function Dashboard() {
               <button
                 type="button"
                 onClick={() => void loadCoupons()}
-                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white border border-[#E8D399] text-[#0A0A0A] font-bold text-xs hover:bg-[#FBFAF6] shadow-xs transition-all cursor-pointer hover:scale-[1.02]"
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white border border-[#ead7b7] text-brand-black font-bold text-xs hover:bg-[#FBFAF6] shadow-xs transition-all cursor-pointer hover:scale-[1.02]"
                 title="Refresh coupons list"
               >
-                <RefreshCw size={14} className="text-[#B48811]" />
+                <RefreshCw size={14} className="text-[#5f6d59]" />
                 <span>{l('Refresh', 'புதுப்பி')}</span>
               </button>
             </div>
@@ -4096,7 +4110,7 @@ export default function Dashboard() {
                 <div>
                   <div className="flex items-start justify-between gap-2 mb-3">
                     <p className="text-[11px] font-bold text-[#111111] uppercase tracking-wider">Total Coupons</p>
-                    <div className="w-8 h-8 rounded-full bg-[#FBFAF6] border border-[#E8D399] flex items-center justify-center text-[#B48811] shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-[#FBFAF6] border border-[#ead7b7] flex items-center justify-center text-[#5f6d59] shrink-0">
                       <Tag size={15} />
                     </div>
                   </div>
@@ -4128,7 +4142,7 @@ export default function Dashboard() {
                 <div>
                   <div className="flex items-start justify-between gap-2 mb-3">
                     <p className="text-[11px] font-bold text-[#111111] uppercase tracking-wider">Total Redemptions</p>
-                    <div className="w-8 h-8 rounded-full bg-[#0A0A0A] text-[#D4AF37] border border-[#D4AF37]/40 flex items-center justify-center shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-brand-black text-brand-onDark border border-[#7daa8f]/40 flex items-center justify-center shrink-0">
                       <Percent size={15} />
                     </div>
                   </div>
@@ -4141,8 +4155,8 @@ export default function Dashboard() {
             </div>
 
             {/* Subtotal notice banner */}
-            <div className="rounded-xl border border-[#E8D399]/60 bg-[#FBFAF6] px-4 py-2.5 text-[12px] font-medium text-[#6C665C] flex items-center gap-2.5 shadow-xs">
-              <Info size={16} className="text-[#B48811] shrink-0" />
+            <div className="rounded-xl border border-[#ead7b7]/60 bg-[#FBFAF6] px-4 py-2.5 text-[12px] font-medium text-[#6C665C] flex items-center gap-2.5 shadow-xs">
+              <Info size={16} className="text-[#5f6d59] shrink-0" />
               <span>{l('Coupon discount applies to product subtotal only — delivery charges are excluded.', 'கூப்பன் தள்ளுபடி பொருட்களின் subtotal-க்கு மட்டும் பொருந்தும்.')}</span>
             </div>
 
@@ -4153,7 +4167,7 @@ export default function Dashboard() {
                 <div>
                   <div className="flex items-center justify-between gap-3 mb-4 pb-3 border-b border-gray-100">
                     <div>
-                      <span className="px-2.5 py-0.5 rounded-full bg-[#0A0A0A] text-[#D4AF37] border border-[#D4AF37]/30 text-[10px] font-black uppercase tracking-wider">
+                      <span className="px-2.5 py-0.5 rounded-full bg-brand-black text-brand-onDark border border-[#7daa8f]/30 text-[10px] font-black uppercase tracking-wider">
                         {editingCouponId !== null ? 'EDIT MODE' : 'NEW COUPON'}
                       </span>
                       <h3 className="mt-1.5 text-[18px] font-black text-[#111111]">
@@ -4190,7 +4204,7 @@ export default function Dashboard() {
                       </label>
                       <div className="flex gap-2">
                         <input
-                          className="flex-1 rounded-xl border border-gray-300 bg-[#FAFAFA] px-3.5 py-2.5 text-[13px] font-mono font-black uppercase tracking-wider text-[#111111] outline-none transition-all focus:border-[#0A0A0A] focus:bg-white focus:ring-1 focus:ring-[#0A0A0A] disabled:opacity-60"
+                          className="flex-1 rounded-xl border border-gray-300 bg-[#FAFAFA] px-3.5 py-2.5 text-[13px] font-mono font-black uppercase tracking-wider text-[#111111] outline-none transition-all focus:border-brand-black focus:bg-white focus:ring-1 focus:ring-brand-black disabled:opacity-60"
                           placeholder="WELCOME10"
                           value={couponForm.code}
                           disabled={editingCouponId !== null}
@@ -4200,9 +4214,9 @@ export default function Dashboard() {
                           <button
                             type="button"
                             onClick={generateCouponCode}
-                            className="inline-flex items-center gap-1.5 shrink-0 rounded-xl bg-[#0A0A0A] border border-[#D4AF37] text-[#D4AF37] px-4 py-2.5 text-xs font-black uppercase tracking-wider hover:bg-[#1A1A1A] shadow-xs transition-all cursor-pointer hover:scale-[1.02]"
+                            className="inline-flex items-center gap-1.5 shrink-0 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark px-4 py-2.5 text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] shadow-xs transition-all cursor-pointer hover:scale-[1.02]"
                           >
-                            <Sparkles size={13} className="text-[#D4AF37]" />
+                            <Sparkles size={13} className="text-brand-onDark" />
                             <span>Generate</span>
                           </button>
                         )}
@@ -4222,7 +4236,7 @@ export default function Dashboard() {
                           type="number"
                           min="1"
                           max="100"
-                          className="w-full rounded-xl border border-gray-300 bg-[#FAFAFA] px-3.5 py-2.5 text-[13px] font-bold text-[#111111] outline-none transition-all focus:border-[#0A0A0A] focus:bg-white focus:ring-1 focus:ring-[#0A0A0A]"
+                          className="w-full rounded-xl border border-gray-300 bg-[#FAFAFA] px-3.5 py-2.5 text-[13px] font-bold text-[#111111] outline-none transition-all focus:border-brand-black focus:bg-white focus:ring-1 focus:ring-brand-black"
                           placeholder="10"
                           value={couponForm.percentage}
                           onChange={e => setCouponForm(f => ({ ...f, percentage: Number(e.target.value) }))}
@@ -4235,7 +4249,7 @@ export default function Dashboard() {
                         <input
                           type="number"
                           min="0"
-                          className="w-full rounded-xl border border-gray-300 bg-[#FAFAFA] px-3.5 py-2.5 text-[13px] font-bold text-[#111111] outline-none transition-all focus:border-[#0A0A0A] focus:bg-white focus:ring-1 focus:ring-[#0A0A0A]"
+                          className="w-full rounded-xl border border-gray-300 bg-[#FAFAFA] px-3.5 py-2.5 text-[13px] font-bold text-[#111111] outline-none transition-all focus:border-brand-black focus:bg-white focus:ring-1 focus:ring-brand-black"
                           placeholder="0 = no minimum"
                           value={couponForm.min_order_value}
                           onChange={e => setCouponForm(f => ({ ...f, min_order_value: e.target.value }))}
@@ -4251,7 +4265,7 @@ export default function Dashboard() {
                         </label>
                         <input
                           type="date"
-                          className="w-full rounded-xl border border-gray-300 bg-[#FAFAFA] px-3.5 py-2.5 text-[13px] font-bold text-[#111111] outline-none transition-all focus:border-[#0A0A0A] focus:bg-white focus:ring-1 focus:ring-[#0A0A0A]"
+                          className="w-full rounded-xl border border-gray-300 bg-[#FAFAFA] px-3.5 py-2.5 text-[13px] font-bold text-[#111111] outline-none transition-all focus:border-brand-black focus:bg-white focus:ring-1 focus:ring-brand-black"
                           value={couponForm.expiry_date}
                           onChange={e => setCouponForm(f => ({ ...f, expiry_date: e.target.value }))}
                         />
@@ -4263,7 +4277,7 @@ export default function Dashboard() {
                         <input
                           type="number"
                           min="1"
-                          className="w-full rounded-xl border border-gray-300 bg-[#FAFAFA] px-3.5 py-2.5 text-[13px] font-bold text-[#111111] outline-none transition-all focus:border-[#0A0A0A] focus:bg-white focus:ring-1 focus:ring-[#0A0A0A]"
+                          className="w-full rounded-xl border border-gray-300 bg-[#FAFAFA] px-3.5 py-2.5 text-[13px] font-bold text-[#111111] outline-none transition-all focus:border-brand-black focus:bg-white focus:ring-1 focus:ring-brand-black"
                           placeholder="Unlimited"
                           value={couponForm.usage_limit}
                           onChange={e => setCouponForm(f => ({ ...f, usage_limit: e.target.value }))}
@@ -4276,9 +4290,9 @@ export default function Dashboard() {
                 <div className="pt-2">
                   <button
                     type="submit"
-                    className="w-full rounded-xl bg-[#0A0A0A] border border-[#D4AF37] text-[#D4AF37] py-3 text-[13px] font-black uppercase tracking-wider shadow-md hover:bg-[#1A1A1A] hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer flex items-center justify-center gap-2"
+                    className="w-full rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark py-3 text-[13px] font-black uppercase tracking-wider shadow-md hover:bg-[#1e2817] hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer flex items-center justify-center gap-2"
                   >
-                    <Ticket size={15} className="text-[#D4AF37]" />
+                    <Ticket size={15} className="text-brand-onDark" />
                     <span>{editingCouponId !== null ? l('Update Coupon', 'கூப்பனை புதுப்பி') : l('Create Coupon', 'கூப்பனை உருவாக்கு')}</span>
                   </button>
                 </div>
@@ -4291,11 +4305,11 @@ export default function Dashboard() {
                     <h3 className="text-[18px] font-black text-[#111111]">
                       {l('All Coupons', 'அனைத்து கூப்பன்கள்')}
                     </h3>
-                    <span className="px-2.5 py-0.5 rounded-full bg-[#0A0A0A] text-white text-[11px] font-black">
+                    <span className="px-2.5 py-0.5 rounded-full bg-brand-black text-white text-[11px] font-black">
                       {coupons.length}
                     </span>
                   </div>
-                  <span className="px-2.5 py-0.5 rounded-full bg-[#FBFAF6] border border-[#E8D399] text-[#B48811] text-[10px] font-black uppercase tracking-wider">
+                  <span className="px-2.5 py-0.5 rounded-full bg-[#FBFAF6] border border-[#ead7b7] text-[#5f6d59] text-[10px] font-black uppercase tracking-wider">
                     {l('Admin Only', 'அட்மின் மட்டும்')}
                   </span>
                 </div>
@@ -4310,14 +4324,14 @@ export default function Dashboard() {
                         key={coupon.id}
                         className={`rounded-xl border p-4 shadow-xs transition-all ${
                           isEditing
-                            ? 'border-[#D4AF37] bg-[#FBFAF6] ring-2 ring-[#D4AF37]/30'
-                            : 'border-gray-200 bg-white hover:border-[#D4AF37]/60 hover:shadow-md'
+                            ? 'border-[#7daa8f] bg-[#FBFAF6] ring-2 ring-[#7daa8f]/30'
+                            : 'border-gray-200 bg-white hover:border-[#7daa8f]/60 hover:shadow-md'
                         }`}
                       >
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                           <div className="min-w-0 space-y-1.5">
                             <div className="flex flex-wrap items-center gap-2">
-                              <p className="truncate text-[16px] font-mono font-black uppercase tracking-wider text-[#0A0A0A]">{coupon.code}</p>
+                              <p className="truncate text-[16px] font-mono font-black uppercase tracking-wider text-brand-black">{coupon.code}</p>
                               <span className={`rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider border ${
                                 coupon.is_active
                                   ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -4337,7 +4351,7 @@ export default function Dashboard() {
                               )}
                             </div>
 
-                            <p className="text-[13px] font-black text-[#B48811]">
+                            <p className="text-[13px] font-black text-[#5f6d59]">
                               {coupon.percentage}% OFF
                               {coupon.min_order_value > 0 && ` • min order ₹${coupon.min_order_value}`}
                             </p>
@@ -4353,7 +4367,7 @@ export default function Dashboard() {
                               onClick={() => void toggleCoupon(coupon)}
                               className={`rounded-lg px-3 py-1.5 text-[11px] font-black uppercase tracking-wider transition-all cursor-pointer ${
                                 coupon.is_active
-                                  ? 'bg-[#0A0A0A] text-[#D4AF37] border border-[#D4AF37]/40 hover:bg-[#1A1A1A]'
+                                  ? 'bg-brand-black text-brand-onDark border border-[#7daa8f]/40 hover:bg-[#1e2817]'
                                   : 'bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200'
                               }`}
                               title={coupon.is_active ? 'Click to deactivate' : 'Click to activate'}
@@ -4362,7 +4376,7 @@ export default function Dashboard() {
                             </button>
                             <button
                               onClick={() => startEditCoupon(coupon)}
-                              className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:border-[#D4AF37] hover:bg-[#FBFAF6] text-gray-700 hover:text-[#B48811] flex items-center justify-center transition-all cursor-pointer shadow-xs"
+                              className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:border-[#7daa8f] hover:bg-[#FBFAF6] text-gray-700 hover:text-[#5f6d59] flex items-center justify-center transition-all cursor-pointer shadow-xs"
                               title="Edit coupon"
                             >
                               <Edit2 size={13} />
@@ -4381,7 +4395,7 @@ export default function Dashboard() {
                   })}
 
                   {coupons.length === 0 && (
-                    <div className="rounded-2xl border border-dashed border-[#E8D399] bg-[#FBFAF6] py-12 text-center text-[13px] font-bold text-[#6B7280]">
+                    <div className="rounded-2xl border border-dashed border-[#ead7b7] bg-[#FBFAF6] py-12 text-center text-[13px] font-bold text-[#6B7280]">
                       {l('No coupons yet. Create your first coupon!', 'இன்னும் கூப்பன் இல்லை. முதல் கூப்பனை உருவாக்குங்கள்!')}
                     </div>
                   )}
@@ -4403,7 +4417,7 @@ export default function Dashboard() {
             <div className="relative max-w-sm">
               <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#6B7280]" />
               <input
-                className="w-full pl-11 pr-4 py-3 bg-white border border-[#D1D5DB] rounded-xl text-[13px] font-bold text-[#111111] placeholder-[#6B7280] focus:outline-none focus:border-[#D4AF37] transition-colors shadow-sm"
+                className="w-full pl-11 pr-4 py-3 bg-white border border-[#D1D5DB] rounded-xl text-[13px] font-bold text-[#111111] placeholder-[#6B7280] focus:outline-none focus:border-[#7daa8f] transition-colors shadow-sm"
                 placeholder={l('Search by name or email...', 'பெயர் அல்லது மின்னஞ்சலால் தேடுக...')}
                 value={userSearch}
                 onChange={e => setUserSearch(e.target.value)}
@@ -4495,6 +4509,9 @@ export default function Dashboard() {
         {tab === 'expenses' && (
           <ExpensesView />
         )}
+
+        {/* ── SETTINGS TAB ── */}
+        {tab === 'settings' && <SettingsView onOpenInventory={() => setTab('inventory')} />}
         </div>
         {/* Footer */}
         <div className="shrink-0 border-t border-gray-100 bg-white/80 py-2 text-center text-[12px] font-semibold text-[#7A8A78] tracking-wide print:hidden">
@@ -4534,7 +4551,7 @@ export default function Dashboard() {
                   <button
                     type="button"
                     onClick={() => void openOrderInvoice(invoicePreviewOrder, 'download')}
-                    className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-[#0A0A0A] px-3 text-xs font-black text-white hover:bg-[#D4AF37]"
+                    className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-brand-black px-3 text-xs font-black text-white hover:bg-[#7daa8f]"
                   >
                     <Download size={15} /> Download
                   </button>

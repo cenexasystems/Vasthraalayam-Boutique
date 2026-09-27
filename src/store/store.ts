@@ -4,7 +4,9 @@ import { isSupabaseConfigured } from '../lib/supabase'
 import { supabase } from '../lib/supabase'
 import { fetchAllCategories, fetchAllProducts } from '../services/productService'
 import { fetchAllVariants, type ProductVariant } from '../services/variantService'
+import { authLogin, neonApi, setNeonSessionToken } from '../lib/neonApi'
 import { BRAND_ADDRESS, BRAND_EN, BRAND_PHONE_DISPLAY } from '../lib/brand'
+import { applyThemeColor, DEFAULT_THEME_COLOR } from '../lib/theme'
 import {
   calculateLineTotal,
   normalizeSelectedQuantity,
@@ -53,6 +55,7 @@ export interface Product {
   source?: 'catalogue' | 'manual'
   note?: string | null
   hasVariants?: boolean
+  itemType?: 'product' | 'service'
 
   // POS inventory fields
   sku?: string
@@ -147,14 +150,25 @@ export interface StoreSettings {
   name: string
   ownerName: string
   phone: string
+  shopContactNumber: string
+  email: string
   address: string
+  businessType: string
+  instagramId: string
+  logoUrl: string
   gstEnabled: boolean
+  themeColor: string
+  lowStockThreshold: number
+  expiryAlertDays: number
 }
 
 interface SettingsState {
   settings: StoreSettings | null
   loading: boolean
   fetchSettings: () => Promise<void>
+  updateThemeColor: (hex: string) => Promise<boolean>
+  saveSettings: (partial: Partial<StoreSettings>) => Promise<{ ok: boolean; error?: string }>
+  changePassword: (currentPassword: string, newPassword: string) => Promise<{ ok: boolean; error?: string }>
 }
 
 interface VariantStoreState {
@@ -251,6 +265,7 @@ const mapDbProduct = (input: unknown, categoriesById: Record<string, string> = {
     image,
     imageUrl: image,
     hasVariants: Boolean(p.has_variants),
+    itemType: p.item_type === 'service' ? 'service' : 'product',
 
     // POS inventory mapping
     sku: readString(p.sku),
@@ -341,7 +356,7 @@ export const useAuthStore = create<AuthState>()(
         }
       }
     }),
-    { name: 'purple-boutique-auth' }
+    { name: 'vasthraalayam-boutique-auth' }
   )
 )
 
@@ -354,16 +369,8 @@ export const useProductStore = create<ProductState>((set, get) => ({
   fetchProducts: async (force = false) => {
     if (!force && Date.now() - get().lastFetch < 300000 && get().products.length > 0) return
 
-    if (!isSupabaseConfigured) {
-      set({
-        products: [],
-        loading: false,
-        error: 'Supabase is not configured',
-        lastFetch: Date.now(),
-      })
-      return
-    }
-
+    // Products/categories now come from the Neon-backed API (see neon/README.md),
+    // not Supabase — fetchAllProducts/fetchAllCategories report their own errors.
     set({ loading: true, error: null })
     try {
       const [{ data, error }, { data: categoryData }] = await Promise.all([
@@ -465,7 +472,7 @@ export const useCartStore = create<CartState>()(
       count: () => get().totalItems(),
       total: () => get().cartSubtotal(),
     }),
-    { name: 'purple-boutique-cart' }
+    { name: 'vasthraalayam-boutique-cart' }
   )
 )
 
@@ -484,7 +491,7 @@ export const useFavStore = create<FavState>()(
       isFav: (productId) => get().items.some((p) => p.id === productId),
       clear: () => set({ items: [] }),
     }),
-    { name: 'purple-boutique-favorites' },
+    { name: 'vasthraalayam-boutique-favorites' },
   ),
 )
 
@@ -536,39 +543,93 @@ export const useVariantModalStore = create<VariantModalState>()((set) => ({
 }))
 
 // --- Store Settings State ---
-export const useSettingsStore = create<SettingsState>()((set) => ({
+const mapStoreSettings = (data: Record<string, unknown>): StoreSettings => ({
+  name: String(data.name || ''),
+  ownerName: String(data.owner_name || ''),
+  phone: String(data.phone || ''),
+  shopContactNumber: String(data.shop_contact_number || ''),
+  email: String(data.email || ''),
+  address: String(data.address || ''),
+  businessType: String(data.business_type || ''),
+  instagramId: String(data.instagram_id || ''),
+  logoUrl: String(data.logo_url || ''),
+  gstEnabled: Boolean(data.gst_enabled),
+  themeColor: String(data.theme_color || DEFAULT_THEME_COLOR),
+  lowStockThreshold: toNumber(data.low_stock_threshold, 5),
+  expiryAlertDays: toNumber(data.expiry_alert_days, 30),
+})
+
+const STORE_SETTINGS_FIELD_TO_COLUMN: Record<keyof StoreSettings, string> = {
+  name: 'name',
+  ownerName: 'owner_name',
+  phone: 'phone',
+  shopContactNumber: 'shop_contact_number',
+  email: 'email',
+  address: 'address',
+  businessType: 'business_type',
+  instagramId: 'instagram_id',
+  logoUrl: 'logo_url',
+  gstEnabled: 'gst_enabled',
+  themeColor: 'theme_color',
+  lowStockThreshold: 'low_stock_threshold',
+  expiryAlertDays: 'expiry_alert_days',
+}
+
+export const useSettingsStore = create<SettingsState>()((set, get) => ({
   settings: null,
   loading: false,
   fetchSettings: async () => {
     set({ loading: true })
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase.from('store_settings').select('*').limit(1).single()
-      if (!error && data) {
-        set({
-          settings: {
-            name: data.name,
-            ownerName: data.owner_name,
-            phone: data.phone,
-            address: data.address,
-            gstEnabled: data.gst_enabled
-          },
-          loading: false
-        })
-        return
-      }
+    const { data, error } = await neonApi.get<Record<string, unknown>>('/settings')
+    if (!error && data) {
+      const mapped = mapStoreSettings(data)
+      applyThemeColor(mapped.themeColor)
+      set({ settings: mapped, loading: false })
+      return
     }
     // Fallback/Demo settings
+    applyThemeColor(DEFAULT_THEME_COLOR)
     set({
       settings: {
         name: BRAND_EN,
         ownerName: BRAND_EN,
         phone: BRAND_PHONE_DISPLAY,
+        shopContactNumber: '',
+        email: '',
         address: BRAND_ADDRESS,
-        gstEnabled: false
+        businessType: '',
+        instagramId: '',
+        logoUrl: '',
+        gstEnabled: false,
+        themeColor: DEFAULT_THEME_COLOR,
+        lowStockThreshold: 5,
+        expiryAlertDays: 30,
       },
       loading: false
     })
-  }
+  },
+  updateThemeColor: async (hex) => {
+    const result = await get().saveSettings({ themeColor: hex })
+    return result.ok
+  },
+  saveSettings: async (partial) => {
+    const body: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(partial)) {
+      const column = STORE_SETTINGS_FIELD_TO_COLUMN[key as keyof StoreSettings]
+      if (column) body[column] = value
+    }
+    const { data, error } = await neonApi.put<Record<string, unknown>>('/settings', body)
+    if (error || !data) return { ok: false, error: error?.message || 'Failed to save settings' }
+    const mapped = mapStoreSettings(data)
+    applyThemeColor(mapped.themeColor)
+    set({ settings: mapped })
+    return { ok: true }
+  },
+  changePassword: async (currentPassword, newPassword) => {
+    const { error } = await neonApi.put<{ success: boolean }>('/settings/password', { currentPassword, newPassword })
+    if (error) return { ok: false, error: error.message || 'Failed to change password' }
+    return { ok: true }
+  },
 }))
 
 // --- Admin Auth Store ---
@@ -578,6 +639,8 @@ interface AdminAuthState {
   isLoggedIn: boolean
   role: AdminRole
   adminId: string | null
+  sessionToken: string | null
+  sessionExpiresAt: number | null
   login: (portalId: string, password: string) => Promise<AdminRole | false>
   logout: () => void
 }
@@ -588,40 +651,38 @@ export const useAdminAuthStore = create<AdminAuthState>()(
       isLoggedIn: false,
       role: null,
       adminId: null,
+      sessionToken: null,
+      sessionExpiresAt: null,
       login: async (portalId: string, password: string) => {
         const trimmedId = String(portalId || '').trim()
         const trimmedPass = String(password || '').trim()
+        if (!trimmedId || !trimmedPass) return false
 
-        // 1. Check Admin Credentials (support VITE_ADMIN_ID or VITE_PORTAL_ID fallback)
-        const adminId = String(import.meta.env.VITE_ADMIN_ID || import.meta.env.VITE_PORTAL_ID || 'admin').trim()
-        const adminPass = String(import.meta.env.VITE_ADMIN_PASSWORD || import.meta.env.VITE_PORTAL_PASSWORD || 'admin123').trim()
+        // Credentials are verified server-side (api/auth/login.ts) against
+        // env vars that are never sent to the browser — this used to be a
+        // client-side comparison against VITE_ADMIN_ID/VITE_ADMIN_PASSWORD,
+        // which meant the real password shipped in the public JS bundle.
+        const { data, error } = await authLogin(trimmedId, trimmedPass)
+        if (error || !data) return false
 
-        if (trimmedId === adminId && trimmedPass === adminPass) {
-          useAlarmStore.getState().resetSilencedState()
-          set({ isLoggedIn: true, role: 'admin', adminId: trimmedId })
-          return 'admin'
-        }
-
-        // 2. Check Staff Credentials
-        const staffId = String(import.meta.env.VITE_STAFF_ID || 'staff').trim()
-        const staffPass = String(import.meta.env.VITE_STAFF_PASSWORD || 'staff123').trim()
-
-        if (trimmedId === staffId && trimmedPass === staffPass) {
-          useAlarmStore.getState().resetSilencedState()
-          set({ isLoggedIn: true, role: 'staff', adminId: trimmedId })
-          return 'staff'
-        }
-
-        return false
+        useAlarmStore.getState().resetSilencedState()
+        set({
+          isLoggedIn: true,
+          role: data.role,
+          adminId: trimmedId,
+          sessionToken: data.token,
+          sessionExpiresAt: data.expiresAt,
+        })
+        return data.role
       },
       logout: () => {
         alarmSound.stopAlert()
         useAlarmStore.getState().resetSilencedState()
-        set({ isLoggedIn: false, role: null, adminId: null })
+        set({ isLoggedIn: false, role: null, adminId: null, sessionToken: null, sessionExpiresAt: null })
       },
     }),
     {
-      name: 'purple-boutique-admin-session',
+      name: 'vasthraalayam-boutique-admin-session',
       // Using sessionStorage so the session is cleared when the tab is closed
       storage: {
         getItem: (name) => {
@@ -639,3 +700,9 @@ export const useAdminAuthStore = create<AdminAuthState>()(
     }
   )
 )
+
+// Keep the Neon API client's bearer token in sync with the store — on every
+// login/logout, and once immediately here for state already rehydrated from
+// sessionStorage when this module loads.
+useAdminAuthStore.subscribe((state) => setNeonSessionToken(state.sessionToken))
+setNeonSessionToken(useAdminAuthStore.getState().sessionToken)

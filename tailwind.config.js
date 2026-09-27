@@ -10,24 +10,40 @@ export default {
         bgMain:    '#FBFAF6', // Warm luxury linen surface
         cardBg:    '#FFFFFF',
         brand: {
-          black:      '#0A0A0A',
-          dark:       '#141414',
-          gold:       '#D4AF37',
-          goldHover:  '#C5A059',
-          goldLight:  '#FBF6E9',
-          goldBorder: '#E8D399',
+          // Live theme color — reads from --brand-black-rgb, set at runtime by
+          // src/lib/theme.ts (from the picked shade in Settings > Appearance).
+          black:      'rgb(var(--brand-black-rgb) / <alpha-value>)',
+          dark:       '#223126',
+          gold:       '#7daa8f', // Sage green accent (was gold — this token name is legacy, the color is not actually gold)
+          goldHover:  '#5e8c72',
+          goldLight:  '#f7f4ed',
+          goldBorder: '#ead7b7',
+          // Text/icon color for content that sits directly on a brand-black
+          // surface — sage (`brand.gold` above) is too close in luminance to
+          // the bottle-green background to read clearly there.
+          onDark: '#FFFFFF', // buttons, badges & sidebar nav text on a dark background
         },
         gold: {
-          DEFAULT: '#D4AF37',
-          dark:    '#B48811',
-          light:   '#FBF6E9',
-          border:  '#E8D399',
+          DEFAULT: '#7daa8f',
+          dark:    '#5f6d59',
+          light:   '#f7f4ed',
+          border:  '#ead7b7',
         },
         maroon: {
-          DEFAULT: '#D4AF37', // Remapped to luxury Gold
-          dark:    '#0A0A0A', // Remapped to luxury Black
-          light:   '#FBF6E9',
+          DEFAULT: '#7daa8f', // Remapped to sage green accent
+          dark:    'rgb(var(--brand-black-rgb) / <alpha-value>)', // Remapped to bottle green (live)
+          light:   '#f7f4ed',
         },
+        // Boutique bottle-green palette (used across storefront components) — live theme color
+        forestDark: 'rgb(var(--brand-black-rgb) / <alpha-value>)',
+        sage: {
+          DEFAULT: '#7daa8f',
+          dark:    '#5f6d59',
+          deep:    '#1e2817',
+        },
+        sageDark: '#5f6d59',
+        sageDeep: '#1e2817',
+        sand: '#ead7b7',
         textMain:  '#111111',
         textMuted: '#6B7280',
         borderLight: '#E5E7EB', // Neutral clean border

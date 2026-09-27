@@ -89,7 +89,7 @@ const TESTIMONIALS = [
     rating: 5,
     text: 'Exceptional quality and friendly service. The shopping and clothing experience was smooth from start to finish.',
     initials: 'PK',
-    color: '#D4AF37',
+    color: '#7daa8f',
   },
   {
     name: 'Ramesh Murugan',
@@ -254,7 +254,7 @@ export default function Home() {
         {/* Ambient background glows — very subtle, premium feel */}
         <div className="absolute inset-0 pointer-events-none overflow-hidden hidden sm:block">
           <div className="absolute -top-24 -right-12 w-[480px] h-[480px] rounded-full blur-[140px] opacity-[0.055]"
-            style={{ background: '#D4AF37' }} />
+            style={{ background: '#7daa8f' }} />
           <div className="absolute -bottom-16 -left-16 w-[380px] h-[380px] rounded-full blur-[120px] opacity-[0.04]"
             style={{ background: '#E5E7EB' }} />
         </div>
@@ -269,7 +269,7 @@ export default function Home() {
           >
             {/* Eyebrow badge */}
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full mb-6
-              bg-[#D4AF37]/10 border border-[#D4AF37]/20">
+              bg-[#7daa8f]/10 border border-[#7daa8f]/20">
               <Sparkles size={11} className="text-[#5e8c72]" />
               <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#5e8c72]">
                 {t('hero.badge')}
@@ -285,7 +285,7 @@ export default function Home() {
                 : 'font-headline text-[40px] sm:text-[54px] lg:text-[66px] leading-[1.0] tracking-[-0.02em]'
             }`}>
               <span className="block text-[#111111]">{t('hero.title1')}</span>
-              <span className="block text-[#D4AF37]">{t('hero.title2')}</span>
+              <span className="block text-[#7daa8f]">{t('hero.title2')}</span>
             </h1>
 
             {/* Subtitle */}
@@ -296,7 +296,7 @@ export default function Home() {
             </p>
 
             {/* Tamil brand name — hardcoded, not a translation key, styled as elegant accent */}
-            <p className="text-[13px] sm:text-[14px] font-semibold text-[#D4AF37]/75
+            <p className="text-[13px] sm:text-[14px] font-semibold text-[#7daa8f]/75
               tracking-[0.03em] mb-8 sm:mb-10">
               {BRAND_TA}
             </p>
@@ -329,7 +329,7 @@ export default function Home() {
                   hover:bg-[#F9FAFB] hover:border-[#111111]/20
                   transition-all duration-200"
               >
-                <Leaf size={13} className="text-[#D4AF37]" />
+                <Leaf size={13} className="text-[#7daa8f]" />
                 {t('remedy.title')}
               </a>
             </div>
@@ -366,7 +366,7 @@ export default function Home() {
                 shadow-[0_6px_28px_rgba(44,57,42,0.11)]
                 border border-[#E5E7EB]/50
                 flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-[#D4AF37] flex items-center justify-center shrink-0">
+                <div className="w-8 h-8 rounded-xl bg-[#7daa8f] flex items-center justify-center shrink-0">
                   <Leaf size={14} className="text-white" />
                 </div>
                 <div>
@@ -415,7 +415,7 @@ export default function Home() {
                 shadow-sm
                 hover:-translate-y-0.5 transition-transform duration-200"
             >
-              <div className="w-9 h-9 rounded-xl bg-[#D4AF37]/12 flex items-center justify-center shrink-0 text-[#D4AF37]">
+              <div className="w-9 h-9 rounded-xl bg-[#7daa8f]/12 flex items-center justify-center shrink-0 text-[#7daa8f]">
                 {item.icon}
               </div>
               <div className="min-w-0">
@@ -431,11 +431,11 @@ export default function Home() {
       <section className="max-w-7xl mx-auto px-4 sm:px-6 py-16 sm:py-24">
         <div className="flex justify-between items-end mb-10">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#D4AF37] mb-2">Browse Collection</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#7daa8f] mb-2">Browse Collection</p>
             <h2 className={`font-black text-[#111111] break-words ${lang === 'ta' ? 'text-2xl sm:text-[30px] leading-[1.4] tracking-[0] ta-text' : 'text-3xl sm:text-[38px] tracking-tight'}`}>{t('cat.title')}</h2>
           </div>
           <Link to="/products"
-            className="text-[13px] font-bold text-[#D4AF37] flex items-center gap-1 group hover:text-[#5e8c72] transition-colors">
+            className="text-[13px] font-bold text-[#7daa8f] flex items-center gap-1 group hover:text-[#5e8c72] transition-colors">
             {t('cat.view_all')}
             <ChevronRight size={16} className="group-hover:translate-x-0.5 transition-transform" />
           </Link>
@@ -487,7 +487,7 @@ export default function Home() {
                   </div>
                 </div>
                 <span className="text-[10px] sm:text-[11px] font-bold text-[#111111] text-center leading-tight
-                  group-hover:text-[#D4AF37] transition-colors duration-200">
+                  group-hover:text-[#7daa8f] transition-colors duration-200">
                   {c.name}
                 </span>
               </Link>
@@ -509,7 +509,7 @@ export default function Home() {
                 </div>
               </div>
               <span className="text-[10px] sm:text-[11px] font-bold text-[#111111] text-center leading-tight
-                group-hover:text-[#D4AF37] transition-colors duration-200">
+                group-hover:text-[#7daa8f] transition-colors duration-200">
                 All Products
               </span>
             </Link>
@@ -524,7 +524,7 @@ export default function Home() {
       <section id="concerns" className="bg-white py-16 sm:py-24 border-y border-[#E5E7EB]/30 scroll-mt-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 text-center">
           <div className="mb-12">
-            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#D4AF37]">{t('remedy.badge')}</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#7daa8f]">{t('remedy.badge')}</p>
             <h2 className={`font-black mt-3 mb-3 text-[#111111] break-words ${lang === 'ta' ? 'text-2xl sm:text-[30px] leading-[1.4] tracking-[0] ta-text' : 'text-3xl sm:text-[38px] tracking-tight'}`}>{t('remedy.title')}</h2>
             <p className={`text-[15px] text-[#374151] mx-auto font-medium leading-relaxed ${lang === 'ta' ? 'max-w-full ta-text' : 'max-w-xl'}`}>{t('remedy.sub')}</p>
           </div>
@@ -555,12 +555,12 @@ export default function Home() {
               <TrendingUp size={19} />
             </div>
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#D4AF37]">Customer Favourites</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#7daa8f]">Customer Favourites</p>
               <h2 className={`font-black text-[#111111] break-words ${lang === 'ta' ? 'text-xl sm:text-2xl leading-[1.4] tracking-[0] ta-text' : 'text-2xl sm:text-3xl tracking-tight'}`}>{t('top.title')}</h2>
             </div>
           </div>
           <Link to="/products"
-            className="text-[13px] font-bold text-[#D4AF37] hover:text-[#5e8c72] flex items-center gap-1 transition-colors">
+            className="text-[13px] font-bold text-[#7daa8f] hover:text-[#5e8c72] flex items-center gap-1 transition-colors">
             {t('cat.view_all')} <ChevronRight size={15} />
           </Link>
         </div>
@@ -574,7 +574,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-12">
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#D4AF37]">Customer Reviews</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#7daa8f]">Customer Reviews</p>
               <h2 className="text-3xl sm:text-[38px] font-black mt-3 mb-2 tracking-tight text-[#111111]">
                 Trusted by Thousands
               </h2>
@@ -624,7 +624,7 @@ export default function Home() {
                     <input
                       required
                       placeholder="e.g. Priya S."
-                      className="w-full px-4 py-2.5 rounded-xl border-2 border-[#E5E7EB] focus:border-[#D4AF37] outline-none bg-white text-[13px]"
+                      className="w-full px-4 py-2.5 rounded-xl border-2 border-[#E5E7EB] focus:border-[#7daa8f] outline-none bg-white text-[13px]"
                       value={reviewForm.name}
                       onChange={e => setReviewForm(f => ({ ...f, name: e.target.value }))}
                     />
@@ -633,7 +633,7 @@ export default function Home() {
                     <label className="block text-xs font-bold text-[#374151] mb-1.5 uppercase tracking-wide">City / Location</label>
                     <input
                       placeholder="e.g. Chennai"
-                      className="w-full px-4 py-2.5 rounded-xl border-2 border-[#E5E7EB] focus:border-[#D4AF37] outline-none bg-white text-[13px]"
+                      className="w-full px-4 py-2.5 rounded-xl border-2 border-[#E5E7EB] focus:border-[#7daa8f] outline-none bg-white text-[13px]"
                       value={reviewForm.location}
                       onChange={e => setReviewForm(f => ({ ...f, location: e.target.value }))}
                     />
@@ -665,7 +665,7 @@ export default function Home() {
                     required
                     rows={3}
                     placeholder="Tell others about your experience with our products..."
-                    className="w-full px-4 py-2.5 rounded-xl border-2 border-[#E5E7EB] focus:border-[#D4AF37] outline-none bg-white text-[13px] resize-none"
+                    className="w-full px-4 py-2.5 rounded-xl border-2 border-[#E5E7EB] focus:border-[#7daa8f] outline-none bg-white text-[13px] resize-none"
                     value={reviewForm.text}
                     onChange={e => setReviewForm(f => ({ ...f, text: e.target.value }))}
                   />
@@ -677,7 +677,7 @@ export default function Home() {
 
                 <div className="flex gap-3">
                   <button type="submit" disabled={submitting}
-                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#D4AF37] hover:bg-[#5e8c72] text-white font-bold text-[13px] transition-colors disabled:opacity-60">
+                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#7daa8f] hover:bg-[#5e8c72] text-white font-bold text-[13px] transition-colors disabled:opacity-60">
                     {submitting
                       ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Posting…</>
                       : <><Send size={14} /> Post Review</>
@@ -739,14 +739,14 @@ export default function Home() {
 
             {/* Customer-submitted reviews from Supabase */}
             {customerReviews.slice(0, 8).map((review) => {
-              const colors = ['#D4AF37', '#C4845C', '#8B7355', '#5e8c72']
+              const colors = ['#7daa8f', '#C4845C', '#8B7355', '#5e8c72']
               const color = colors[review.name.charCodeAt(0) % colors.length]
               return (
                 <motion.div
                   key={review.id}
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  className="bg-[#F9FAFB] rounded-2xl p-5 sm:p-6 border border-[#D4AF37]/20 flex flex-col gap-3.5 hover:shadow-md transition-shadow duration-300"
+                  className="bg-[#F9FAFB] rounded-2xl p-5 sm:p-6 border border-[#7daa8f]/20 flex flex-col gap-3.5 hover:shadow-md transition-shadow duration-300"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-0.5">
@@ -754,7 +754,7 @@ export default function Home() {
                         <Star key={i} size={13} className="text-amber-400 fill-amber-400" />
                       ))}
                     </div>
-                    <span className="text-[9px] font-bold text-[#D4AF37] bg-[#D4AF37]/10 px-2 py-0.5 rounded-full">Verified</span>
+                    <span className="text-[9px] font-bold text-[#7daa8f] bg-[#7daa8f]/10 px-2 py-0.5 rounded-full">Verified</span>
                   </div>
                   <p className="text-[13px] text-[#374151] leading-[1.65] flex-grow">&ldquo;{review.text}&rdquo;</p>
                   <div className="flex items-center gap-2.5 pt-3 border-t border-[#E5E7EB]/40">
@@ -852,7 +852,7 @@ export default function Home() {
               </div>
               <div className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl
                 bg-[#111111] text-white text-[12px] font-bold
-                group-hover:bg-[#D4AF37] transition-colors duration-300">
+                group-hover:bg-[#7daa8f] transition-colors duration-300">
                 <ExternalLink size={12} /> Open in Google Maps
               </div>
             </div>
@@ -863,7 +863,7 @@ export default function Home() {
             border border-[#E5E7EB]/40 shadow-sm
             flex flex-col justify-between gap-6">
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#D4AF37]">Find Us</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#7daa8f]">Find Us</p>
               <h2 className="text-2xl sm:text-3xl font-black mt-2.5 mb-4 text-[#111111] tracking-tight">
                 Visit Our Store
               </h2>
@@ -873,8 +873,8 @@ export default function Home() {
 
               <div className="space-y-3.5">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-[#D4AF37]/12 flex items-center justify-center shrink-0">
-                    <MapPin size={16} className="text-[#D4AF37]" />
+                  <div className="w-9 h-9 rounded-xl bg-[#7daa8f]/12 flex items-center justify-center shrink-0">
+                    <MapPin size={16} className="text-[#7daa8f]" />
                   </div>
                   <div>
                     <p className="font-bold text-[13px] text-[#111111] leading-tight">Store Location</p>
@@ -882,8 +882,8 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-[#D4AF37]/12 flex items-center justify-center shrink-0">
-                    <Phone size={16} className="text-[#D4AF37]" />
+                  <div className="w-9 h-9 rounded-xl bg-[#7daa8f]/12 flex items-center justify-center shrink-0">
+                    <Phone size={16} className="text-[#7daa8f]" />
                   </div>
                   <div>
                     <p className="font-bold text-[13px] text-[#111111] leading-tight">Call / WhatsApp</p>
@@ -934,7 +934,7 @@ export default function Home() {
         <Link
           to="/products"
           className="inline-flex items-center gap-2.5 px-10 py-4 rounded-full
-            bg-[#D4AF37] text-white font-black
+            bg-[#7daa8f] text-white font-black
             shadow-[0_4px_20px_rgba(125,170,143,0.35)]
             hover:bg-[#5e8c72] hover:scale-[1.02] hover:shadow-[0_6px_28px_rgba(125,170,143,0.45)]
             transition-all duration-200

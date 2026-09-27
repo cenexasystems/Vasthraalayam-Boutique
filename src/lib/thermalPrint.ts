@@ -102,7 +102,7 @@ export function printThermalReceipt(data: ThermalReceiptData) {
       </head>
       <body>
         <div class="text-center mb-2">
-          <img src="${LOGO_BASE64}" style="width: 48px; height: 48px; object-fit: contain; margin: 0 auto 6px auto; display: block;" alt="CHAJI Logo" />
+          <img src="${LOGO_BASE64}" style="width: 48px; height: 48px; object-fit: contain; margin: 0 auto 6px auto; display: block;" alt="VASTHRAALAYAM Logo" />
           <div class="font-bold" style="font-size: 16px; letter-spacing: 2px;">${data.storeName || BRAND_EN}</div>
           <div style="font-size: 10px; margin-top: 2px;">${data.storeAddress || BRAND_ADDRESS}</div>
           <div class="mt-1" style="font-size: 10px;">Ph: ${data.storePhone || BRAND_PRIMARY_PHONE_DISPLAY}</div>
@@ -187,7 +187,7 @@ export function printThermalReceipt(data: ThermalReceiptData) {
         </div>
 
         <div class="text-center mt-2" style="font-size: 11px;">
-          <div class="font-bold">Thank you for shopping at CHAJI MENS WEAR!</div>
+          <div class="font-bold">Thank you for shopping at VASTHRAALAYAM BOUTIQUE!</div>
           <div>Follow us on Instagram: @${BRAND_INSTAGRAM}</div>
         </div>
       </body>

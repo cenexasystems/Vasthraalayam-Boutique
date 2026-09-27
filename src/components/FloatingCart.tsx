@@ -32,7 +32,7 @@ export default function FloatingCart() {
               <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/12 sm:h-8 sm:w-8">
                 <ShoppingCart size={14} className="text-white sm:size-[16px]" />
               </div>
-              <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[#D4AF37] text-[9px] font-black text-white">
+              <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[#7daa8f] text-[9px] font-black text-white">
                 {itemCount}
               </span>
             </div>

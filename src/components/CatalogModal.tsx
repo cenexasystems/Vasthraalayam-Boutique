@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import { X, Search, ShoppingBag, Edit2, Trash2 } from 'lucide-react'
 import { useProductStore, type Product } from '../store/store'
-import { supabase } from '../lib/supabase'
+import { neonApi } from '../lib/neonApi'
 
 interface CatalogModalProps {
   isOpen: boolean
@@ -29,11 +29,8 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
     if (!isOpen) return
     let cancelled = false
     const loadCategories = async () => {
-      const { data } = await supabase
-        .from('categories')
-        .select('id, name_en, is_active, sort_order')
-        .order('sort_order')
-      if (!cancelled) setCategoryOptions((data || []) as CategoryOption[])
+      const { data } = await neonApi.get<CategoryOption[]>('/categories')
+      if (!cancelled) setCategoryOptions(data || [])
     }
     void loadCategories()
     return () => { cancelled = true }
@@ -102,12 +99,12 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
     const selectedCategory = allCategoryOptions.find(c => c.name_en.trim().toLowerCase() === editForm.category.trim().toLowerCase())
     if (!selectedCategory) { setEditError('Select a valid category'); setEditLoading(false); return }
     const categoryName = selectedCategory.name_en.trim()
-    const { error } = await supabase.from('products').update({
+    const { error } = await neonApi.put(`/products/${editingProduct.id}`, {
       name: editForm.name.trim(),
       category: categoryName,
       category_id: selectedCategory.id,
       price: Number(editForm.price),
-    }).eq('id', editingProduct.id)
+    })
     if (error) { setEditError(error.message); setEditLoading(false); return }
     await fetchProducts(true)
     setEditLoading(false)
@@ -116,7 +113,7 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
 
   const handleDelete = async (p: Product) => {
     if (!window.confirm(`Delete "${p.name}"? This will deactivate it.`)) return
-    await supabase.from('products').update({ is_active: false }).eq('id', p.id)
+    await neonApi.put(`/products/${p.id}`, { is_active: false })
     await fetchProducts(true)
   }
 
@@ -140,14 +137,14 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                 <label className="block text-[10px] font-black text-[#374151] tracking-wider uppercase mb-1.5">Product Name</label>
                 <input type="text" value={editForm.name}
                   onChange={e => setEditForm({...editForm, name: e.target.value})}
-                  className="w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB]/60 rounded-xl focus:outline-none focus:border-[#D4AF37] text-[13px] font-bold" />
+                  className="w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB]/60 rounded-xl focus:outline-none focus:border-[#7daa8f] text-[13px] font-bold" />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[10px] font-black text-[#374151] tracking-wider uppercase mb-1.5">Category</label>
                   <select value={editForm.category}
                     onChange={e => setEditForm({...editForm, category: e.target.value})}
-                    className="w-full min-w-0 h-12 px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB]/60 rounded-xl focus:outline-none focus:border-[#D4AF37] text-[13px] font-bold touch-manipulation">
+                    className="w-full min-w-0 h-12 px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB]/60 rounded-xl focus:outline-none focus:border-[#7daa8f] text-[13px] font-bold touch-manipulation">
                     <option value="">Select category</option>
                     {allCategoryOptions.map(category => <option key={category.id} value={category.name_en}>{category.name_en}</option>)}
                     {!allCategoryOptions.some(category => category.name_en === editForm.category) && editForm.category && (
@@ -159,11 +156,11 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                   <label className="block text-[10px] font-black text-[#374151] tracking-wider uppercase mb-1.5">Price (₹)</label>
                   <input type="number" value={editForm.price}
                     onChange={e => setEditForm({...editForm, price: e.target.value})}
-                    className="w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB]/60 rounded-xl focus:outline-none focus:border-[#D4AF37] text-[13px] font-bold text-right" placeholder="0" />
+                    className="w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB]/60 rounded-xl focus:outline-none focus:border-[#7daa8f] text-[13px] font-bold text-right" placeholder="0" />
                 </div>
               </div>
               <button type="submit" disabled={editLoading}
-                className="mt-4 w-full py-3.5 bg-[#D4AF37] hover:bg-[#065F46] text-white rounded-xl text-[13px] font-black uppercase tracking-wider transition-colors disabled:opacity-50">
+                className="mt-4 w-full py-3.5 bg-[#7daa8f] hover:bg-[#065F46] text-white rounded-xl text-[13px] font-black uppercase tracking-wider transition-colors disabled:opacity-50">
                 {editLoading ? 'Saving...' : 'Save Changes'}
               </button>
             </form>
@@ -172,7 +169,7 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
           <>
             <div className="flex items-center justify-between p-5 border-b border-[#E5E7EB]/40 bg-[#F9FAFB]">
               <h2 className="text-[18px] font-black text-[#111111] flex items-center gap-2">
-                <Search size={18} className="text-[#D4AF37]" />
+                <Search size={18} className="text-[#7daa8f]" />
                 Search Catalog
               </h2>
               <button onClick={onClose} className="p-2 rounded-xl hover:bg-black/5 text-[#374151]">
@@ -185,12 +182,12 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                 <input type="text" value={search}
                   onChange={e => setSearch(e.target.value)}
                   placeholder="Search by product name, Tamil name, or category..."
-                  className="w-full pl-10 pr-4 py-3 bg-[#FAFAFA] border border-[#E5E7EB]/60 rounded-xl focus:outline-none focus:border-[#D4AF37] text-[13px] font-bold text-[#111111]" />
+                  className="w-full pl-10 pr-4 py-3 bg-[#FAFAFA] border border-[#E5E7EB]/60 rounded-xl focus:outline-none focus:border-[#7daa8f] text-[13px] font-bold text-[#111111]" />
               </div>
               <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
                 {categories.map(cat => (
                   <button key={cat} onClick={() => setActiveCategory(cat)}
-                    className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-wider whitespace-nowrap transition-colors ${activeCategory === cat ? 'bg-[#D4AF37] text-white' : 'bg-[#FAFAFA] text-[#374151] hover:bg-[#F9FAFB] border border-[#E5E7EB]/60'}`}>
+                    className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-wider whitespace-nowrap transition-colors ${activeCategory === cat ? 'bg-[#7daa8f] text-white' : 'bg-[#FAFAFA] text-[#374151] hover:bg-[#F9FAFB] border border-[#E5E7EB]/60'}`}>
                     {cat}
                   </button>
                 ))}
@@ -199,13 +196,13 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
             <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4 bg-[#FAFAFA]">
               {loading ? (
                 <div className="flex min-h-48 flex-col items-center justify-center gap-3 text-[#374151]/70">
-                  <span className="h-7 w-7 animate-spin rounded-full border-2 border-[#E5E7EB] border-t-[#D4AF37]" />
+                  <span className="h-7 w-7 animate-spin rounded-full border-2 border-[#E5E7EB] border-t-[#7daa8f]" />
                   <p className="text-[13px] font-bold">Loading catalog...</p>
                 </div>
               ) : error ? (
                 <div className="flex min-h-48 flex-col items-center justify-center gap-2 px-4 text-center text-red-500">
                   <p className="text-[13px] font-bold">Unable to load catalog items.</p>
-                  <button type="button" onClick={() => void fetchProducts(true)} className="rounded-lg bg-[#D4AF37] px-3 py-2 text-[11px] font-black text-white">Try again</button>
+                  <button type="button" onClick={() => void fetchProducts(true)} className="rounded-lg bg-[#7daa8f] px-3 py-2 text-[11px] font-black text-white">Try again</button>
                 </div>
               ) : filtered.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-[#374151]/60 py-12">
@@ -215,9 +212,9 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
               ) : (                  <div className="grid grid-cols-1 min-[360px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                   {filtered.map(product => (
                     <div key={product.id}
-                      className="bg-white border border-[#E5E7EB]/60 rounded-2xl p-3 flex flex-col justify-between gap-2.5 hover:border-[#D4AF37]/40 hover:shadow-md transition-all group">
+                      className="bg-white border border-[#E5E7EB]/60 rounded-2xl p-3 flex flex-col justify-between gap-2.5 hover:border-[#7daa8f]/40 hover:shadow-md transition-all group">
                       <div onClick={() => onAdd(product)} className="cursor-pointer w-full">
-                        <h4 className="text-[13px] font-black text-[#111111] leading-snug group-hover:text-[#D4AF37] transition-colors break-words line-clamp-2">
+                        <h4 className="text-[13px] font-black text-[#111111] leading-snug group-hover:text-[#7daa8f] transition-colors break-words line-clamp-2">
                           {product.name}
                         </h4>
                         {product.nameTa && (
@@ -238,7 +235,7 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                             type="button"
                             onClick={(e) => { e.stopPropagation(); startEdit(product) }}
                             title="Edit product"
-                            className="p-1.5 rounded-lg bg-white border border-[#E5E7EB]/80 text-[#374151] hover:text-[#D4AF37] hover:border-[#D4AF37]/40 shadow-xs transition-colors cursor-pointer"
+                            className="p-1.5 rounded-lg bg-white border border-[#E5E7EB]/80 text-[#374151] hover:text-[#7daa8f] hover:border-[#7daa8f]/40 shadow-xs transition-colors cursor-pointer"
                           >
                             <Edit2 size={13} />
                           </button>

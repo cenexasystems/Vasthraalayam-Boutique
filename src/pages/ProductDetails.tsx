@@ -123,7 +123,7 @@ export default function ProductDetails() {
     return related.slice(0, 10)
   }, [allProducts, product])
 
-  if (loading) return <div className="min-h-screen bg-[#fbfaf6] p-10 text-center font-bold text-[#2c392a]">Loading...</div>
+  if (loading) return <div className="min-h-screen bg-[#fbfaf6] p-10 text-center font-bold text-brand-black">Loading...</div>
   if (error || !product) return <div className="min-h-screen bg-[#fbfaf6] p-10 text-center font-bold text-red-500">{error || 'Product not found'}</div>
 
   const favorite = isFav(product.id)
@@ -171,7 +171,7 @@ export default function ProductDetails() {
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
           <Link
             to="/products"
-            className="inline-flex items-center gap-2 rounded-full border border-[#ead7b7]/60 bg-white px-3 py-2 text-[11px] font-black text-[#2c392a] shadow-sm"
+            className="inline-flex items-center gap-2 rounded-full border border-[#ead7b7]/60 bg-white px-3 py-2 text-[11px] font-black text-brand-black shadow-sm"
           >
             <ArrowLeft size={14} /> Products
           </Link>
@@ -212,11 +212,11 @@ export default function ProductDetails() {
         <section className="px-4 pt-4 sm:px-0 sm:pt-5">
           <div className="space-y-2">
             <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#7daa8f]">{t('cat.' + product.category)}</p>
-            <h1 className="text-[1.55rem] leading-tight font-black text-[#2c392a] sm:text-4xl">{displayName}</h1>
+            <h1 className="text-[1.55rem] leading-tight font-black text-brand-black sm:text-4xl">{displayName}</h1>
             {product.nameTa && <p className="text-base font-bold text-[#5f6d59] ta-text sm:text-lg">{product.nameTa}</p>}
 
             <div className="flex flex-wrap items-center gap-2 pt-1">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[11px] font-black text-[#2c392a] shadow-sm ring-1 ring-[#ead7b7]/50">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[11px] font-black text-brand-black shadow-sm ring-1 ring-[#ead7b7]/50">
                 <Star size={12} className="fill-amber-400 text-amber-400" />
                 {(product.rating || 4.7).toFixed(1)}
               </span>
@@ -224,7 +224,7 @@ export default function ProductDetails() {
                 <span className="text-[#7daa8f]">{formatCurrency(basePrice)}</span>
                 {hasDiscount && <span className="text-[#b0a89a] line-through">{formatCurrency(product.price)}</span>}
               </span>
-              {discount > 0 && <span className="rounded-full bg-[#2c392a] px-3 py-1.5 text-[11px] font-black text-white">{discount}% OFF</span>}
+              {discount > 0 && <span className="rounded-full bg-brand-black px-3 py-1.5 text-[11px] font-black text-white">{discount}% OFF</span>}
             </div>
           </div>
         </section>
@@ -242,7 +242,7 @@ export default function ProductDetails() {
                   whileTap={{ scale: 0.98 }}
                   onClick={handleMobileAdd}
                   type="button"
-                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#2c392a] py-3 text-sm font-black text-white shadow-[0_16px_30px_rgba(44,57,42,0.22)]"
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-black py-3 text-sm font-black text-white shadow-[0_16px_30px_rgba(44,57,42,0.22)]"
                 >
                   <ShoppingCart size={16} /> Add
                 </motion.button>
@@ -264,7 +264,7 @@ export default function ProductDetails() {
                           onClick={() => handleMobilePackChange(option)}
                           className={`shrink-0 rounded-full border px-3 py-2 text-[11px] font-black transition-colors ${
                             mobilePack?.label === option.label
-                              ? 'border-[#2c392a] bg-[#2c392a] text-white'
+                              ? 'border-brand-black bg-brand-black text-white'
                               : 'border-[#ead7b7]/70 bg-[#f7f4ed] text-[#5f6d59]'
                           }`}
                         >
@@ -282,7 +282,7 @@ export default function ProductDetails() {
                     >
                       <Minus size={13} />
                     </button>
-                    <span className="min-w-[2rem] text-center text-[14px] font-black text-[#2c392a]">{mobileQty}</span>
+                    <span className="min-w-[2rem] text-center text-[14px] font-black text-brand-black">{mobileQty}</span>
                     <button
                       type="button"
                       onClick={() => handleMobileChangeQty(mobileQty + 1)}
@@ -321,11 +321,11 @@ export default function ProductDetails() {
         <section className="px-4 pt-4 sm:px-0 sm:pt-5">
           <div className="space-y-2">
             <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#7daa8f]">{t('cat.' + product.category)}</p>
-            <h1 className="text-[1.8rem] leading-tight font-black text-[#2c392a] sm:text-4xl">{displayName}</h1>
+            <h1 className="text-[1.8rem] leading-tight font-black text-brand-black sm:text-4xl">{displayName}</h1>
             {product.nameTa && <p className="text-base font-bold text-[#5f6d59] ta-text sm:text-lg">{product.nameTa}</p>}
 
             <div className="flex flex-wrap items-center gap-2 pt-1">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[11px] font-black text-[#2c392a] shadow-sm ring-1 ring-[#ead7b7]/50">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[11px] font-black text-brand-black shadow-sm ring-1 ring-[#ead7b7]/50">
                 <Star size={12} className="fill-amber-400 text-amber-400" />
                 {(product.rating || 4.7).toFixed(1)}
               </span>
@@ -333,7 +333,7 @@ export default function ProductDetails() {
                 <span className="text-[#7daa8f]">{formatCurrency(basePrice)}</span>
                 {hasDiscount && <span className="text-[#b0a89a] line-through">{formatCurrency(product.price)}</span>}
               </span>
-              {discount > 0 && <span className="rounded-full bg-[#2c392a] px-3 py-1.5 text-[11px] font-black text-white">{discount}% OFF</span>}
+              {discount > 0 && <span className="rounded-full bg-brand-black px-3 py-1.5 text-[11px] font-black text-white">{discount}% OFF</span>}
             </div>
           </div>
         </section>
@@ -347,7 +347,7 @@ export default function ProductDetails() {
               </div>
               <div className="text-right">
                 <p className="text-[10px] font-bold text-[#7daa8f]">Price</p>
-                <p className="text-lg font-black text-[#2c392a]">{formatCurrency(lineTotal)}</p>
+                <p className="text-lg font-black text-brand-black">{formatCurrency(lineTotal)}</p>
               </div>
             </div>
 
@@ -360,7 +360,7 @@ export default function ProductDetails() {
                     onClick={() => setSelectedPackOption(option)}
                     className={`shrink-0 rounded-full border px-3 py-2 text-[11px] font-black transition-colors ${
                       selectedPackOption?.label === option.label
-                        ? 'border-[#2c392a] bg-[#2c392a] text-white'
+                        ? 'border-brand-black bg-brand-black text-white'
                         : 'border-[#ead7b7]/70 bg-[#f7f4ed] text-[#5f6d59]'
                     }`}
                   >
@@ -379,7 +379,7 @@ export default function ProductDetails() {
         <section className="px-4 pt-4 sm:px-0">
           <div className="grid gap-2.5">
             <details className={accordionClass}>
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-black text-[#2c392a]">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-black text-brand-black">
                 <span>Description</span>
                 <ChevronDown size={16} className="text-[#7daa8f] transition-transform group-open:rotate-180" />
               </summary>
@@ -387,12 +387,12 @@ export default function ProductDetails() {
             </details>
 
             <details className={accordionClass}>
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-black text-[#2c392a]">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-black text-brand-black">
                 <span>Benefits & care</span>
                 <ChevronDown size={16} className="text-[#7daa8f] transition-transform group-open:rotate-180" />
               </summary>
               <div className="mt-3 space-y-2 text-sm leading-relaxed text-[#5f6d59]">
-                <p className="whitespace-pre-line">{displayBen || "Crafted with care by CHAJI MENS WEAR."}</p>
+                <p className="whitespace-pre-line">{displayBen || "Crafted with care by VASTHRAALAYAM BOUTIQUE."}</p>
                 <p>{buildUsageNote(product)}</p>
               </div>
             </details>
@@ -424,7 +424,7 @@ export default function ProductDetails() {
                   />
                 </div>
                 <div className="space-y-1.5 p-2.5">
-                  <p className="line-clamp-2 text-[11px] font-bold leading-snug text-[#2c392a]">{item.name}</p>
+                  <p className="line-clamp-2 text-[11px] font-bold leading-snug text-brand-black">{item.name}</p>
                   <p className="text-[10px] font-black text-[#7daa8f]">{formatCurrency(item.offerPrice || item.price)}</p>
                 </div>
               </button>
@@ -437,11 +437,11 @@ export default function ProductDetails() {
         <div className="mx-auto flex max-w-3xl items-center gap-3">
           <div className="min-w-0">
             <p className="text-[11px] font-bold text-[#7daa8f]">Total</p>
-            <p className="text-base font-black leading-tight text-[#2c392a]">{formatCurrency(lineTotal)}</p>
+            <p className="text-base font-black leading-tight text-brand-black">{formatCurrency(lineTotal)}</p>
           </div>
           <button
             onClick={handleAdd}
-            className="flex-1 rounded-2xl bg-[#2c392a] py-3.5 text-sm font-black text-white shadow-[0_16px_30px_rgba(44,57,42,0.28)]"
+            className="flex-1 rounded-2xl bg-brand-black py-3.5 text-sm font-black text-white shadow-[0_16px_30px_rgba(44,57,42,0.28)]"
             type="button"
           >
             <span className="inline-flex items-center justify-center gap-2">

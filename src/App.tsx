@@ -1,12 +1,17 @@
 import './index.css'
 import { lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import { useAuthStore, useProductStore, useVariantStore, useAdminAuthStore } from './store/store'
+import { useAuthStore, useProductStore, useVariantStore, useAdminAuthStore, useSettingsStore } from './store/store'
 import { BRAND_EN } from './lib/brand'
 import { clearLocalOrders } from './lib/ordersFallback'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
 import { LowStockAlarmModal } from './components/dashboard/LowStockAlarmModal'
 import { useLowStockMonitor } from './hooks/useLowStockMonitor'
+import { applyCachedThemeColor } from './lib/theme'
+
+// Paint the last-known theme color immediately, before the settings API call
+// resolves (avoids a flash of the default bottle green on load).
+applyCachedThemeColor()
 
 function lazyWithRetry<T extends React.ComponentType<any>>(
   factory: () => Promise<{ default: T }>
@@ -44,7 +49,7 @@ const AdminLogin = lazyWithRetry(() => import('./pages/AdminLogin'))
 function LoadingSpinner() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-bgMain">
-      <span className="h-10 w-10 animate-spin rounded-full border-4 border-[#E5E7EB] border-t-[#D4AF37]" />
+      <span className="h-10 w-10 animate-spin rounded-full border-4 border-[#E5E7EB] border-t-[#7daa8f]" />
     </div>
   )
 }
@@ -98,6 +103,10 @@ function AppShell() {
 
   useEffect(() => {
     document.title = BRAND_EN
+  }, [])
+
+  useEffect(() => {
+    void useSettingsStore.getState().fetchSettings()
   }, [])
 
   useEffect(() => {

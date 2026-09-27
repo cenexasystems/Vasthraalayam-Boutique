@@ -170,13 +170,13 @@ export default function Gallery() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.65, ease: [0.22, 1, 0.36, 1] }}
         >
-          <p className="text-[10px] font-black uppercase tracking-[0.26em] text-[#D4AF37] mb-4">
+          <p className="text-[10px] font-black uppercase tracking-[0.26em] text-[#7daa8f] mb-4">
             {BRAND_EN}
           </p>
           <h1 className="text-[2.8rem] sm:text-[3.6rem] font-black text-[#111111] tracking-tight leading-[1.02] mb-4">
             Inside Our Store
           </h1>
-          <p className="text-[14px] sm:text-[16px] font-bold text-[#B48811] mb-4">
+          <p className="text-[14px] sm:text-[16px] font-bold text-[#5f6d59] mb-4">
             Sevoor, Arani
           </p>
           <p className="text-[15px] text-[#374151] font-medium leading-[1.7] max-w-lg mx-auto">

@@ -4,12 +4,14 @@
 
 @layer base {
   :root {
-    --brand-black: #0A0A0A;
-    --brand-black-surface: #141414;
-    --brand-gold: #D4AF37;
-    --brand-gold-hover: #C5A059;
-    --brand-gold-light: #FBF6E9;
-    --brand-gold-border: #E8D399;
+    --brand-black: #2c392a;
+    --brand-black-rgb: 44 57 42;
+    --brand-black-surface: #223126;
+    --brand-gold: #7daa8f;
+    --brand-gold-hover: #5e8c72;
+    --brand-gold-light: #f7f4ed;
+    --brand-gold-border: #ead7b7;
+    --brand-on-dark: #FFFFFF;
     --brand-surface: #FBFAF6;
     --brand-text-dark: #111111;
     --brand-text-muted: #6B7280;
@@ -26,7 +28,7 @@
     margin: 0;
     padding: 0;
     height: 100%;
-    background-color: #0A0A0A;
+    background-color: var(--brand-black);
     scroll-behavior: smooth;
     -webkit-text-size-adjust: 100%;
     touch-action: manipulation;
@@ -68,8 +70,8 @@
     height: 100%;
     background-color: #FBFAF6;
     background-image:
-      radial-gradient(circle at top left, rgba(212, 175, 55, 0.06), transparent 34%),
-      radial-gradient(circle at top right, rgba(10, 10, 10, 0.04), transparent 28%);
+      radial-gradient(circle at top left, rgba(125, 170, 143, 0.06), transparent 34%),
+      radial-gradient(circle at top right, rgba(44, 57, 42, 0.04), transparent 28%);
     color: #111111;
     font-family: 'DM Sans', 'Outfit', 'Noto Sans Tamil', system-ui, -apple-system, sans-serif;
     font-optical-sizing: auto;
@@ -195,11 +197,11 @@
   }
 
   .surface-panel {
-    @apply rounded-2xl border border-[#E8D399]/40 bg-white shadow-soft;
+    @apply rounded-2xl border border-[#ead7b7]/40 bg-white shadow-soft;
   }
 
   .surface-panel-compact {
-    @apply rounded-xl border border-[#E8D399]/40 bg-white shadow-soft;
+    @apply rounded-xl border border-[#ead7b7]/40 bg-white shadow-soft;
   }
 
   .mobile-chip {
@@ -207,11 +209,11 @@
   }
 
   .mobile-cta-bar {
-    @apply border-t border-[#E8D399]/50 bg-white/95 backdrop-blur pb-[calc(env(safe-area-inset-bottom)+0.75rem)];
+    @apply border-t border-[#ead7b7]/50 bg-white/95 backdrop-blur pb-[calc(env(safe-area-inset-bottom)+0.75rem)];
   }
 
   .mobile-section-title {
-    @apply text-[11px] font-black uppercase tracking-[0.24em] text-[#B48811];
+    @apply text-[11px] font-black uppercase tracking-[0.24em] text-[#5f6d59];
   }
 
   .mobile-page-shell {
@@ -219,11 +221,27 @@
   }
 
   .btn-primary {
-    @apply px-6 py-3 rounded-xl bg-[#0A0A0A] text-[#D4AF37] border border-[#D4AF37] font-bold hover:bg-[#1A1A1A] transition-all;
+    @apply px-6 py-3 rounded-xl bg-brand-black text-brand-onDark border border-[#7daa8f] font-bold hover:bg-[#1e2817] transition-all;
+  }
+
+  /* Click/press feedback for every dark bottle-green button or link across
+     the app (the OFFLINE/ONLINE toggle, ADD TO CATALOG, etc. all use the
+     shared bg-brand-black utility) — a quick white flash + outline so
+     there's visible feedback on click, without touching each instance.
+     Scoped to `button`/`a` tags specifically so it never fires on a
+     non-interactive container (e.g. the sidebar) that also happens to use
+     bg-brand-black as its own background. */
+  button.bg-brand-black,
+  a.bg-brand-black {
+    transition: box-shadow 150ms ease, background-color 150ms ease;
+  }
+  button.bg-brand-black:active,
+  a.bg-brand-black:active {
+    box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.18), 0 0 0 2px rgba(255, 255, 255, 0.6);
   }
 
   .btn-secondary {
-    @apply px-6 py-3 rounded-xl border border-[#E8D399] bg-white text-[#111111] font-bold hover:bg-gray-50 transition-colors;
+    @apply px-6 py-3 rounded-xl border border-[#ead7b7] bg-white text-[#111111] font-bold hover:bg-gray-50 transition-colors;
   }
 
   .btn-small {
@@ -254,7 +272,7 @@
   max-width: 100vw;
   overflow-x: hidden;
   background:
-    radial-gradient(circle at top left, rgba(212, 175, 55, 0.05), transparent 30%),
+    radial-gradient(circle at top left, rgba(125, 170, 143, 0.05), transparent 30%),
     #FBFAF6;
 }
 

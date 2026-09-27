@@ -23,7 +23,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('[CHAJI ErrorBoundary] Uncaught exception captured:', error, errorInfo)
+    console.error('[VASTHRAALAYAM ErrorBoundary] Uncaught exception captured:', error, errorInfo)
 
     // Automatically reload once if dynamic chunk failed due to a new deployment
     const msg = error?.message || ''
@@ -63,12 +63,12 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="min-h-screen bg-[#FBFAF6] flex items-center justify-center p-4">
           <div className="bg-white max-w-lg w-full rounded-3xl border border-gray-200 shadow-2xl p-6 sm:p-8 text-center space-y-5 animate-in fade-in zoom-in-95 duration-200">
-            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-[#D4AF37] flex items-center justify-center text-[#D4AF37] mx-auto shadow-sm">
+            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-[#7daa8f] flex items-center justify-center text-[#7daa8f] mx-auto shadow-sm">
               <AlertCircle size={28} />
             </div>
 
             <div>
-              <h2 className="text-xl font-black text-[#0A0A0A] tracking-wide">
+              <h2 className="text-xl font-black text-brand-black tracking-wide">
                 Something went wrong
               </h2>
               <p className="text-xs text-gray-500 mt-1.5 font-medium">
@@ -93,7 +93,7 @@ export class ErrorBoundary extends Component<Props, State> {
               <button
                 type="button"
                 onClick={this.handleReload}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-[#0A0A0A] border border-[#D4AF37] text-[#D4AF37] text-xs font-black uppercase tracking-wider hover:bg-[#1A1A1A] transition-all shadow-md cursor-pointer"
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] transition-all shadow-md cursor-pointer"
               >
                 <RefreshCw size={14} />
                 <span>Reload Page</span>

@@ -45,7 +45,7 @@ export default function Navbar() {
       <header className="sticky top-0 z-40 glass border-b border-sand/40 shadow-sm">
         <nav className="mx-auto flex max-w-7xl items-center justify-between gap-2 sm:gap-3 px-3 py-2.5 sm:px-4 sm:py-3 lg:gap-4">
           <Link to="/" className="group flex min-w-0 items-center gap-2 sm:gap-2.5">
-            <div className="w-10 h-10 sm:w-11 sm:h-11 bg-[#0A0A0A] rounded-full flex items-center justify-center overflow-hidden shadow-sm shrink-0 border border-[#D4AF37]/50 group-hover:opacity-90 transition-opacity p-1">
+            <div className="w-10 h-10 sm:w-11 sm:h-11 bg-brand-black rounded-full flex items-center justify-center overflow-hidden shadow-sm shrink-0 border border-[#7daa8f]/50 group-hover:opacity-90 transition-opacity p-1">
               <img src={BRAND_ICON} alt={BRAND_EN} className="w-full h-full object-contain" />
             </div>
             <div className="flex min-w-0 flex-col leading-none">

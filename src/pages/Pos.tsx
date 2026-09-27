@@ -9,7 +9,8 @@ import {
   Edit2, AlertCircle, Check
 } from 'lucide-react'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
-import { useProductStore, useVariantStore, useAdminAuthStore, type Product } from '../store/store'
+import { neonApi } from '../lib/neonApi'
+import { useProductStore, useVariantStore, useAdminAuthStore, useSettingsStore, type Product } from '../store/store'
 import { useNavigationStore } from '../store/navigationStore'
 import { barcodeService } from '../services/barcodeService'
 import { normalizeBarcode } from '../lib/barcode'
@@ -144,6 +145,7 @@ export default function Pos(props: PosProps = {}) {
   const [items, setItems] = useState<PosItem[]>([])
   const [customer, setCustomer] = useState({ name: '', phone: '', address: '' })
   const [remarks, setRemarks] = useState('')
+  const [tailorName, setTailorName] = useState('')
   const [referenceNumber, setReferenceNumber] = useState('')
   const [billingDate, setBillingDate] = useState('') // '' = use current date/time
   const [paymentType, setPaymentType] = useState<'cash' | 'qr' | 'card'>('cash')
@@ -188,29 +190,40 @@ export default function Pos(props: PosProps = {}) {
     error: '',
   })
   const searchRef = useRef<HTMLInputElement>(null)
+  const gstDefaultAppliedRef = useRef(false)
+  const settings = useSettingsStore((state) => state.settings)
+
+  // Seed the bill's GST toggle from Settings > Billing & Inventory Thresholds
+  // ("Enable GST Billing in POS") once settings load — only ever the
+  // starting value for a new bill, never overrides a cashier's manual toggle.
+  useEffect(() => {
+    if (settings && !gstDefaultAppliedRef.current) {
+      gstDefaultAppliedRef.current = true
+      setBillGstEnabled(settings.gstEnabled)
+    }
+  }, [settings])
 
   useEffect(() => {
     void fetchProducts()
     void fetchVariants()
-    if (!isSupabaseConfigured) return
 
-    supabase.from('coupons').select('code').eq('is_active', true).order('created_at', { ascending: false }).limit(20)
+    neonApi.get<Array<{ code: string }>>('/coupons?active=true&limit=20')
       .then(({ data, error }) => {
         if (error) console.error('Failed to fetch coupons', error)
         else if (data) setAvailableCoupons(data)
       })
 
-    const productChannel = supabase.channel('pos-live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => void fetchProducts())
-      .subscribe()
-
     // Load active categories in sort_order
-    supabase.from('categories').select('name_en').eq('is_active', true).order('sort_order')
+    neonApi.get<Array<{ name_en: string }>>('/categories?active=true')
       .then(({ data }) => {
-        if (data) setDbCategories(data.map(c => c.name_en as string))
+        if (data) setDbCategories(data.map(c => c.name_en))
       })
 
-    return () => { void supabase.removeChannel(productChannel) }
+    // Neon has no Realtime service — poll for stock/catalog changes instead
+    // (e.g. another till or the admin dashboard editing a product).
+    const pollId = window.setInterval(() => { void fetchProducts(true) }, 20000)
+
+    return () => { window.clearInterval(pollId) }
   }, [fetchProducts, fetchVariants])
 
   // ── Derived data ──────────────────────────────────────────────────────
@@ -650,6 +663,7 @@ export default function Pos(props: PosProps = {}) {
     setError('')
     setShipping('0')
     setRemarks('')
+    setTailorName('')
     setReferenceNumber('')
     setBillingDate('')
     setBillGstEnabled(false)
@@ -669,17 +683,15 @@ export default function Pos(props: PosProps = {}) {
     setAppliedCoupon(null)
 
     try {
-      if (!isSupabaseConfigured) {
-        setCouponError('Coupon validation requires a live connection')
-        return
-      }
-
-      const { data, error: dbErr } = await supabase
-        .from('coupons')
-        .select('*')
-        .eq('is_active', true)
-        .ilike('code', code)
-        .single()
+      const { data, error: dbErr } = await neonApi.get<{
+        code: string
+        percentage: number
+        expiry_date: string | null
+        usage_limit: number | null
+        usage_count: number
+        min_order_value: number
+        discount?: number
+      }>(`/coupons/${encodeURIComponent(code)}`)
 
       if (dbErr || !data) {
         setCouponError('Invalid or expired coupon code')
@@ -828,7 +840,7 @@ export default function Pos(props: PosProps = {}) {
       const effectiveBillingDate = billingDate.trim()
         ? new Date(billingDate).toISOString()
         : new Date().toISOString()
-      const { error: updateErr } = await supabase.from('orders').update({
+      const { error: updateErr } = await neonApi.patch(`/orders/${created.orderId}`, {
         subtotal,
         total,
         total_gst: totalGst,
@@ -839,9 +851,10 @@ export default function Pos(props: PosProps = {}) {
         manual_discount_amount: manualDiscountAmount,
         delivery_charge: Number(shipping || 0),
         remarks: remarks.trim(),
+        tailor_name: tailorName.trim(),
         reference_number: referenceNumber.trim(),
         billing_date: effectiveBillingDate,
-      }).eq('id', created.orderId)
+      })
 
       if (updateErr) {
         console.warn('Post-order update warning:', updateErr)
@@ -849,11 +862,7 @@ export default function Pos(props: PosProps = {}) {
 
       // Explicit verification: confirm the order record actually exists in the database
       // before transitioning to the completed bill state or allowing WhatsApp link send
-      const { data: verifiedOrder, error: verifyErr } = await supabase
-        .from('orders')
-        .select('id, invoice_no')
-        .eq('id', created.orderId)
-        .maybeSingle()
+      const { data: verifiedOrder, error: verifyErr } = await neonApi.get<{ id: string; invoice_no: string }>(`/orders/${created.orderId}`)
 
       if (verifyErr || !verifiedOrder) {
         throw new Error(`Invoice confirmation failed: could not verify order #${created.invoiceNo} was saved in the database.`)
@@ -999,17 +1008,17 @@ export default function Pos(props: PosProps = {}) {
               <p className="text-xs text-textMuted mt-0.5">Transaction recorded and inventory updated</p>
             </div>
             <button onClick={clearAll}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#111111] hover:bg-[#3d4f3a] text-white font-bold text-sm shadow-sm cursor-pointer">
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-black hover:bg-[#1e2817] text-white font-bold text-sm shadow-sm cursor-pointer">
               <Plus size={15} /> New Sale
             </button>
           </div>
 
           {/* Bill Details Section */}
-          <div className="rounded-2xl border border-[#E8D399] bg-[#FBFAF6] p-4 shadow-sm">
+          <div className="rounded-2xl border border-[#ead7b7] bg-[#FBFAF6] p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-gray-200">
               <div className="flex items-center gap-2">
                 <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Bill Number:</span>
-                <span className="px-2.5 py-0.5 rounded-lg bg-[#0A0A0A] text-[#D4AF37] font-black text-xs font-mono">
+                <span className="px-2.5 py-0.5 rounded-lg bg-brand-black text-brand-onDark font-black text-xs font-mono">
                   #{formatInvoiceNo(invoice.invoiceNo)}
                 </span>
               </div>
@@ -1071,7 +1080,7 @@ export default function Pos(props: PosProps = {}) {
               <MessageCircle size={16} className="shrink-0" /> WhatsApp Invoice
             </button>
             <button onClick={clearAll}
-              className="flex flex-col md:flex-row items-center justify-center gap-2 py-3 px-2 rounded-xl bg-[#111111] hover:bg-[#3d4f3a] text-white font-bold text-[12px] md:text-sm transition-colors text-center leading-tight">
+              className="flex flex-col md:flex-row items-center justify-center gap-2 py-3 px-2 rounded-xl bg-brand-black hover:bg-[#1e2817] text-white font-bold text-[12px] md:text-sm transition-colors text-center leading-tight">
               <RefreshCw size={16} className="shrink-0" /> New Sale
             </button>
           </div>
@@ -1119,8 +1128,8 @@ export default function Pos(props: PosProps = {}) {
       {/* Header */}
       <div className="px-3 pt-3 pb-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 md:pb-4 shrink-0 flex flex-col gap-3 min-[480px]:flex-row min-[480px]:items-start min-[480px]:justify-between">
         <div className="min-w-0">
-          <h2 className="text-[18px] sm:text-[22px] md:text-[24px] font-black text-[#0A0A0A] flex items-center gap-2 leading-tight">
-            <div className="w-1.5 h-5 sm:h-6 bg-[#D4AF37] rounded-full shrink-0"></div>
+          <h2 className="text-[18px] sm:text-[22px] md:text-[24px] font-black text-brand-black flex items-center gap-2 leading-tight">
+            <div className="w-1.5 h-5 sm:h-6 bg-[#7daa8f] rounded-full shrink-0"></div>
             POS Billing Panel
           </h2>
           <p className="text-[11px] sm:text-[12px] text-gray-500 font-medium ml-3.5 mt-0.5 pr-2">Quick Invoice generator & database synced checkout</p>
@@ -1131,13 +1140,13 @@ export default function Pos(props: PosProps = {}) {
           <div className="grid grid-cols-2 bg-white rounded-xl border border-gray-200 p-1 shadow-sm flex-1 min-[480px]:flex-none">
             <button
               onClick={() => setOrdermode('offline')}
-              className={`min-h-[38px] sm:min-h-[42px] px-3 sm:px-4 py-1.5 rounded-lg text-[11px] font-black tracking-wider uppercase transition-colors ${ordermode === 'offline' ? 'bg-[#0A0A0A] text-[#D4AF37] shadow-sm' : 'text-[#374151] hover:bg-[#F9FAFB]'}`}
+              className={`min-h-[38px] sm:min-h-[42px] px-3 sm:px-4 py-1.5 rounded-lg text-[11px] font-black tracking-wider uppercase transition-colors ${ordermode === 'offline' ? 'bg-brand-black text-brand-onDark shadow-sm' : 'text-[#374151] hover:bg-[#F9FAFB]'}`}
             >
               Offline
             </button>
             <button
               onClick={() => setOrdermode('online')}
-              className={`min-h-[38px] sm:min-h-[42px] px-3 sm:px-4 py-1.5 rounded-lg text-[11px] font-black tracking-wider uppercase transition-colors ${ordermode === 'online' ? 'bg-[#0A0A0A] text-[#D4AF37] shadow-sm' : 'text-[#374151] hover:bg-[#F9FAFB]'}`}
+              className={`min-h-[38px] sm:min-h-[42px] px-3 sm:px-4 py-1.5 rounded-lg text-[11px] font-black tracking-wider uppercase transition-colors ${ordermode === 'online' ? 'bg-brand-black text-brand-onDark shadow-sm' : 'text-[#374151] hover:bg-[#F9FAFB]'}`}
             >
               Online
             </button>
@@ -1146,7 +1155,7 @@ export default function Pos(props: PosProps = {}) {
             <>
               <button
                 onClick={() => navigate('/dashboard')}
-                className="flex items-center justify-center min-h-[38px] sm:min-h-[42px] px-3 sm:px-4 rounded-xl bg-[#111111] text-white hover:bg-[#3d4f3a] transition-colors text-[11px] font-black tracking-wider uppercase"
+                className="flex items-center justify-center min-h-[38px] sm:min-h-[42px] px-3 sm:px-4 rounded-xl bg-brand-black text-white hover:bg-[#1e2817] transition-colors text-[11px] font-black tracking-wider uppercase"
               >
                 Dashboard
               </button>
@@ -1171,7 +1180,7 @@ export default function Pos(props: PosProps = {}) {
           {/* Customer Details Card */}
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-3.5 sm:p-4 md:p-5 shrink-0 min-w-0 max-w-full">
             <h3 className="text-[14px] sm:text-[15px] font-black text-[#111111] flex items-center gap-2 mb-3 sm:mb-4">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-[#D4AF37]"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-[#7daa8f]"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
               Customer Details
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 min-w-0">
@@ -1182,7 +1191,7 @@ export default function Pos(props: PosProps = {}) {
                   value={customer.name}
                   onChange={e => setCustomer({...customer, name: e.target.value})}
                   placeholder="Enter name"
-                  className="w-full min-w-0 max-w-full box-border h-10 sm:h-11 px-3 sm:px-4 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-[#D4AF37] text-[13px] font-bold text-[#111111] placeholder:text-gray-400 placeholder:font-medium"
+                  className="w-full min-w-0 max-w-full box-border h-10 sm:h-11 px-3 sm:px-4 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-[#7daa8f] text-[13px] font-bold text-[#111111] placeholder:text-gray-400 placeholder:font-medium"
                 />
               </div>
               <div className="min-w-0">
@@ -1192,7 +1201,7 @@ export default function Pos(props: PosProps = {}) {
                   value={customer.phone}
                   onChange={e => setCustomer({...customer, phone: e.target.value})}
                   placeholder="Enter WhatsApp number"
-                  className="w-full min-w-0 max-w-full box-border h-10 sm:h-11 px-3 sm:px-4 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-[#D4AF37] text-[13px] font-bold text-[#111111] placeholder:text-gray-400 placeholder:font-medium"
+                  className="w-full min-w-0 max-w-full box-border h-10 sm:h-11 px-3 sm:px-4 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-[#7daa8f] text-[13px] font-bold text-[#111111] placeholder:text-gray-400 placeholder:font-medium"
                 />
               </div>
               <div className="min-w-0">
@@ -1202,7 +1211,7 @@ export default function Pos(props: PosProps = {}) {
                   value={remarks}
                   onChange={e => setRemarks(e.target.value)}
                   placeholder="Optional remarks"
-                  className="w-full min-w-0 max-w-full box-border h-10 sm:h-11 px-3 sm:px-4 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-[#D4AF37] text-[13px] font-bold text-[#111111] placeholder:text-gray-400 placeholder:font-medium"
+                  className="w-full min-w-0 max-w-full box-border h-10 sm:h-11 px-3 sm:px-4 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-[#7daa8f] text-[13px] font-bold text-[#111111] placeholder:text-gray-400 placeholder:font-medium"
                 />
               </div>
               <div className="min-w-0">
@@ -1212,10 +1221,20 @@ export default function Pos(props: PosProps = {}) {
                   value={referenceNumber}
                   onChange={e => setReferenceNumber(e.target.value)}
                   placeholder="Optional ref no."
-                  className="w-full min-w-0 max-w-full box-border h-10 sm:h-11 px-3 sm:px-4 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-[#D4AF37] text-[13px] font-bold text-[#111111] placeholder:text-gray-400 placeholder:font-medium"
+                  className="w-full min-w-0 max-w-full box-border h-10 sm:h-11 px-3 sm:px-4 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-[#7daa8f] text-[13px] font-bold text-[#111111] placeholder:text-gray-400 placeholder:font-medium"
                 />
               </div>
-              <div className="min-w-0 md:col-span-2">
+              <div className="min-w-0">
+                <label className="block text-[11px] md:text-[10px] font-bold text-[#374151] mb-1">Tailor Name</label>
+                <input
+                  type="text"
+                  value={tailorName}
+                  onChange={e => setTailorName(e.target.value)}
+                  placeholder="Optional tailor name"
+                  className="w-full min-w-0 max-w-full box-border h-10 sm:h-11 px-3 sm:px-4 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-[#7daa8f] text-[13px] font-bold text-[#111111] placeholder:text-gray-400 placeholder:font-medium"
+                />
+              </div>
+              <div className="min-w-0">
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-[11px] md:text-[10px] font-bold text-[#374151]">Billing Date (Optional)</label>
                   {billingDate && (
@@ -1233,7 +1252,7 @@ export default function Pos(props: PosProps = {}) {
                   type="datetime-local"
                   value={billingDate}
                   onChange={e => setBillingDate(e.target.value)}
-                  className="block w-full min-w-0 max-w-full box-border h-10 sm:h-11 px-3 sm:px-4 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-[#D4AF37] text-[13px] font-bold text-[#111111]"
+                  className="block w-full min-w-0 max-w-full box-border h-10 sm:h-11 px-3 sm:px-4 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-[#7daa8f] text-[13px] font-bold text-[#111111]"
                   style={{ maxWidth: '100%', boxSizing: 'border-box' }}
                 />
                 <p className="mt-1 text-[10px] text-gray-400 font-medium">Leave blank to use today's date &amp; time</p>
@@ -1242,12 +1261,12 @@ export default function Pos(props: PosProps = {}) {
           </div>
 
           {/* Order Items Card */}
-          <div className="bg-white rounded-2xl border border-[#E8D399] shadow-sm flex-1 flex flex-col min-h-[400px]">
+          <div className="bg-white rounded-2xl border border-[#ead7b7] shadow-sm flex-1 flex flex-col min-h-[400px]">
             {/* Card Header & Barcode Scanner */}
-            <div className="flex flex-col gap-3 p-4 md:p-5 border-b border-[#E8D399]">
+            <div className="flex flex-col gap-3 p-4 md:p-5 border-b border-[#ead7b7]">
               <div className="flex items-center justify-between">
-                <h3 className="text-[18px] md:text-[14px] font-black text-[#0A0A0A] flex items-center gap-2">
-                  <Receipt size={16} className="text-[#D4AF37]" />
+                <h3 className="text-[18px] md:text-[14px] font-black text-brand-black flex items-center gap-2">
+                  <Receipt size={16} className="text-[#7daa8f]" />
                   Order Items ({items.length})
                 </h3>
               </div>
@@ -1273,9 +1292,9 @@ export default function Pos(props: PosProps = {}) {
                 <button
                   type="button"
                   onClick={() => setCatalogOpen(true)}
-                  className="inline-flex items-center gap-1.5 h-8 px-3 sm:px-3.5 text-[11px] font-bold rounded-lg bg-[#0A0A0A] text-[#D4AF37] hover:bg-[#1A1A1A] border border-[#D4AF37] shadow-xs transition-all shrink-0 cursor-pointer"
+                  className="inline-flex items-center gap-1.5 h-8 px-3 sm:px-3.5 text-[11px] font-bold rounded-lg bg-brand-black text-brand-onDark hover:bg-[#1e2817] border border-[#7daa8f] shadow-xs transition-all shrink-0 cursor-pointer"
                 >
-                  <Search className="w-3.5 h-3.5 text-[#D4AF37]" />
+                  <Search className="w-3.5 h-3.5 text-brand-onDark" />
                   <span className="tracking-wide">Search Catalog</span>
                 </button>
 
@@ -1310,7 +1329,7 @@ export default function Pos(props: PosProps = {}) {
 
               {items.map(item => (
                 <div key={item.id}>
-                  <div className="md:hidden bg-white border border-gray-200/90 rounded-2xl p-3.5 shadow-sm hover:border-[#D4AF37]/50 transition-all space-y-3">
+                  <div className="md:hidden bg-white border border-gray-200/90 rounded-2xl p-3.5 shadow-sm hover:border-[#7daa8f]/50 transition-all space-y-3">
                     {/* Header Row: Product Name + Trash Delete */}
                     <div className="flex items-start justify-between gap-2.5">
                       <div className="min-w-0 flex-1">
@@ -1320,7 +1339,7 @@ export default function Pos(props: PosProps = {}) {
                             value={item.name}
                             onChange={e => updateItem(item.id, 'name', e.target.value)}
                             placeholder="Enter item name..."
-                            className="w-full px-3 py-1.5 bg-[#FAFAFA] border border-gray-200 rounded-xl text-[14px] font-bold text-[#111111] focus:outline-none focus:border-[#D4AF37]"
+                            className="w-full px-3 py-1.5 bg-[#FAFAFA] border border-gray-200 rounded-xl text-[14px] font-bold text-[#111111] focus:outline-none focus:border-[#7daa8f]"
                           />
                         ) : (
                           <div>
@@ -1328,7 +1347,7 @@ export default function Pos(props: PosProps = {}) {
                               {item.name}
                             </h4>
                             {item.variantName && (
-                              <span className="inline-block mt-0.5 text-[10.5px] font-semibold text-[#B48811] bg-[#FBFAF6] border border-[#E8D399]/60 px-1.5 py-0.5 rounded">
+                              <span className="inline-block mt-0.5 text-[10.5px] font-semibold text-[#5f6d59] bg-[#FBFAF6] border border-[#ead7b7]/60 px-1.5 py-0.5 rounded">
                                 {item.variantName}
                               </span>
                             )}
@@ -1339,14 +1358,14 @@ export default function Pos(props: PosProps = {}) {
                           <button
                             type="button"
                             onClick={() => handleOpenPriceEdit(item)}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#FBF9F4] hover:bg-[#F5EEDB] border border-[#E8D399]/70 hover:border-[#D4AF37] text-[12px] text-[#374151] transition-all cursor-pointer active:scale-95"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#FBF9F4] hover:bg-[#F5EEDB] border border-[#ead7b7]/70 hover:border-[#7daa8f] text-[12px] text-[#374151] transition-all cursor-pointer active:scale-95"
                             title="Tap to change unit price"
                           >
                             <span className="text-gray-500 font-medium">Rate:</span>
                             <span className="font-bold text-[#111111]">
                               ₹{Number(item.basePrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                             </span>
-                            <Edit2 size={11} className="text-[#B48811]" />
+                            <Edit2 size={11} className="text-[#5f6d59]" />
                           </button>
                         </div>
                       </div>
@@ -1390,14 +1409,14 @@ export default function Pos(props: PosProps = {}) {
                       {/* Line Total */}
                       <div className="text-right">
                         <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Total</span>
-                        <span className="text-[17px] font-black text-[#0A0A0A] leading-tight block">
+                        <span className="text-[17px] font-black text-brand-black leading-tight block">
                           {formatCurrency(item.lineTotal)}
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="hidden md:grid grid-cols-[1fr_100px_120px_40px] items-center gap-3 p-2 bg-white border border-gray-200 rounded-xl hover:border-[#D4AF37]/50 transition-colors">
+                  <div className="hidden md:grid grid-cols-[1fr_100px_120px_40px] items-center gap-3 p-2 bg-white border border-gray-200 rounded-xl hover:border-[#7daa8f]/50 transition-colors">
                     {/* Item Name */}
                     <div className="min-w-0 flex items-center gap-2">
                       {item.source === 'manual' ? (
@@ -1406,7 +1425,7 @@ export default function Pos(props: PosProps = {}) {
                           value={item.name}
                           onChange={e => updateItem(item.id, 'name', e.target.value)}
                           placeholder="Item name"
-                          className="w-full px-3 py-2 bg-[#FAFAFA] border border-gray-200 rounded-lg text-[13px] font-bold text-[#111111] focus:outline-none focus:border-[#D4AF37]"
+                          className="w-full px-3 py-2 bg-[#FAFAFA] border border-gray-200 rounded-lg text-[13px] font-bold text-[#111111] focus:outline-none focus:border-[#7daa8f]"
                         />
                       ) : (
                         <div className="px-3 py-2 w-full truncate border border-transparent flex items-center gap-2">
@@ -1414,7 +1433,7 @@ export default function Pos(props: PosProps = {}) {
                         </div>
                       )}
                       {item.source !== 'manual' && (
-                        <span className="hidden sm:inline-flex px-2 py-0.5 rounded border border-[#D4AF37]/30 text-[#B48811] text-[9px] font-black tracking-wider uppercase shrink-0 bg-[#D4AF37]/10">
+                        <span className="hidden sm:inline-flex px-2 py-0.5 rounded border border-[#7daa8f]/30 text-[#5f6d59] text-[9px] font-black tracking-wider uppercase shrink-0 bg-[#7daa8f]/10">
                           CATALOG
                         </span>
                       )}
@@ -1425,13 +1444,13 @@ export default function Pos(props: PosProps = {}) {
                       <button
                         type="button"
                         onClick={() => handleOpenPriceEdit(item)}
-                        className="group flex items-center justify-end gap-1.5 px-2.5 py-1.5 rounded-lg border border-transparent hover:border-[#D4AF37]/50 hover:bg-[#D4AF37]/10 transition-all text-right cursor-pointer"
+                        className="group flex items-center justify-end gap-1.5 px-2.5 py-1.5 rounded-lg border border-transparent hover:border-[#7daa8f]/50 hover:bg-[#7daa8f]/10 transition-all text-right cursor-pointer"
                         title="Click to edit price"
                       >
-                        <span className="text-[13px] font-black text-[#111111] group-hover:text-[#B48811] tracking-tight">
+                        <span className="text-[13px] font-black text-[#111111] group-hover:text-[#5f6d59] tracking-tight">
                           ₹{Number(item.basePrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                         </span>
-                        <Edit2 size={12} className="text-gray-400 group-hover:text-[#B48811] transition-colors shrink-0" />
+                        <Edit2 size={12} className="text-gray-400 group-hover:text-[#5f6d59] transition-colors shrink-0" />
                       </button>
                     </div>
 
@@ -1469,11 +1488,11 @@ export default function Pos(props: PosProps = {}) {
             {/* Header */}
             <div className="flex items-center justify-between p-3 border-b border-gray-200 bg-white shrink-0">
               <h3 className="text-[18px] md:text-[14px] font-black text-[#111111] flex items-center gap-2">
-                <Receipt size={16} className="text-[#D4AF37]" />
+                <Receipt size={16} className="text-[#7daa8f]" />
                 Current Order
               </h3>
-              <span className={`px-2 py-1 rounded-full border text-[9px] font-black tracking-wider uppercase flex items-center gap-1.5 ${ordermode === 'offline' ? 'border-[#0A0A0A] text-[#0A0A0A] bg-gray-100' : 'border-[#D4AF37] text-[#B48811] bg-amber-50'}`}>
-                <div className={`w-1.5 h-1.5 rounded-full ${ordermode === 'offline' ? 'bg-[#0A0A0A]' : 'bg-[#D4AF37]'}`}></div>
+              <span className={`px-2 py-1 rounded-full border text-[9px] font-black tracking-wider uppercase flex items-center gap-1.5 ${ordermode === 'offline' ? 'border-brand-black text-brand-black bg-gray-100' : 'border-[#7daa8f] text-[#5f6d59] bg-amber-50'}`}>
+                <div className={`w-1.5 h-1.5 rounded-full ${ordermode === 'offline' ? 'bg-brand-black' : 'bg-[#7daa8f]'}`}></div>
                 {ordermode} (POS)
               </span>
             </div>
@@ -1485,7 +1504,7 @@ export default function Pos(props: PosProps = {}) {
               <div className="border border-gray-200 rounded-xl overflow-hidden text-[11px] font-bold">
                 <div className="flex justify-between px-3 py-2 border-b border-gray-200 bg-[#FAFAFA]">
                   <span className="text-[#374151] uppercase">Source</span>
-                  <span className="text-[#0A0A0A] border border-gray-300 bg-gray-100 px-1.5 rounded uppercase">{ordermode.toUpperCase()}</span>
+                  <span className="text-brand-black border border-gray-300 bg-gray-100 px-1.5 rounded uppercase">{ordermode.toUpperCase()}</span>
                 </div>
                 <div className="grid grid-cols-2 gap-0 border-b border-gray-200">
                   <div className="p-2 border-r border-gray-200">
@@ -1495,7 +1514,7 @@ export default function Pos(props: PosProps = {}) {
                       value={customer.name}
                       onChange={e => setCustomer({...customer, name: e.target.value})}
                       placeholder="Enter name"
-                      className="w-full h-8 px-2 bg-white border border-gray-200 rounded-lg text-[12px] font-bold text-[#111111] focus:outline-none focus:border-[#D4AF37]"
+                      className="w-full h-8 px-2 bg-white border border-gray-200 rounded-lg text-[12px] font-bold text-[#111111] focus:outline-none focus:border-[#7daa8f]"
                     />
                   </div>
                   <div className="p-2">
@@ -1505,7 +1524,7 @@ export default function Pos(props: PosProps = {}) {
                       value={customer.phone}
                       onChange={e => setCustomer({...customer, phone: e.target.value})}
                       placeholder="Enter WhatsApp number"
-                      className={`w-full h-8 px-2 bg-white border rounded-lg text-[12px] font-bold text-[#111111] focus:outline-none ${customer.phone && !normalizePhone(customer.phone) ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-[#D4AF37]'}`}
+                      className={`w-full h-8 px-2 bg-white border rounded-lg text-[12px] font-bold text-[#111111] focus:outline-none ${customer.phone && !normalizePhone(customer.phone) ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-[#7daa8f]'}`}
                     />
                   </div>
                 </div>
@@ -1538,7 +1557,7 @@ export default function Pos(props: PosProps = {}) {
                     placeholder="Enter code"
                     disabled={appliedCoupon !== null}
                     list="pos-coupons"
-                    className="w-full h-9 px-3 bg-white border border-gray-200 rounded-xl text-[12px] font-bold text-[#111111] focus:outline-none focus:border-[#D4AF37] uppercase disabled:bg-gray-100"
+                    className="w-full h-9 px-3 bg-white border border-gray-200 rounded-xl text-[12px] font-bold text-[#111111] focus:outline-none focus:border-[#7daa8f] uppercase disabled:bg-gray-100"
                   />
                   <datalist id="pos-coupons">
                     {availableCoupons.map(c => (
@@ -1556,7 +1575,7 @@ export default function Pos(props: PosProps = {}) {
                     <button
                       onClick={() => void applyCoupon()}
                       disabled={couponLoading || !couponInput.trim()}
-                      className="h-9 px-3 bg-[#0A0A0A] text-[#D4AF37] border border-[#D4AF37] hover:bg-[#1A1A1A] rounded-xl text-[11px] font-black transition-colors disabled:opacity-50 shrink-0"
+                      className="h-9 px-3 bg-brand-black text-brand-onDark border border-[#7daa8f] hover:bg-[#1e2817] rounded-xl text-[11px] font-black transition-colors disabled:opacity-50 shrink-0"
                     >
                       Apply
                     </button>
@@ -1576,7 +1595,7 @@ export default function Pos(props: PosProps = {}) {
                     <select
                       value={manualDiscountType}
                       onChange={e => setManualDiscountType(e.target.value as 'flat'|'percent')}
-                      className="appearance-none h-9 bg-white border border-gray-200 rounded-xl pl-2 pr-7 text-[12px] font-black text-[#111111] focus:outline-none focus:border-[#D4AF37]"
+                      className="appearance-none h-9 bg-white border border-gray-200 rounded-xl pl-2 pr-7 text-[12px] font-black text-[#111111] focus:outline-none focus:border-[#7daa8f]"
                     >
                       <option value="flat">₹</option>
                       <option value="percent">%</option>
@@ -1588,7 +1607,7 @@ export default function Pos(props: PosProps = {}) {
                     value={manualDiscountValue}
                     onChange={e => setManualDiscountValue(e.target.value)}
                     placeholder="0"
-                    className="w-full h-9 px-3 bg-white border border-gray-200 rounded-xl text-[12px] font-black text-[#111111] text-right focus:outline-none focus:border-[#D4AF37]"
+                    className="w-full h-9 px-3 bg-white border border-gray-200 rounded-xl text-[12px] font-black text-[#111111] text-right focus:outline-none focus:border-[#7daa8f]"
                   />
                 </div>
               </div>
@@ -1599,7 +1618,7 @@ export default function Pos(props: PosProps = {}) {
                 <button
                   type="button"
                   onClick={() => setBillGstEnabled(!billGstEnabled)}
-                  className={`w-9 h-5 rounded-full p-0.5 transition-colors ${billGstEnabled ? 'bg-[#0A0A0A]' : 'bg-gray-200'}`}
+                  className={`w-9 h-5 rounded-full p-0.5 transition-colors ${billGstEnabled ? 'bg-brand-black' : 'bg-gray-200'}`}
                 >
                   <div className={`w-4 h-4 rounded-full bg-white transition-transform ${billGstEnabled ? 'translate-x-4' : 'translate-x-0'}`}></div>
                 </button>
@@ -1611,7 +1630,7 @@ export default function Pos(props: PosProps = {}) {
                     <select
                       value={gstType}
                       onChange={e => setGstType(e.target.value as 'flat'|'percent')}
-                      className="appearance-none h-9 bg-white border border-gray-200 rounded-xl pl-2 pr-7 text-[12px] font-black text-[#111111] focus:outline-none focus:border-[#D4AF37]"
+                      className="appearance-none h-9 bg-white border border-gray-200 rounded-xl pl-2 pr-7 text-[12px] font-black text-[#111111] focus:outline-none focus:border-[#7daa8f]"
                     >
                       <option value="percent">%</option>
                       <option value="flat">₹</option>
@@ -1623,7 +1642,7 @@ export default function Pos(props: PosProps = {}) {
                     value={gstInput}
                     onChange={e => setGstInput(e.target.value)}
                     placeholder={gstType === 'percent' ? "e.g. 6" : "0"}
-                    className="w-full h-9 px-3 bg-white border border-gray-200 rounded-xl text-[12px] font-black text-[#111111] text-right focus:outline-none focus:border-[#D4AF37]"
+                    className="w-full h-9 px-3 bg-white border border-gray-200 rounded-xl text-[12px] font-black text-[#111111] text-right focus:outline-none focus:border-[#7daa8f]"
                   />
                 </div>
               )}
@@ -1648,7 +1667,7 @@ export default function Pos(props: PosProps = {}) {
                     type="number" onWheel={(e) => (e.target as HTMLInputElement).blur()}
                     value={shipping}
                     onChange={e => setShipping(e.target.value)}
-                    className="w-20 h-8 px-2 bg-white border border-gray-200 rounded-lg text-[12px] font-black text-[#111111] text-right focus:outline-none focus:border-[#D4AF37]"
+                    className="w-20 h-8 px-2 bg-white border border-gray-200 rounded-lg text-[12px] font-black text-[#111111] text-right focus:outline-none focus:border-[#7daa8f]"
                   />
                 </div>
 
@@ -1657,7 +1676,7 @@ export default function Pos(props: PosProps = {}) {
                 {/* Grand Total */}
                 <div className="flex items-center justify-between pt-0.5">
                   <span className="text-[12px] font-black text-[#111111] uppercase tracking-wider">Grand Total</span>
-                  <span className="text-[20px] font-black text-[#0A0A0A] tracking-tight">{formatCurrency(total)}</span>
+                  <span className="text-[20px] font-black text-brand-black tracking-tight">{formatCurrency(total)}</span>
                 </div>
               </div>
 
@@ -1672,7 +1691,7 @@ export default function Pos(props: PosProps = {}) {
                       onClick={() => setPaymentType(mode)}
                       className={`py-2 rounded-xl text-[11px] font-black uppercase tracking-wide border-2 transition-colors ${
                         paymentType === mode
-                          ? 'bg-[#0A0A0A] text-[#D4AF37] border-[#0A0A0A]'
+                          ? 'bg-brand-black text-brand-onDark border-brand-black'
                           : 'bg-white text-[#374151] border-gray-200 hover:border-gray-300'
                       }`}
                     >
@@ -1694,7 +1713,7 @@ export default function Pos(props: PosProps = {}) {
                     value={cashReceived}
                     onChange={e => setCashReceived(e.target.value)}
                     placeholder="0.00"
-                    className="w-full h-9 px-3 bg-[#FAFAFA] border border-gray-200 rounded-xl text-[13px] font-black text-[#111111] focus:outline-none focus:border-[#D4AF37]"
+                    className="w-full h-9 px-3 bg-[#FAFAFA] border border-gray-200 rounded-xl text-[13px] font-black text-[#111111] focus:outline-none focus:border-[#7daa8f]"
                   />
                   {cashReceivedNum > 0 && (
                     <div className="mt-2 flex justify-between items-center bg-[#F9FAFB] px-3 py-1.5 rounded-lg border border-gray-200">
@@ -1720,7 +1739,7 @@ export default function Pos(props: PosProps = {}) {
                   type="button"
                   onClick={openDepositOrder}
                   disabled={saving || items.length === 0}
-                  className="min-h-[44px] rounded-xl border-2 border-[#0A0A0A] bg-white px-3 py-3 text-[12px] font-black uppercase tracking-wide text-[#0A0A0A] transition-colors hover:bg-[#0A0A0A] hover:text-[#D4AF37] disabled:opacity-40 cursor-pointer"
+                  className="min-h-[44px] rounded-xl border-2 border-brand-black bg-white px-3 py-3 text-[12px] font-black uppercase tracking-wide text-brand-black transition-colors hover:bg-brand-black hover:text-brand-onDark disabled:opacity-40 cursor-pointer"
                 >
                   Save as Deposit Order
                 </button>
@@ -1778,7 +1797,7 @@ export default function Pos(props: PosProps = {}) {
             <h3 className="mt-1 text-2xl font-black text-[#111111]">{depositCreated.deposit_id}</h3>
             <p className="mt-2 text-sm text-[#6B7280]">Deposit {formatCurrency(depositCreated.deposit_amount)} · Balance {formatCurrency(depositCreated.remaining_balance)}</p>
             <div className="mt-5 grid grid-cols-2 gap-2"><button onClick={() => printAdvanceReceipt(depositCreated)} className="rounded-xl border border-violet-200 py-3 text-sm font-black text-violet-700"><Printer size={16} className="mr-1 inline"/>Print Receipt</button><button onClick={() => { const msg = buildAdvanceDepositWhatsAppMessage({ customerName: depositCreated.customer_name, depositId: depositCreated.deposit_id, productName: depositCreated.product_name, totalAmount: depositCreated.total_amount, depositAmount: depositCreated.deposit_amount, remainingBalance: depositCreated.remaining_balance, expectedDeliveryDate: depositCreated.expected_delivery_date }); window.open(toWhatsAppUrl(depositCreated.phone, msg), '_blank', 'noopener,noreferrer') }} className="rounded-xl bg-[#25D366] py-3 text-sm font-black text-white"><MessageCircle size={16} className="mr-1 inline -mt-0.5"/>WhatsApp</button></div>
-            <button onClick={() => { setDepositCreated(null); searchRef.current?.focus() }} className="mt-3 w-full rounded-xl bg-[#111111] py-3 text-sm font-black text-white">Start New Order</button>
+            <button onClick={() => { setDepositCreated(null); searchRef.current?.focus() }} className="mt-3 w-full rounded-xl bg-brand-black py-3 text-sm font-black text-white">Start New Order</button>
           </div>
         </div>
       )}
@@ -1805,10 +1824,10 @@ export default function Pos(props: PosProps = {}) {
       {/* Variant Picker Modal for Multi-Variant Products */}
       {variantPickerProduct && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full border border-[#E8D399] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-3xl max-w-md w-full border border-[#ead7b7] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150">
             <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-[#FBFAF6]">
               <div>
-                <h3 className="text-sm font-black uppercase tracking-wider text-[#0A0A0A]">
+                <h3 className="text-sm font-black uppercase tracking-wider text-brand-black">
                   Select Variant / Size
                 </h3>
                 <p className="text-xs text-gray-500 font-bold">
@@ -1839,7 +1858,7 @@ export default function Pos(props: PosProps = {}) {
                       onClick={() => setSelectedVariant(v)}
                       className={`p-3 rounded-2xl border-2 cursor-pointer transition-all flex flex-col justify-between ${
                         selectedVariant?.id === v.id
-                          ? 'border-[#0A0A0A] bg-[#FFF9E6] shadow-xs'
+                          ? 'border-brand-black bg-[#FFF9E6] shadow-xs'
                           : 'border-gray-200 bg-white hover:border-gray-300'
                       }`}
                     >
@@ -1883,7 +1902,7 @@ export default function Pos(props: PosProps = {}) {
               <button
                 type="button"
                 onClick={addVariantToItems}
-                className="w-full py-3 rounded-2xl bg-[#0A0A0A] border border-[#D4AF37] text-[#D4AF37] text-xs font-black uppercase tracking-wider hover:bg-[#1A1A1A] transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-3 rounded-2xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
               >
                 Add to Order (₹{((selectedVariant?.price || variantPickerProduct.price || 0) * variantPickerQty).toFixed(2)})
               </button>
@@ -1898,7 +1917,7 @@ export default function Pos(props: PosProps = {}) {
           <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-amber-50/50 to-white">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-[#D4AF37]/10 flex items-center justify-center text-[#B48811]">
+                <div className="w-8 h-8 rounded-lg bg-[#7daa8f]/10 flex items-center justify-center text-[#5f6d59]">
                   <Edit2 size={16} />
                 </div>
                 <div>
@@ -1941,7 +1960,7 @@ export default function Pos(props: PosProps = {}) {
                         void handleSavePrice(false)
                       }
                     }}
-                    className="w-full h-12 pl-8 pr-4 bg-gray-50 border-2 border-gray-200 rounded-xl text-lg font-black text-gray-900 focus:outline-none focus:border-[#D4AF37] focus:bg-white transition-all"
+                    className="w-full h-12 pl-8 pr-4 bg-gray-50 border-2 border-gray-200 rounded-xl text-lg font-black text-gray-900 focus:outline-none focus:border-[#7daa8f] focus:bg-white transition-all"
                   />
                 </div>
                 {priceEditModal.error && (
@@ -1951,7 +1970,7 @@ export default function Pos(props: PosProps = {}) {
 
               <div className="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200/60 text-xs text-amber-900 space-y-1">
                 <p className="font-bold flex items-center gap-1.5 text-amber-800">
-                  <AlertCircle size={14} className="shrink-0 text-[#B48811]" />
+                  <AlertCircle size={14} className="shrink-0 text-[#5f6d59]" />
                   Do you want to update this price in inventory also?
                 </p>
                 <p className="text-[11px] text-amber-700/90 pl-5 leading-relaxed">
@@ -1964,7 +1983,7 @@ export default function Pos(props: PosProps = {}) {
                   type="button"
                   disabled={priceEditModal.isSubmitting}
                   onClick={() => void handleSavePrice(true)}
-                  className="h-11 px-3 bg-[#0A0A0A] hover:bg-[#1A1A1A] text-[#D4AF37] border border-[#D4AF37] font-bold text-xs rounded-xl shadow-sm hover:shadow transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                  className="h-11 px-3 bg-brand-black hover:bg-[#1e2817] text-brand-onDark border border-[#7daa8f] font-bold text-xs rounded-xl shadow-sm hover:shadow transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
                 >
                   {priceEditModal.isSubmitting ? (
                     <RefreshCw size={14} className="animate-spin" />

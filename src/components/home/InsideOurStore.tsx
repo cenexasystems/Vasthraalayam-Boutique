@@ -32,7 +32,7 @@ export default function InsideOurStore() {
           viewport={{ once: true }}
           transition={{ duration: 0.55, ease: EASE }}
         >
-          <p className="text-[10px] font-black uppercase tracking-[0.26em] text-[#D4AF37] mb-3">
+          <p className="text-[10px] font-black uppercase tracking-[0.26em] text-[#7daa8f] mb-3">
             A Glimpse of Our Tradition
           </p>
           <h2 className="text-[2rem] sm:text-[2.6rem] font-black text-[#111111] tracking-tight leading-[1.05] mb-4">
@@ -54,7 +54,7 @@ export default function InsideOurStore() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.5, ease: EASE }}
-              className="hidden lg:block text-[10px] font-black uppercase tracking-[0.26em] text-[#D4AF37] mb-4"
+              className="hidden lg:block text-[10px] font-black uppercase tracking-[0.26em] text-[#7daa8f] mb-4"
             >
               A Glimpse of Our Tradition
             </motion.p>

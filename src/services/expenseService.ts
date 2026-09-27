@@ -509,7 +509,7 @@ export function exportExpensesToCSV(expenses: ExpenseRecord[]): void {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.setAttribute('download', `CHAJI-Expenses-${new Date().toISOString().slice(0, 10)}.csv`)
+  link.setAttribute('download', `VASTHRAALAYAM-Expenses-${new Date().toISOString().slice(0, 10)}.csv`)
   link.style.display = 'none'
   document.body.appendChild(link)
   link.click()

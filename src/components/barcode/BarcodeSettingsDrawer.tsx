@@ -79,7 +79,7 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
           <div className="absolute inset-0" onClick={onClose} />
           <div className="relative z-10 w-full max-w-sm bg-white h-screen h-[100dvh] shadow-2xl flex flex-col border-l border-gray-200 animate-in slide-in-from-right duration-200">
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 bg-[#0A0A0A] text-white shrink-0">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 bg-brand-black text-white shrink-0">
             <h3 className="text-sm font-black tracking-wide text-white">Barcode Settings</h3>
             <button
               type="button"
@@ -109,7 +109,7 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
                     name="printerType"
                     checked={settings.printerType === 'label'}
                     onChange={() => handlePrinterChange('label')}
-                    className="accent-[#0A0A0A] w-4 h-4 cursor-pointer"
+                    className="accent-brand-black w-4 h-4 cursor-pointer"
                   />
                   Label Printer (Thermal)
                 </label>
@@ -119,7 +119,7 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
                     name="printerType"
                     checked={settings.printerType === 'regular'}
                     onChange={() => handlePrinterChange('regular')}
-                    className="accent-[#0A0A0A] w-4 h-4 cursor-pointer"
+                    className="accent-brand-black w-4 h-4 cursor-pointer"
                   />
                   Regular Printer (A4 Sheet)
                 </label>
@@ -148,12 +148,12 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
                         name="labelSize"
                         checked={settings.selectedSizeId === size.id}
                         onChange={() => handleSizeChange(size.id)}
-                        className="accent-[#0A0A0A] w-4 h-4 cursor-pointer"
+                        className="accent-brand-black w-4 h-4 cursor-pointer"
                       />
                       <span>{size.name}</span>
                     </div>
                     {size.isCustom && (
-                      <span className="text-[9px] font-black uppercase tracking-wider bg-[#0A0A0A] text-[#D4AF37] px-1.5 py-0.5 rounded">
+                      <span className="text-[9px] font-black uppercase tracking-wider bg-brand-black text-brand-onDark px-1.5 py-0.5 rounded">
                         Custom
                       </span>
                     )}
@@ -184,7 +184,7 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
                     type="checkbox"
                     checked={settings.showSalePrice}
                     onChange={() => handleFieldToggle('showSalePrice')}
-                    className="accent-[#0A0A0A] w-4 h-4 rounded cursor-pointer"
+                    className="accent-brand-black w-4 h-4 rounded cursor-pointer"
                   />
                   Sale Price (₹)
                 </label>
@@ -193,16 +193,16 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
                     type="checkbox"
                     checked={settings.showCompanyName}
                     onChange={() => handleFieldToggle('showCompanyName')}
-                    className="accent-[#0A0A0A] w-4 h-4 rounded cursor-pointer"
+                    className="accent-brand-black w-4 h-4 rounded cursor-pointer"
                   />
-                  Company Name (CHAJI)
+                  Company Name (VASTHRAALAYAM)
                 </label>
                 <label className="flex items-center gap-2.5 text-xs font-bold text-gray-700 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={settings.showItemName}
                     onChange={() => handleFieldToggle('showItemName')}
-                    className="accent-[#0A0A0A] w-4 h-4 rounded cursor-pointer"
+                    className="accent-brand-black w-4 h-4 rounded cursor-pointer"
                   />
                   Item Name
                 </label>
@@ -211,7 +211,7 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
                     type="checkbox"
                     checked={settings.showDiscount}
                     onChange={() => handleFieldToggle('showDiscount')}
-                    className="accent-[#0A0A0A] w-4 h-4 rounded cursor-pointer"
+                    className="accent-brand-black w-4 h-4 rounded cursor-pointer"
                   />
                   Discount / MRP
                 </label>
@@ -224,7 +224,7 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="w-full py-2.5 rounded-xl bg-[#0A0A0A] text-[#D4AF37] border border-[#D4AF37] font-black text-xs uppercase tracking-wider hover:bg-[#1A1A1A] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
+              className="w-full py-2.5 rounded-xl bg-brand-black text-brand-onDark border border-[#7daa8f] font-black text-xs uppercase tracking-wider hover:bg-[#1e2817] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
             >
               <Check size={14} /> Done
             </button>

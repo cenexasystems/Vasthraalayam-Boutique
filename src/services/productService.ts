@@ -1,29 +1,13 @@
-import { supabase } from '../lib/supabase'
+import { neonApi } from '../lib/neonApi'
 
-/**
- * Explicit column list — avoids transferring large unused columns (description,
- * benefits, images) on every fetch while keeping all fields the app actually reads.
- */
-const PRODUCT_COLUMNS = [
-  'id', 'name', 'name_ta', 'tamil_name', 'category', 'category_id',
-  'remedy', 'price', 'offer_price', 'unit_type', 'unit_label',
-  'base_quantity', 'stock_quantity', 'stock_unit', 'allow_decimal_quantity',
-  'predefined_options', 'is_active', 'sort_order', 'unit', 'rating',
-  'description', 'description_ta', 'benefits', 'benefits_ta',
-  'image_url', 'image', 'has_variants', 'barcode', 'sku',
-].join(', ')
+// Products/categories now live in Neon (Phase 1 + this Dashboard-CRUD pass) — see neon/README.md.
 
 export function fetchAllCategories() {
-  return supabase
-    .from('categories')
-    .select('id, name_en')
+  return neonApi.get<Array<{ id: number; name_en: string }>>('/categories')
 }
 
 export function fetchAllProducts() {
-  return supabase
-    .from('products')
-    .select(PRODUCT_COLUMNS)
-    .order('sort_order', { ascending: true })
+  return neonApi.get<Array<Record<string, unknown>>>('/products')
 }
 
 export async function updateItemPrice(params: {
@@ -34,33 +18,14 @@ export async function updateItemPrice(params: {
 }): Promise<void> {
   if (params.newPrice < 0) throw new Error('Price cannot be negative')
 
-  if (params.entityType === 'variant') {
-    const updatePayload: Record<string, unknown> = {
-      price: params.newPrice,
-      updated_at: new Date().toISOString(),
-    }
-    if (params.newCostPrice !== undefined && params.newCostPrice >= 0) {
-      updatePayload.purchase_price = params.newCostPrice
-    }
-    const { error } = await supabase
-      .from('product_variants')
-      .update(updatePayload)
-      .eq('id', params.id)
-    if (error) throw error
-  } else {
-    const updatePayload: Record<string, unknown> = {
-      price: params.newPrice,
-      updated_at: new Date().toISOString(),
-    }
-    if (params.newCostPrice !== undefined && params.newCostPrice >= 0) {
-      updatePayload.purchase_price = params.newCostPrice
-    }
-    const { error } = await supabase
-      .from('products')
-      .update(updatePayload)
-      .eq('id', params.id)
-    if (error) throw error
+  const updatePayload: Record<string, unknown> = { price: params.newPrice }
+  if (params.newCostPrice !== undefined && params.newCostPrice >= 0) {
+    updatePayload.purchase_price = params.newCostPrice
   }
+
+  const path = params.entityType === 'variant' ? `/variants/${params.id}` : `/products/${params.id}`
+  const { error } = await neonApi.put(path, updatePayload)
+  if (error) throw error
 }
 
 export async function getOrCreateUnregisteredProduct(
@@ -69,46 +34,32 @@ export async function getOrCreateUnregisteredProduct(
 ): Promise<{ id: number; name: string; price: number; category: string }> {
   const trimmedName = name.trim()
 
-  // 1. Resolve or create 'Unregistered' category
-  let { data: cat } = await supabase
-    .from('categories')
-    .select('id, name_en')
-    .ilike('name_en', 'Unregistered')
-    .maybeSingle()
+  // 1. Resolve or create 'Unregistered' category (already seeded by
+  // neon/migrations/0003_billing_core_seed.sql, but resolved defensively
+  // here in case it was ever removed).
+  const { data: categories } = await neonApi.get<Array<{ id: number; name_en: string }>>('/categories')
+  let categoryId = categories?.find((c) => c.name_en.toLowerCase() === 'unregistered')?.id
 
-  if (!cat) {
-    const { data: newCat, error: catErr } = await supabase
-      .from('categories')
-      .insert({
-        name_en: 'Unregistered',
-        name_ta: 'பதிவுசெய்யப்படாதது',
-        is_active: true,
-        sort_order: 999,
-      })
-      .select('id, name_en')
-      .single()
-
-    if (catErr) throw catErr
-    cat = newCat
+  if (!categoryId) {
+    const { data: newCat, error: catErr } = await neonApi.post<{ id: number }>('/categories', {
+      name_en: 'Unregistered',
+      name_ta: 'பதிவுசெய்யப்படாதது',
+      is_active: true,
+      sort_order: 999,
+    })
+    if (catErr || !newCat) throw catErr || new Error('Failed to create Unregistered category')
+    categoryId = newCat.id
   }
 
-  const categoryId = Number(cat.id)
-
   // 2. Check if product already exists under Unregistered category
-  const { data: existingProd } = await supabase
-    .from('products')
-    .select('id, name, price, category')
-    .ilike('name', trimmedName)
-    .eq('category_id', categoryId)
-    .maybeSingle()
+  const { data: products } = await neonApi.get<Array<{ id: number; name: string; price: number; category_id: number }>>('/products')
+  const existingProd = products?.find(
+    (p) => p.category_id === categoryId && p.name.toLowerCase() === trimmedName.toLowerCase(),
+  )
 
   if (existingProd) {
-    // Update price if changed so Catalog displays the latest rate
     if (Number(existingProd.price) !== Number(price)) {
-      await supabase
-        .from('products')
-        .update({ price: Number(price), updated_at: new Date().toISOString() })
-        .eq('id', existingProd.id)
+      await neonApi.put(`/products/${existingProd.id}`, { price: Number(price) })
     }
     return {
       id: Number(existingProd.id),
@@ -119,34 +70,27 @@ export async function getOrCreateUnregisteredProduct(
   }
 
   // 3. Create ad-hoc product row (stock 0, non-inventory)
-  const { data: newProd, error: prodErr } = await supabase
-    .from('products')
-    .insert({
-      name: trimmedName,
-      category: 'Unregistered',
-      category_id: categoryId,
-      price: Number(price),
-      offer_price: null,
-      stock_quantity: 0,
-      stock: 0,
-      unit_type: 'unit',
-      unit_label: 'piece',
-      unit: 'piece',
-      base_quantity: 1,
-      has_variants: false,
-      is_active: true,
-      sort_order: 999,
-    })
-    .select('id, name, price, category')
-    .single()
+  const { data: newProd, error: prodErr } = await neonApi.post<{ id: number; name: string; price: number }>('/products', {
+    name: trimmedName,
+    category_id: categoryId,
+    price: Number(price),
+    offer_price: null,
+    stock_quantity: 0,
+    stock: 0,
+    unit_type: 'unit',
+    unit_label: 'piece',
+    unit: 'piece',
+    base_quantity: 1,
+    has_variants: false,
+    sort_order: 999,
+  })
 
-  if (prodErr) throw prodErr
+  if (prodErr || !newProd) throw prodErr || new Error('Failed to create ad-hoc product')
 
   return {
     id: Number(newProd.id),
     name: newProd.name,
-    price: Number(newProd.price),
+    price: Number(price),
     category: 'Unregistered',
   }
 }
-

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   TrendingUp,
   TrendingDown,
@@ -8,6 +9,7 @@ import {
   Download,
   RefreshCw,
   Search,
+  CalendarRange,
 } from 'lucide-react'
 import {
   inventoryService,
@@ -16,8 +18,16 @@ import {
   type InventoryStockItem,
 } from '../../services/inventoryService'
 
+type RangeMode = 'all' | 'today' | 'week' | 'month' | 'custom'
+
 export const InventoryAnalyticsView: React.FC = () => {
-  const [range, setRange] = useState<'all' | 'today' | 'week' | 'month'>('all')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [range, setRangeState] = useState<RangeMode>(() => {
+    const v = searchParams.get('range')
+    return v === 'today' || v === 'week' || v === 'month' || v === 'custom' ? v : 'all'
+  })
+  const [customFrom, setCustomFromState] = useState(() => searchParams.get('from') || '')
+  const [customTo, setCustomToState] = useState(() => searchParams.get('to') || '')
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<InventoryAnalyticsSummary>({
     incomingStock: 0,
@@ -30,6 +40,42 @@ export const InventoryAnalyticsView: React.FC = () => {
   })
   const [filterType, setFilterType] = useState<string>('all')
   const [search, setSearch] = useState('')
+
+  // Keeps the range (and, for Custom Range, the from/to dates) in the URL —
+  // the same pattern the outer Dashboard uses for ?tab=inventory — so the
+  // filtered view survives a page refresh.
+  const updateParams = (next: { range?: RangeMode; from?: string; to?: string }) => {
+    const nextRange = next.range ?? range
+    const nextFrom = next.from ?? customFrom
+    const nextTo = next.to ?? customTo
+    setSearchParams((prev) => {
+      const params = new URLSearchParams(prev)
+      if (nextRange !== 'all') params.set('range', nextRange); else params.delete('range')
+      if (nextRange === 'custom' && nextFrom) params.set('from', nextFrom); else params.delete('from')
+      if (nextRange === 'custom' && nextTo) params.set('to', nextTo); else params.delete('to')
+      return params
+    }, { replace: true })
+  }
+
+  const setRange = (value: RangeMode) => {
+    setRangeState(value)
+    updateParams({ range: value })
+  }
+  const setCustomFrom = (value: string) => {
+    setCustomFromState(value)
+    updateParams({ range: 'custom', from: value })
+  }
+  const setCustomTo = (value: string) => {
+    setCustomToState(value)
+    updateParams({ range: 'custom', to: value })
+  }
+
+  const dateError = range === 'custom' && customFrom && customTo && customTo < customFrom
+    ? '"To" date cannot be before "From" date.'
+    : ''
+  // Only apply the custom filter once both dates are set and valid — per
+  // spec, a single date entered alone doesn't filter yet.
+  const customRangeReady = range === 'custom' ? Boolean(customFrom && customTo && !dateError) : true
 
   const computeDateRange = () => {
     const now = new Date()
@@ -45,10 +91,21 @@ export const InventoryAnalyticsView: React.FC = () => {
       const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
       return { start, end: undefined }
     }
+    if (range === 'custom' && customRangeReady) {
+      // Inclusive of the whole "To" day (local time), not just midnight.
+      const start = new Date(`${customFrom}T00:00:00`).toISOString()
+      const end = new Date(`${customTo}T23:59:59.999`).toISOString()
+      return { start, end }
+    }
     return { start: undefined, end: undefined }
   }
 
   const loadAnalytics = useCallback(async () => {
+    if (range === 'custom' && !customRangeReady) {
+      // Waiting on both dates (or the range is invalid) — don't fetch yet.
+      setData({ incomingStock: 0, unitsSold: 0, unitsDamaged: 0, unitsReturned: 0, netDelta: 0, totalMovementsCount: 0, movements: [] })
+      return
+    }
     setLoading(true)
     try {
       const { start, end } = computeDateRange()
@@ -59,7 +116,8 @@ export const InventoryAnalyticsView: React.FC = () => {
     } finally {
       setLoading(false)
     }
-  }, [range])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range, customFrom, customTo, customRangeReady])
 
   useEffect(() => {
     void loadAnalytics()
@@ -139,7 +197,7 @@ export const InventoryAnalyticsView: React.FC = () => {
       const encodedUri = encodeURI(csvContent)
       const link = document.createElement('a')
       link.setAttribute('href', encodedUri)
-      link.setAttribute('download', `CHAJI_Inventory_Snapshot_${new Date().toISOString().slice(0, 10)}.csv`)
+      link.setAttribute('download', `VASTHRAALAYAM_Inventory_Snapshot_${new Date().toISOString().slice(0, 10)}.csv`)
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
@@ -185,7 +243,8 @@ export const InventoryAnalyticsView: React.FC = () => {
     const encodedUri = encodeURI(csvContent)
     const link = document.createElement('a')
     link.setAttribute('href', encodedUri)
-    link.setAttribute('download', `CHAJI_Inventory_Movements_${range}_${Date.now()}.csv`)
+    const rangeLabel = range === 'custom' ? `${customFrom}_to_${customTo}` : range
+    link.setAttribute('download', `VASTHRAALAYAM_Inventory_Movements_${rangeLabel}_${Date.now()}.csv`)
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -211,7 +270,7 @@ export const InventoryAnalyticsView: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Top Controls & Date Filters */}
-      <div className="bg-white border border-[#E8D399] rounded-2xl p-4 shadow-sm flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+      <div className="bg-white border border-[#ead7b7] rounded-2xl p-4 shadow-sm flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
         {/* Date Range Selector Pills */}
         <div className="flex items-center gap-1.5 p-1 bg-[#FBFAF6] border border-gray-200 rounded-xl overflow-x-auto">
           <button
@@ -219,7 +278,7 @@ export const InventoryAnalyticsView: React.FC = () => {
             onClick={() => setRange('all')}
             className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
               range === 'all'
-                ? 'bg-[#0A0A0A] text-[#D4AF37] shadow-xs'
+                ? 'bg-brand-black text-brand-onDark shadow-xs'
                 : 'text-gray-600 hover:text-black'
             }`}
           >
@@ -230,7 +289,7 @@ export const InventoryAnalyticsView: React.FC = () => {
             onClick={() => setRange('today')}
             className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
               range === 'today'
-                ? 'bg-[#0A0A0A] text-[#D4AF37] shadow-xs'
+                ? 'bg-brand-black text-brand-onDark shadow-xs'
                 : 'text-gray-600 hover:text-black'
             }`}
           >
@@ -241,7 +300,7 @@ export const InventoryAnalyticsView: React.FC = () => {
             onClick={() => setRange('week')}
             className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
               range === 'week'
-                ? 'bg-[#0A0A0A] text-[#D4AF37] shadow-xs'
+                ? 'bg-brand-black text-brand-onDark shadow-xs'
                 : 'text-gray-600 hover:text-black'
             }`}
           >
@@ -252,11 +311,22 @@ export const InventoryAnalyticsView: React.FC = () => {
             onClick={() => setRange('month')}
             className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
               range === 'month'
-                ? 'bg-[#0A0A0A] text-[#D4AF37] shadow-xs'
+                ? 'bg-brand-black text-brand-onDark shadow-xs'
                 : 'text-gray-600 hover:text-black'
             }`}
           >
             This Month
+          </button>
+          <button
+            type="button"
+            onClick={() => setRange('custom')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+              range === 'custom'
+                ? 'bg-brand-black text-brand-onDark shadow-xs'
+                : 'text-gray-600 hover:text-black'
+            }`}
+          >
+            <CalendarRange size={13} /> Custom Range
           </button>
         </div>
 
@@ -292,7 +362,7 @@ export const InventoryAnalyticsView: React.FC = () => {
             type="button"
             onClick={exportCsv}
             disabled={filteredMovements.length === 0}
-            className="px-3.5 py-2 rounded-xl bg-[#0A0A0A] border border-[#D4AF37] text-[#D4AF37] text-xs font-black hover:bg-[#1A1A1A] transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-40 whitespace-nowrap"
+            className="px-3.5 py-2 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-xs font-black hover:bg-[#1e2817] transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-40 whitespace-nowrap"
             title="Export audit movements log"
           >
             <Download size={13} />
@@ -301,10 +371,41 @@ export const InventoryAnalyticsView: React.FC = () => {
         </div>
       </div>
 
+      {/* Custom Range date inputs — revealed only when Custom Range is active */}
+      {range === 'custom' && (
+        <div className="bg-white border border-[#ead7b7] rounded-2xl p-4 shadow-sm flex flex-col gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:max-w-md">
+            <div className="flex items-center border border-[#E7E7E7] rounded-xl px-3 py-2 bg-white min-w-0">
+              <span className="text-[10px] uppercase font-bold text-[#6B7280] mr-2">From:</span>
+              <input
+                type="date"
+                value={customFrom}
+                onChange={(e) => setCustomFrom(e.target.value)}
+                className="w-full min-w-0 text-[12px] font-semibold text-[#111111] bg-transparent outline-none"
+              />
+            </div>
+            <div className="flex items-center border border-[#E7E7E7] rounded-xl px-3 py-2 bg-white min-w-0">
+              <span className="text-[10px] uppercase font-bold text-[#6B7280] mr-2">To:</span>
+              <input
+                type="date"
+                value={customTo}
+                onChange={(e) => setCustomTo(e.target.value)}
+                className="w-full min-w-0 text-[12px] font-semibold text-[#111111] bg-transparent outline-none"
+              />
+            </div>
+          </div>
+          {dateError ? (
+            <p className="text-[11px] font-bold text-red-600">{dateError}</p>
+          ) : !customRangeReady ? (
+            <p className="text-[11px] font-semibold text-[#6B7280]">Select both a From and To date to apply the filter.</p>
+          ) : null}
+        </div>
+      )}
+
       {/* KPI Cards (Exact Stock Math) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         {/* Incoming / Restocked Stock */}
-        <div className="bg-white border border-[#E8D399] rounded-2xl p-4 shadow-sm flex items-center gap-3">
+        <div className="bg-white border border-[#ead7b7] rounded-2xl p-4 shadow-sm flex items-center gap-3">
           <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center justify-center font-black">
             <PackagePlus size={20} />
           </div>
@@ -319,7 +420,7 @@ export const InventoryAnalyticsView: React.FC = () => {
         </div>
 
         {/* Units Sold */}
-        <div className="bg-white border border-[#E8D399] rounded-2xl p-4 shadow-sm flex items-center gap-3">
+        <div className="bg-white border border-[#ead7b7] rounded-2xl p-4 shadow-sm flex items-center gap-3">
           <div className="w-11 h-11 rounded-xl bg-purple-50 text-purple-700 border border-purple-200 flex items-center justify-center font-black">
             <ShoppingCart size={20} />
           </div>
@@ -334,7 +435,7 @@ export const InventoryAnalyticsView: React.FC = () => {
         </div>
 
         {/* Units Damaged / Lost */}
-        <div className="bg-white border border-[#E8D399] rounded-2xl p-4 shadow-sm flex items-center gap-3">
+        <div className="bg-white border border-[#ead7b7] rounded-2xl p-4 shadow-sm flex items-center gap-3">
           <div className="w-11 h-11 rounded-xl bg-red-50 text-red-700 border border-red-200 flex items-center justify-center font-black">
             <AlertOctagon size={20} />
           </div>
@@ -349,8 +450,8 @@ export const InventoryAnalyticsView: React.FC = () => {
         </div>
 
         {/* Net Movement Delta */}
-        <div className="bg-white border border-[#E8D399] rounded-2xl p-4 shadow-sm flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-[#0A0A0A] text-[#D4AF37] flex items-center justify-center font-black">
+        <div className="bg-white border border-[#ead7b7] rounded-2xl p-4 shadow-sm flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl bg-brand-black text-brand-onDark flex items-center justify-center font-black">
             {data.netDelta >= 0 ? <TrendingUp size={20} /> : <TrendingDown size={20} />}
           </div>
           <div>
@@ -383,7 +484,7 @@ export const InventoryAnalyticsView: React.FC = () => {
                 placeholder="Search ledger..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-[#0A0A0A]"
+                className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
               />
             </div>
 
