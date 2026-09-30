@@ -4,9 +4,11 @@ import { sql } from './_lib/db.js'
 import { requireAuth } from './_lib/guard.js'
 import { methodRouter } from './_lib/handler.js'
 
-// Consolidated from api/orders/{index,[id]}.ts into a single file so this
-// project stays within the Hobby plan's 12 Serverless Function limit.
-// vercel.json rewrites GET/PATCH/DELETE /api/orders/:id onto ?id=:id.
+// Consolidated from api/orders/{index,[id]}.ts and api/order-items.ts into a
+// single file so this project stays within the Hobby plan's 12 Serverless Function limit.
+// vercel.json rewrites:
+//   GET /api/orders/:id -> ?id=:id
+//   GET /api/order-items -> ?resource=items
 
 // Columns the client is allowed to PATCH after checkout (fixing up totals /
 // billing metadata that the client computes more precisely than the RPC's
@@ -144,7 +146,26 @@ async function getById(req: VercelRequest, res: VercelResponse) {
   res.status(200).json({ data: formatOrderRow(rows[0] as Record<string, unknown>) })
 }
 
+async function listOrderItems(req: VercelRequest, res: VercelResponse) {
+  if (!requireAuth(req, res)) return
+
+  const orderIdsParam = typeof req.query.order_ids === 'string' ? req.query.order_ids : ''
+  const orderIds = orderIdsParam.split(',').map((s) => s.trim()).filter(Boolean)
+  if (orderIds.length === 0) {
+    res.status(200).json({ data: [] })
+    return
+  }
+
+  const rows = await sql`
+    SELECT order_id, product_id, product_name, variant_name, category, quantity, line_total, is_manual, source
+    FROM public.order_items
+    WHERE order_id IN ${sql(orderIds)}
+  `
+  res.status(200).json({ data: rows })
+}
+
 async function get(req: VercelRequest, res: VercelResponse) {
+  if (req.query.resource === 'items') return listOrderItems(req, res)
   if (req.query.id !== undefined) return getById(req, res)
   return list(req, res)
 }

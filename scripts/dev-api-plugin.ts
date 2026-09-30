@@ -30,9 +30,23 @@ function applyVercelRewrites(pathname: string): { rewrittenPath: string; extraPa
     extraParams.action = 'receive'
     return { rewrittenPath: '/inventory', extraParams }
   }
+  if (pathname === '/inventory-movements') {
+    extraParams.resource = 'movements'
+    return { rewrittenPath: '/inventory', extraParams }
+  }
+  if (pathname === '/order-items') {
+    extraParams.resource = 'items'
+    return { rewrittenPath: '/orders', extraParams }
+  }
   if (pathname === '/settings/password') {
     extraParams.action = 'password'
     return { rewrittenPath: '/settings', extraParams }
+  }
+
+  const advanceMatch = pathname.match(/^\/advance-orders\/([^/]+)$/)
+  if (advanceMatch) {
+    extraParams.id = decodeURIComponent(advanceMatch[1])
+    return { rewrittenPath: '/advance-orders', extraParams }
   }
 
   const lookupMatch = pathname.match(/^\/barcode-registry\/lookup\/([^/]+)$/)
