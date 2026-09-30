@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import { neonApiDevPlugin } from './scripts/dev-api-plugin'
 
+// Vite configuration for VASTHRAALAYAM BOUTIQUE POS
 export default defineConfig({
   envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
   plugins: [
