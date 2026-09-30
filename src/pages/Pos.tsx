@@ -6,7 +6,8 @@ import {
   RefreshCw, ShoppingBag, MessageCircle,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   Wifi, WifiOff, Layers, X, ChevronDown, Power,
-  Edit2, AlertCircle, Check
+  Edit2, AlertCircle, Check,
+  Banknote, QrCode, CreditCard, Split
 } from 'lucide-react'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 import { neonApi } from '../lib/neonApi'
@@ -72,6 +73,8 @@ type InvoiceSnap = {
   balanceReturned: number
   paymentMode: string
   paymentMethod?: string
+  payments?: Array<{ mode: string; amount: number }>
+  changeGiven?: number
   invoicePdfUrl?: string
 }
 
@@ -148,7 +151,10 @@ export default function Pos(props: PosProps = {}) {
   const [tailorName, setTailorName] = useState('')
   const [referenceNumber, setReferenceNumber] = useState('')
   const [billingDate, setBillingDate] = useState('') // '' = use current date/time
-  const [paymentType, setPaymentType] = useState<'cash' | 'qr' | 'card'>('cash')
+  const [paymentType, setPaymentType] = useState<'cash' | 'qr' | 'card' | 'split'>('cash')
+  const [splitCash, setSplitCash] = useState<string>('')
+  const [splitQr, setSplitQr] = useState<string>('')
+  const [splitCard, setSplitCard] = useState<string>('')
   const [saving, setSaving] = useState(false)
   const [shipping, setShipping] = useState<string>('0')
   const [couponInput, setCouponInput] = useState('')
@@ -268,6 +274,73 @@ export default function Pos(props: PosProps = {}) {
       : Math.max(0, Number(gstInput) || 0))
     : 0
   const total = Math.max(0, discountedSubtotal + (Number(shipping || 0) || 0) + totalGst)
+
+  // ── Split payment calculations & validation ──
+  const splitCashNum = Math.max(0, Number(splitCash) || 0)
+  const splitQrNum = Math.max(0, Number(splitQr) || 0)
+  const splitCardNum = Math.max(0, Number(splitCard) || 0)
+  const splitTotalPaid = Number((splitCashNum + splitQrNum + splitCardNum).toFixed(2))
+  const splitRemaining = Math.max(0, Number((total - splitTotalPaid).toFixed(2)))
+  const splitChangeDue = splitTotalPaid > total ? Number((splitTotalPaid - total).toFixed(2)) : 0
+
+  // QR and Card cannot exceed the grand total minus other electronic allocations
+  const maxQrAllowed = Math.max(0, Number((total - splitCardNum).toFixed(2)))
+  const maxCardAllowed = Math.max(0, Number((total - splitQrNum).toFixed(2)))
+
+  const isSplitValid = paymentType === 'split'
+    ? (
+        total > 0 &&
+        splitTotalPaid >= total &&
+        splitQrNum <= maxQrAllowed &&
+        splitCardNum <= maxCardAllowed &&
+        (splitCashNum > 0 || splitQrNum > 0 || splitCardNum > 0)
+      )
+    : true
+
+  const isSingleCashValid = paymentType === 'cash'
+    ? (cashReceived.trim() !== '' && (Number(cashReceived) || 0) >= total)
+    : true
+
+  const canCompleteSale = !saving && items.length > 0 && (
+    paymentType === 'split' ? isSplitValid : isSingleCashValid
+  )
+
+  const fillRemainingCash = () => {
+    const rem = Math.max(0, Number((total - splitQrNum - splitCardNum).toFixed(2)))
+    setSplitCash(rem > 0 ? String(rem) : '0')
+  }
+
+  const fillRemainingQr = () => {
+    const rem = Math.max(0, Number((total - splitCashNum - splitCardNum).toFixed(2)))
+    setSplitQr(rem > 0 ? String(rem) : '0')
+  }
+
+  const fillRemainingCard = () => {
+    const rem = Math.max(0, Number((total - splitCashNum - splitQrNum).toFixed(2)))
+    setSplitCard(rem > 0 ? String(rem) : '0')
+  }
+
+  const handleSplitQrChange = (val: string) => {
+    if (val === '') { setSplitQr(''); return }
+    const num = Number(val)
+    if (isNaN(num)) return
+    if (num > maxQrAllowed) {
+      setSplitQr(String(maxQrAllowed))
+    } else {
+      setSplitQr(val)
+    }
+  }
+
+  const handleSplitCardChange = (val: string) => {
+    if (val === '') { setSplitCard(''); return }
+    const num = Number(val)
+    if (isNaN(num)) return
+    if (num > maxCardAllowed) {
+      setSplitCard(String(maxCardAllowed))
+    } else {
+      setSplitCard(val)
+    }
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const itemQtyMap = useMemo(() => {
@@ -788,14 +861,48 @@ export default function Pos(props: PosProps = {}) {
     // Validate required phone
     const normalizedPhone = normalizePhone(customer.phone || '')
     if (!normalizedPhone) { setError('Please enter a valid Indian mobile number (e.g. 9876543210 or +91 9876543210)'); return }
-    // Validate payment amount (only required for cash)
+    // Validate payment amount
     if (paymentType === 'cash' && !cashReceived.trim()) { setError('Enter the amount received from customer'); return }
     if (paymentType === 'cash' && cashReceivedNum < total) { setError(`Insufficient payment. Customer still owes ${formatCurrency(total - cashReceivedNum)}`); return }
+    if (paymentType === 'split') {
+      if (splitTotalPaid < total) {
+        setError(`Insufficient payment. Customer still owes ${formatCurrency(total - splitTotalPaid)}`)
+        return
+      }
+      if (splitQrNum > maxQrAllowed) {
+        setError(`QR payment cannot exceed ${formatCurrency(maxQrAllowed)}`)
+        return
+      }
+      if (splitCardNum > maxCardAllowed) {
+        setError(`Card payment cannot exceed ${formatCurrency(maxCardAllowed)}`)
+        return
+      }
+    }
     // Validate online mode availability
     if (ordermode === 'online' && !isSupabaseConfigured) { setError('Cannot place online orders while offline'); return }
     setSaving(true); setError('')
     try {
-      const paymentMode = ordermode === 'online' ? 'online' : paymentType
+      const activeSplitPayments: Array<{ mode: 'cash' | 'qr' | 'card' | 'online'; amount: number }> = []
+      if (paymentType === 'split') {
+        if (splitCashNum > 0) activeSplitPayments.push({ mode: 'cash', amount: splitCashNum })
+        if (splitQrNum > 0) activeSplitPayments.push({ mode: 'qr', amount: splitQrNum })
+        if (splitCardNum > 0) activeSplitPayments.push({ mode: 'card', amount: splitCardNum })
+      } else {
+        const mode = ordermode === 'online' ? 'online' : paymentType
+        const amt = paymentType === 'cash' && cashReceivedNum > 0 ? cashReceivedNum : total
+        activeSplitPayments.push({ mode, amount: amt })
+      }
+
+      const effectivePaymentMode = ordermode === 'online'
+        ? 'online'
+        : paymentType === 'split'
+          ? (activeSplitPayments.length > 1 ? 'split' : (activeSplitPayments[0]?.mode || 'cash'))
+          : paymentType
+
+      const effectiveChangeGiven = paymentType === 'split'
+        ? splitChangeDue
+        : (paymentType === 'cash' && cashReceivedNum > total ? balanceToReturn : 0)
+
       const created = await createOrderWithStock({
         customerName: customer.name.trim() || 'Walk-in Customer',
         phone: normalizedPhone,
@@ -830,13 +937,13 @@ export default function Pos(props: PosProps = {}) {
         couponPercentage: appliedCoupon?.percentage,
         totalGst,
         gstEnabled: billGstEnabled,
-        paymentMethod: paymentMode
+        paymentMethod: effectivePaymentMode,
+        paymentMode: effectivePaymentMode,
+        payments: activeSplitPayments,
+        changeGiven: effectiveChangeGiven,
       })
 
       // ── CRITICAL: immediately fix totals in DB, independent of PDF upload ──
-      // The RPC may store an incorrect total if items JSONB parsing differs.
-      // This guarantees the correct client-computed values are always saved.
-      // Determine the effective billing date/time
       const effectiveBillingDate = billingDate.trim()
         ? new Date(billingDate).toISOString()
         : new Date().toISOString()
@@ -845,8 +952,10 @@ export default function Pos(props: PosProps = {}) {
         total,
         total_gst: totalGst,
         gst_amount: totalGst,
-        payment_mode: paymentMode,
-        payment_method: paymentMode,
+        payment_mode: effectivePaymentMode,
+        payment_method: effectivePaymentMode,
+        payments: activeSplitPayments,
+        change_given: effectiveChangeGiven,
         discount_amount: couponDiscount,
         manual_discount_amount: manualDiscountAmount,
         delivery_charge: Number(shipping || 0),
@@ -861,12 +970,20 @@ export default function Pos(props: PosProps = {}) {
       }
 
       // Explicit verification: confirm the order record actually exists in the database
-      // before transitioning to the completed bill state or allowing WhatsApp link send
       const { data: verifiedOrder, error: verifyErr } = await neonApi.get<{ id: string; invoice_no: string }>(`/orders/${created.orderId}`)
 
       if (verifyErr || !verifiedOrder) {
         throw new Error(`Invoice confirmation failed: could not verify order #${created.invoiceNo} was saved in the database.`)
       }
+
+      const formatPaymentDisplay = () => {
+        if (ordermode === 'online') return 'Online'
+        if (paymentType === 'split') {
+          return 'Split (' + activeSplitPayments.map(p => `${p.mode === 'qr' ? 'QR' : p.mode.toUpperCase()}: ${formatCurrency(p.amount)}`).join(', ') + ')'
+        }
+        return paymentType === 'qr' ? 'QR' : paymentType === 'card' ? 'Card' : 'Cash'
+      }
+
       const createdInvoice: InvoiceSnap = {
         id: created.orderId,
         invoiceNo: created.invoiceNo,
@@ -885,15 +1002,21 @@ export default function Pos(props: PosProps = {}) {
         customerName: customer.name.trim() || 'Walk-in Customer',
         phone: normalizedPhone,
         address: customer.address.trim() || 'POS Counter',
-        amountReceived: cashReceivedNum,
-        balanceReturned: balanceToReturn,
-        paymentMode: ordermode === 'online' ? 'Online' : paymentType === 'qr' ? 'QR' : paymentType === 'card' ? 'Card' : 'Cash',
-        paymentMethod: paymentMode,
+        amountReceived: paymentType === 'split' ? splitTotalPaid : (cashReceivedNum > 0 ? cashReceivedNum : total),
+        balanceReturned: effectiveChangeGiven,
+        paymentMode: formatPaymentDisplay(),
+        paymentMethod: effectivePaymentMode,
+        payments: activeSplitPayments,
+        changeGiven: effectiveChangeGiven,
       }
       setInvoice(createdInvoice)
       void persistInvoicePdf(createdInvoice)
       setItems([])
       setCustomer({ name: '', phone: '', address: '' })
+      setCashReceived('')
+      setSplitCash('')
+      setSplitQr('')
+      setSplitCard('')
       void fetchProducts()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to generate bill')
@@ -918,6 +1041,7 @@ export default function Pos(props: PosProps = {}) {
       invoiceNumber: inv.invoiceNo,
       invoiceUrl,
       paymentMode: inv.paymentMode || 'POS',
+      payments: inv.payments,
       items: inv.items.map((item) => ({
         name: item.name,
         qty: item.qty,
@@ -952,6 +1076,8 @@ export default function Pos(props: PosProps = {}) {
         gstAmount: inv.gstAmount,
         couponCode: inv.couponCode,
         paymentMode: inv.paymentMode,
+        payments: inv.payments,
+        changeGiven: inv.changeGiven,
         total: inv.total,
       })
       // Upload PDF and save its URL — total fields already saved immediately after RPC
@@ -977,6 +1103,9 @@ export default function Pos(props: PosProps = {}) {
       manualDiscount: inv.manualDiscountAmount,
       totalGst: inv.gstAmount,
       total: inv.total,
+      paymentMode: inv.paymentMode,
+      payments: inv.payments,
+      changeGiven: inv.changeGiven,
     })
   }
 
@@ -1052,6 +1181,17 @@ export default function Pos(props: PosProps = {}) {
                 <p className="text-sm font-bold text-textMuted">{l('Grand Total', 'மொத்த தொகை')}</p>
                 <p className="text-2xl font-black text-textMain tabular-nums">{formatCurrency(invoice.total)}</p>
               </div>
+              {invoice.payments && invoice.payments.length > 1 && (
+                <div className="py-2.5 border-b border-gray-100 space-y-1.5">
+                  <p className="text-[11px] font-black uppercase tracking-wider text-textMuted">Split Payments Breakdown</p>
+                  {invoice.payments.map((p, idx) => (
+                    <div key={idx} className="flex justify-between items-center text-xs">
+                      <span className="font-bold text-gray-700 uppercase">{p.mode === 'qr' ? 'QR Code' : p.mode}:</span>
+                      <span className="font-black text-gray-900 tabular-nums">{formatCurrency(p.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="flex justify-between items-center">
                 <p className="text-sm font-bold text-textMuted">{l('Amount Received', 'பெற்ற தொகை')}</p>
                 <p className="text-xl font-black text-textMain tabular-nums">{formatCurrency(invoice.amountReceived)}</p>
@@ -1116,6 +1256,9 @@ export default function Pos(props: PosProps = {}) {
             manualDiscountAmount={invoice.manualDiscountAmount || 0}
             gstAmount={invoice.gstAmount || 0}
             couponCode={invoice.couponCode}
+            paymentMode={invoice.paymentMode}
+            payments={invoice.payments}
+            changeGiven={invoice.changeGiven}
           />
         </div>
       </div>
@@ -1683,46 +1826,162 @@ export default function Pos(props: PosProps = {}) {
               {/* Payment Mode Selector */}
               <div>
                 <label className="block text-[10px] font-black text-[#374151] tracking-wider uppercase mb-1">Payment Mode</label>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {(['cash', 'qr', 'card'] as const).map(mode => (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  {(['cash', 'qr', 'card', 'split'] as const).map(mode => (
                     <button
                       key={mode}
                       type="button"
                       onClick={() => setPaymentType(mode)}
-                      className={`py-2 rounded-xl text-[11px] font-black uppercase tracking-wide border-2 transition-colors ${
+                      className={`py-2 px-2 rounded-xl text-[11px] font-black uppercase tracking-wide border-2 transition-colors flex items-center justify-center gap-1.5 ${
                         paymentType === mode
-                          ? 'bg-brand-black text-brand-onDark border-brand-black'
+                          ? 'bg-brand-black text-brand-onDark border-brand-black shadow-sm'
                           : 'bg-white text-[#374151] border-gray-200 hover:border-gray-300'
                       }`}
                     >
-                      {mode === 'qr' ? 'QR' : mode === 'card' ? 'Card' : 'Cash'}
+                      {mode === 'cash' && <Banknote size={14} className="shrink-0" />}
+                      {mode === 'qr' && <QrCode size={14} className="shrink-0" />}
+                      {mode === 'card' && <CreditCard size={14} className="shrink-0" />}
+                      {mode === 'split' && <Split size={14} className="shrink-0" />}
+                      <span>{mode === 'qr' ? 'QR' : mode === 'card' ? 'Card' : mode === 'split' ? 'Split' : 'Cash'}</span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Amount Received (shown for all payment modes) */}
-              {ordermode !== 'online' && (
-              <div>
-                <div className="border border-gray-200 rounded-xl p-2.5 bg-white">
-                  <label className="block text-[10px] font-black text-[#374151] tracking-wider uppercase mb-0.5">
-                    {paymentType === 'qr' ? 'QR' : paymentType === 'card' ? 'Card' : 'Cash'} — Amount Received (₹)
-                  </label>
-                  <input
-                    type="number" onWheel={(e) => (e.target as HTMLInputElement).blur()}
-                    value={cashReceived}
-                    onChange={e => setCashReceived(e.target.value)}
-                    placeholder="0.00"
-                    className="w-full h-9 px-3 bg-[#FAFAFA] border border-gray-200 rounded-xl text-[13px] font-black text-[#111111] focus:outline-none focus:border-[#7daa8f]"
-                  />
-                  {cashReceivedNum > 0 && (
-                    <div className="mt-2 flex justify-between items-center bg-[#F9FAFB] px-3 py-1.5 rounded-lg border border-gray-200">
-                      <span className="text-[10px] font-bold text-[#374151]">Return Balance:</span>
-                      <span className="text-[12px] font-black text-[#111111]">{formatCurrency(balanceToReturn)}</span>
+              {/* Amount Received (shown for single payment modes) */}
+              {ordermode !== 'online' && paymentType !== 'split' && (
+                <div>
+                  <div className="border border-gray-200 rounded-xl p-2.5 bg-white">
+                    <label className="block text-[10px] font-black text-[#374151] tracking-wider uppercase mb-0.5">
+                      {paymentType === 'qr' ? 'QR' : paymentType === 'card' ? 'Card' : 'Cash'} — Amount Received (₹)
+                    </label>
+                    <input
+                      type="number" onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                      value={cashReceived}
+                      onChange={e => setCashReceived(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full h-9 px-3 bg-[#FAFAFA] border border-gray-200 rounded-xl text-[13px] font-black text-[#111111] focus:outline-none focus:border-[#7daa8f]"
+                    />
+                    {cashReceivedNum > 0 && (
+                      <div className="mt-2 flex justify-between items-center bg-[#F9FAFB] px-3 py-1.5 rounded-lg border border-gray-200">
+                        <span className="text-[10px] font-bold text-[#374151]">Return Balance:</span>
+                        <span className="text-[12px] font-black text-[#111111]">{formatCurrency(balanceToReturn)}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Split Payment Panel */}
+              {ordermode !== 'online' && paymentType === 'split' && (
+                <div className="border border-gray-200 rounded-xl p-3 bg-white space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black text-[#374151] tracking-wider uppercase">
+                      Split Payment Breakdown
+                    </span>
+                    <span className="text-[10px] font-bold text-gray-500">
+                      Total: {formatCurrency(total)}
+                    </span>
+                  </div>
+
+                  {/* Cash Row */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-gray-700">
+                      <span className="flex items-center gap-1.5">
+                        <Banknote size={14} className="text-emerald-600" /> Cash (₹)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={fillRemainingCash}
+                        className="text-[10px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md px-2 py-0.5 transition-colors cursor-pointer"
+                      >
+                        Fill remaining
+                      </button>
+                    </div>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                      value={splitCash}
+                      onChange={e => setSplitCash(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full h-9 px-3 bg-[#FAFAFA] border border-gray-200 rounded-xl text-[13px] font-black text-[#111111] focus:outline-none focus:border-[#7daa8f]"
+                    />
+                  </div>
+
+                  {/* QR Row */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-gray-700">
+                      <span className="flex items-center gap-1.5">
+                        <QrCode size={14} className="text-blue-600" /> QR Code (₹)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={fillRemainingQr}
+                        className="text-[10px] font-bold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md px-2 py-0.5 transition-colors cursor-pointer"
+                      >
+                        Fill remaining
+                      </button>
+                    </div>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      max={maxQrAllowed}
+                      onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                      value={splitQr}
+                      onChange={e => handleSplitQrChange(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full h-9 px-3 bg-[#FAFAFA] border border-gray-200 rounded-xl text-[13px] font-black text-[#111111] focus:outline-none focus:border-[#7daa8f]"
+                    />
+                  </div>
+
+                  {/* Card Row */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-gray-700">
+                      <span className="flex items-center gap-1.5">
+                        <CreditCard size={14} className="text-purple-600" /> Card (₹)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={fillRemainingCard}
+                        className="text-[10px] font-bold text-purple-700 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-md px-2 py-0.5 transition-colors cursor-pointer"
+                      >
+                        Fill remaining
+                      </button>
+                    </div>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      max={maxCardAllowed}
+                      onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                      value={splitCard}
+                      onChange={e => handleSplitCardChange(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full h-9 px-3 bg-[#FAFAFA] border border-gray-200 rounded-xl text-[13px] font-black text-[#111111] focus:outline-none focus:border-[#7daa8f]"
+                    />
+                  </div>
+
+                  {/* Live Status Bar */}
+                  <div className={`p-2.5 rounded-xl border text-[11px] font-black flex items-center justify-between transition-colors ${
+                    splitRemaining === 0 && splitTotalPaid >= total
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                      : 'bg-red-50 border-red-200 text-red-600'
+                  }`}>
+                    <span>Paid: {formatCurrency(splitTotalPaid)}</span>
+                    <span>Remaining: {formatCurrency(splitRemaining)}</span>
+                  </div>
+
+                  {/* Change Due if Cash Overpayment */}
+                  {splitChangeDue > 0 && (
+                    <div className="flex justify-between items-center bg-blue-50 border border-blue-200 px-3 py-2 rounded-xl text-blue-800">
+                      <span className="text-[11px] font-bold">Change Due (Return to Customer):</span>
+                      <span className="text-[13px] font-black tabular-nums">{formatCurrency(splitChangeDue)}</span>
                     </div>
                   )}
                 </div>
-              </div>
               )}
 
               {error && (
@@ -1746,8 +2005,8 @@ export default function Pos(props: PosProps = {}) {
                 <button
                   type="button"
                   onClick={generateBill}
-                  disabled={saving}
-                  className="min-h-[44px] rounded-xl bg-emerald-600 px-3 py-3 text-[13px] font-black uppercase tracking-wider text-white transition-colors hover:bg-emerald-700 disabled:opacity-50 cursor-pointer shadow-md"
+                  disabled={!canCompleteSale}
+                  className="min-h-[44px] rounded-xl bg-emerald-600 px-3 py-3 text-[13px] font-black uppercase tracking-wider text-white transition-colors hover:bg-emerald-700 disabled:opacity-40 disabled:hover:bg-emerald-600 disabled:cursor-not-allowed cursor-pointer shadow-md"
                 >
                   {saving ? 'Processing...' : 'Complete Sale'}
                 </button>

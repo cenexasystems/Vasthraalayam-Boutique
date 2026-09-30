@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase'
 import { fetchAllCategories, fetchAllProducts } from '../services/productService'
 import { fetchAllVariants, type ProductVariant } from '../services/variantService'
 import { authLogin, neonApi, setNeonSessionToken } from '../lib/neonApi'
-import { BRAND_ADDRESS, BRAND_EN, BRAND_PHONE_DISPLAY } from '../lib/brand'
+import { BRAND_ADDRESS, BRAND_EN, BRAND_PHONE_DISPLAY, BRAND_INSTAGRAM } from '../lib/brand'
 import { applyThemeColor, DEFAULT_THEME_COLOR } from '../lib/theme'
 import {
   calculateLineTotal,
@@ -597,8 +597,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
         shopContactNumber: '',
         email: '',
         address: BRAND_ADDRESS,
-        businessType: '',
-        instagramId: '',
+        businessType: 'Boutique & Apparel',
+        instagramId: BRAND_INSTAGRAM,
         logoUrl: '',
         gstEnabled: false,
         themeColor: DEFAULT_THEME_COLOR,

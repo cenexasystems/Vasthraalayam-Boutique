@@ -1,7 +1,5 @@
-import { isSupabaseConfigured, supabase } from '../lib/supabase'
+import { neonApi } from '../lib/neonApi'
 import { formatCurrency } from '../lib/retail'
-
-const COUPON_COLUMNS = 'id, code, percentage, is_active, expiry_date, usage_limit, usage_count, min_order_value'
 
 export type AppliedCoupon = {
   code: string
@@ -9,25 +7,29 @@ export type AppliedCoupon = {
   discount: number
 }
 
+type CouponRow = {
+  code: string
+  percentage: number
+  is_active: boolean
+  expiry_date: string | null
+  usage_limit: number | null
+  usage_count: number
+  min_order_value: number
+}
+
 export async function validateCoupon(
   rawCode: string,
   subtotal: number,
 ): Promise<{ data: AppliedCoupon | null; error: string | null }> {
   const code = rawCode.trim().toUpperCase()
-
-  if (!isSupabaseConfigured) {
-    return { data: null, error: 'Coupon validation requires a live connection' }
-  }
+  if (!code) return { data: null, error: 'Enter a coupon code' }
 
   try {
-    const { data, error: dbErr } = await supabase
-      .from('coupons')
-      .select(COUPON_COLUMNS)
-      .eq('is_active', true)
-      .ilike('code', code)
-      .single()
-
-    if (dbErr || !data) return { data: null, error: 'Invalid or expired coupon code' }
+    const result = await neonApi.get<CouponRow>(`/coupons/${encodeURIComponent(code)}`)
+    if (result.error || !result.data) {
+      return { data: null, error: 'Invalid or expired coupon code' }
+    }
+    const data = result.data
 
     if (data.expiry_date && new Date(data.expiry_date) < new Date()) {
       return { data: null, error: 'This coupon has expired' }

@@ -350,7 +350,7 @@ export default function Home() {
                 src="/Add_shoot_video_202604072031.mp4"
                 className="w-full h-full object-cover"
                 autoPlay muted loop playsInline
-                poster="/chaji-logo.png"
+                poster="/vasthraalayam-logo.png"
               />
               {/* Subtle bottom vignette for depth */}
               <div className="absolute inset-0 bg-gradient-to-t from-[#111111]/10 via-transparent to-transparent pointer-events-none" />
@@ -868,7 +868,7 @@ export default function Home() {
                 Visit Our Store
               </h2>
               <p className="text-[#374151] text-[14px] leading-[1.7] font-medium mb-6">
-                Visit {BRAND_EN} in Sevoor, Arani for premium men's &amp; women's clothing, apparel, and custom fashion collections. Our team will help you find the right fit for your needs.
+                Visit {BRAND_EN} at Ullagaram, Puzhudhivakkam, Chennai for premium clothing, apparel, sarees, and custom fashion collections. Our team will help you find the right fit for your needs.
               </p>
 
               <div className="space-y-3.5">

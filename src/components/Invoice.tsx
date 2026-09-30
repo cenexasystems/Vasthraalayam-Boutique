@@ -1,5 +1,5 @@
 import React from 'react'
-import { BRAND_ADDRESS, BRAND_EMAIL, BRAND_EN, BRAND_INSTAGRAM, BRAND_PRIMARY_PHONE_DISPLAY, BRAND_ICON } from '../lib/brand'
+import { BRAND_ADDRESS, BRAND_EN, BRAND_INSTAGRAM, BRAND_PRIMARY_PHONE_DISPLAY, BRAND_ICON } from '../lib/brand'
 import { formatCurrency, formatQuantityDisplay, normalizeStructuredOrderItem, formatInvoiceNo } from '../lib/retail'
 
 export interface InvoiceItem {
@@ -36,6 +36,8 @@ export interface InvoiceProps {
   status?: string
   userId?: string
   paymentMode?: string
+  payments?: Array<{ mode: string; amount: number }>
+  changeGiven?: number
   onPrintReceipt?: () => void
 }
 
@@ -57,6 +59,8 @@ export const Invoice: React.FC<InvoiceProps> = ({
   status = 'completed',
   userId,
   paymentMode,
+  payments,
+  changeGiven,
 }) => {
   const formattedInvoiceNo = formatInvoiceNo(invoiceNo)
   const dateStr = (() => {
@@ -88,7 +92,6 @@ export const Invoice: React.FC<InvoiceProps> = ({
         </div>
         <div style={{ fontSize: 11, color: '#4b5563', marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span>📞 {BRAND_PRIMARY_PHONE_DISPLAY}</span>
-          <span>✉️ {BRAND_EMAIL}</span>
           <span>📷 @{BRAND_INSTAGRAM}</span>
         </div>
       </div>
@@ -132,7 +135,25 @@ export const Invoice: React.FC<InvoiceProps> = ({
           <div style={{ fontSize: 9, fontWeight: 800, color: '#888', textTransform: 'uppercase', letterSpacing: 0.7, marginTop: 6 }}>Mobile Number</div>
           <div style={{ fontSize: 12, color: '#555', lineHeight: 1.4, wordBreak: 'break-word' }}>{phone || '—'}</div>
           {address && <div style={{ fontSize: 11, color: '#777', marginTop: 4, lineHeight: 1.4, wordBreak: 'break-word' }}>{address}</div>}
-          {paymentMode && <div style={{ fontSize: 10, color: '#777', marginTop: 4 }}>Payment Mode: {paymentMode}</div>}
+          {payments && payments.length > 0 ? (
+            <div style={{ fontSize: 10, color: '#444', marginTop: 6, borderTop: '1px dashed #ead7b7', paddingTop: 4 }}>
+              <div style={{ fontSize: 9, fontWeight: 800, color: '#888', textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 2 }}>Payment Breakdown</div>
+              {payments.map((p, idx) => (
+                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontWeight: 700, color: '#374151' }}>
+                  <span style={{ textTransform: 'capitalize' }}>{p.mode === 'qr' ? 'QR / UPI' : p.mode}:</span>
+                  <span>{formatCurrency(p.amount)}</span>
+                </div>
+              ))}
+              {changeGiven != null && changeGiven > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontWeight: 700, color: '#16a34a', marginTop: 2 }}>
+                  <span>Change Given:</span>
+                  <span>{formatCurrency(changeGiven)}</span>
+                </div>
+              )}
+            </div>
+          ) : paymentMode ? (
+            <div style={{ fontSize: 10, color: '#777', marginTop: 4 }}>Payment Mode: {paymentMode}</div>
+          ) : null}
         </div>
       </div>
 
@@ -221,6 +242,22 @@ export const Invoice: React.FC<InvoiceProps> = ({
               <span style={{ fontSize: 15, fontWeight: 900, color: 'var(--brand-black)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Total</span>
               <span style={{ fontSize: 20, fontWeight: 900, color: 'var(--brand-black)', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(total)}</span>
             </div>
+            {payments && payments.length > 0 && (
+              <div style={{ borderTop: '1px dashed #d0d0d0', marginTop: 8, paddingTop: 6 }}>
+                {payments.map((p, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#555', marginBottom: 2 }}>
+                    <span style={{ textTransform: 'capitalize' }}>Paid ({p.mode === 'qr' ? 'QR' : p.mode})</span>
+                    <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(p.amount)}</span>
+                  </div>
+                ))}
+                {changeGiven != null && changeGiven > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#16a34a' }}>
+                    <span>Change Given</span>
+                    <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(changeGiven)}</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>

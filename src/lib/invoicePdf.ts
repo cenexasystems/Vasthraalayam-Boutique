@@ -19,6 +19,8 @@ export type InvoicePdfData = {
   gstAmount?: number
   couponCode?: string | null
   paymentMode?: string
+  payments?: Array<{ mode: string; amount: number }>
+  changeGiven?: number
 }
 
 // jsPDF's built-in Helvetica font does not include the ₹ Unicode glyph (U+20B9).
@@ -68,7 +70,10 @@ export function createInvoicePdf(data: InvoicePdfData): Blob {
   doc.text(BRAND_ADDRESS, left + 24, y + 10, { maxWidth: 85 })
   doc.text(`Phone: ${BRAND_PHONE_DISPLAY}`, left + 24, y + 18)
   doc.text(`Date: ${new Date(data.date).toLocaleDateString('en-IN')}`, right, y + 2, { align: 'right' })
-  doc.text(`Payment: ${data.paymentMode || 'POS'}`, right, y + 7, { align: 'right' })
+  const paymentText = data.payments && data.payments.length > 0
+    ? data.payments.map(p => `${p.mode === 'qr' ? 'QR' : p.mode.toUpperCase()}: ${money(p.amount)}`).join(', ')
+    : data.paymentMode || 'POS'
+  doc.text(`Payment: ${paymentText}`, right, y + 7, { align: 'right' })
   y += 28
 
   const customerName = String(data.customerName || 'Walk-in Customer').trim()

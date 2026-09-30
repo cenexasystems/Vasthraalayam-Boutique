@@ -5,7 +5,7 @@ import {
   Package, Search, RefreshCw, ShieldCheck, ShieldOff, Trophy,
   MessageCircle, ChevronDown, Eye, FileText, Printer, MoreVertical, X, Layers, Receipt,
   SlidersHorizontal, Tag, Ticket, Percent, CheckCircle2, Info, Sparkles, Settings as SettingsIcon, Check,
-  Banknote, QrCode, CreditCard,
+  Banknote, QrCode, CreditCard, Scissors,
 } from 'lucide-react'
 
 // Custom Malaysian Ringgit icon — replaces the generic dollar-sign icon
@@ -83,8 +83,20 @@ type DashboardOrder = {
   created_at: string; total: number; status: string; order_mode: string; order_type: string; user_id: string | null; items: unknown
   coupon_code: string; discount_amount: number; manual_discount_amount: number; delivery_charge: number
   total_gst: number; payment_mode: string; payment_method?: string; invoice_pdf_url: string; remarks?: string; tailor_name?: string; reference_number?: string
+  payments?: Array<{ mode: string; amount: number }>
+  change_given?: number
 }
-type DashboardOrderItem = { order_id: string; product_id?: string | number | null; product_name: string; category?: string; quantity: number; line_total: number; is_manual?: boolean | null }
+type DashboardOrderItem = {
+  order_id: string
+  product_id?: string | number | null
+  product_name: string
+  variant_name?: string
+  category?: string
+  quantity: number
+  line_total: number
+  is_manual?: boolean | null
+  source?: string
+}
 type DashboardCoupon = {
   id: number
   code: string
@@ -96,7 +108,7 @@ type DashboardCoupon = {
   min_order_value: number
 }
 type TabKey = 'overview' | 'whatsapp' | 'pos_analytics' | 'billing' | 'advance_orders' | 'inventory' | 'expenses' | 'products' | 'categories' | 'coupons' | 'users' | 'history' | 'settings'
-type PosAnalyticsTab = 'revenue' | 'today' | 'products' | 'categories' | 'coupons'
+type PosAnalyticsTab = 'revenue' | 'today' | 'products' | 'services' | 'categories' | 'coupons'
 type ProfileUser = { id: string; email: string; name: string; mobile: string; role: string; created_at: string }
 
 const normalizeStatus = (v: unknown) => String(v || '').trim().toLowerCase()
@@ -190,6 +202,260 @@ const DEFAULT_OPTIONS_FOR_TYPE: Record<UnitType, string> = {
   bundle: '',
 }
 
+interface CatalogItemData {
+  name: string
+  variant?: string
+  category?: string
+  sku?: string
+  qty: number
+  revenue: number
+  billCount: number
+  avgPrice?: number
+  share?: number
+}
+
+interface CatalogAnalyticsViewProps {
+  type: 'product' | 'service'
+  totalRevenue: number
+  totalSold: number
+  averageRevenue: number
+  bestItem: string
+  items: CatalogItemData[]
+  searchQuery: string
+  onSearchChange: (value: string) => void
+}
+
+const CatalogAnalyticsView: React.FC<CatalogAnalyticsViewProps> = ({
+  type,
+  totalRevenue,
+  totalSold,
+  averageRevenue,
+  bestItem,
+  items,
+  searchQuery,
+  onSearchChange,
+}) => {
+  const isProduct = type === 'product'
+  const entityLabel = isProduct ? 'Product' : 'Service'
+  const pluralLabel = isProduct ? 'products' : 'services'
+
+  const filteredItems = items.filter(it => {
+    if (!searchQuery.trim()) return true
+    const q = searchQuery.toLowerCase().trim()
+    return (
+      it.name.toLowerCase().includes(q) ||
+      (it.variant && it.variant.toLowerCase().includes(q)) ||
+      (it.sku && it.sku.toLowerCase().includes(q)) ||
+      (it.category && it.category.toLowerCase().includes(q))
+    )
+  })
+
+  return (
+    <div className="space-y-6">
+      {/* 4 KPI Cards matching Products & Services exact specifications */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {[
+          {
+            label: isProduct ? 'Total Product Revenue' : 'Total Service Revenue',
+            value: formatCurrency(totalRevenue),
+            icon: <RMIcon size={18} />,
+            from: 'from-emerald-500 to-teal-600',
+          },
+          {
+            label: isProduct ? 'Total Products Sold' : 'Total Services Sold',
+            value: String(Math.round(totalSold)),
+            icon: isProduct ? <Package size={18} /> : <Scissors size={18} />,
+            from: 'from-blue-500 to-indigo-600',
+          },
+          {
+            label: isProduct ? 'Average Product Revenue' : 'Average Service Revenue',
+            value: formatCurrency(averageRevenue),
+            icon: <RMIcon size={18} />,
+            from: 'from-violet-500 to-purple-600',
+          },
+          {
+            label: isProduct ? 'Top Product' : 'Top Service',
+            value: bestItem || 'No sales yet',
+            icon: <Trophy size={18} />,
+            from: 'from-amber-500 to-orange-600',
+          },
+        ].map((card, i) => (
+          <div
+            key={i}
+            className={`relative overflow-hidden rounded-2xl p-5 shadow-lg border border-white/20 bg-gradient-to-br ${card.from} flex flex-col justify-between min-h-[120px]`}
+          >
+            <div className="absolute inset-0 bg-gradient-to-tl from-white/30 via-white/10 to-transparent" />
+            <div className="relative z-10 flex flex-col justify-between h-full">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <p className="text-[10px] uppercase font-black text-white/80 tracking-wider">
+                  {card.label}
+                </p>
+                <div className="w-9 h-9 rounded-xl bg-white/25 backdrop-blur-sm flex items-center justify-center text-white shadow-sm shrink-0">
+                  {card.icon}
+                </div>
+              </div>
+              <p className="text-[18px] sm:text-[22px] font-extrabold text-white drop-shadow-sm break-words leading-tight">
+                {card.value}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* All Products / All Services Analytics Table */}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB]/30 p-5 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-[15px] font-bold text-[#111111]">
+              All {isProduct ? 'Products' : 'Services'} Analytics
+            </h3>
+            <p className="text-[12px] text-[#6B7280]">
+              Search by {entityLabel} Name, SKU, or Category for instant statistics
+            </p>
+          </div>
+          <span className="text-[11px] font-bold text-[#10B981] bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200 self-start sm:self-auto">
+            {items.length} {pluralLabel}
+          </span>
+        </div>
+
+        <div className="mb-4">
+          <input
+            type="text"
+            placeholder={`Search by ${entityLabel} Name, SKU, or Category...`}
+            value={searchQuery}
+            onChange={e => onSearchChange(e.target.value)}
+            className="w-full px-4 py-2.5 bg-[#F9FAFB] border border-[#E5E7EB]/60 rounded-xl text-[13px] font-bold text-[#111111] placeholder:text-[#8A9384] focus:outline-none focus:border-[#7daa8f] transition-colors"
+          />
+        </div>
+
+        {filteredItems.length > 0 ? (
+          <>
+            {/* Mobile-first card list */}
+            <div className="space-y-3 md:hidden">
+              {filteredItems.slice(0, 50).map((it, i) => (
+                <div
+                  key={`${it.name}-${it.variant || it.sku || i}`}
+                  className="rounded-2xl border border-[#E5E7EB]/30 bg-[#FBFAF6] p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-black text-[#9BAB9A]">#{i + 1}</p>
+                      <p className="text-[16px] font-bold text-[#111111] break-words">
+                        {it.name}
+                      </p>
+                      <p className="text-[13px] text-[#374151]">
+                        {it.category || 'Uncategorized'}
+                        {it.variant && it.variant !== '-' ? ` • ${it.variant}` : ''}
+                        {it.sku ? ` • SKU: ${it.sku}` : ''}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-[14px] font-black text-emerald-700">
+                        {formatCurrency(it.revenue)}
+                      </p>
+                      <p className="text-[11px] font-bold text-gray-400">
+                        {(it.share ?? 0).toFixed(1)}% share
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-3 text-[13px]">
+                    <div className="flex flex-col justify-between">
+                      <p className="text-[#9BAB9A] uppercase text-[11px] font-black leading-tight">
+                        Qty Sold
+                      </p>
+                      <p className="font-bold text-[#111111] mt-1">{Math.round(it.qty)}</p>
+                    </div>
+                    <div className="flex flex-col justify-between">
+                      <p className="text-[#9BAB9A] uppercase text-[11px] font-black leading-tight">
+                        Avg Price
+                      </p>
+                      <p className="font-bold text-[#111111] mt-1">
+                        {formatCurrency(it.avgPrice ?? (it.qty > 0 ? it.revenue / it.qty : 0))}
+                      </p>
+                    </div>
+                    <div className="flex flex-col justify-between">
+                      <p className="text-[#9BAB9A] uppercase text-[11px] font-black leading-tight">
+                        Bills
+                      </p>
+                      <p className="font-bold text-[#111111] mt-1">{it.billCount}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop responsive table */}
+            <div className="hidden md:block overflow-x-auto rounded-xl border border-[#E5E7EB]/30">
+              <table className="w-full min-w-[680px] text-left text-[12px]">
+                <thead className="bg-[#F9FAFB] text-[10px] uppercase tracking-wider text-[#374151]">
+                  <tr>
+                    <th className="px-4 py-2.5 font-black">#</th>
+                    <th className="px-4 py-2.5 font-black min-w-[180px]">{entityLabel}</th>
+                    <th className="px-4 py-2.5 font-black">Category</th>
+                    <th className="px-4 py-2.5 font-black">SKU / Code</th>
+                    <th className="px-4 py-2.5 font-black text-right">Qty Sold</th>
+                    <th className="px-4 py-2.5 font-black text-right">Revenue</th>
+                    <th className="px-4 py-2.5 font-black text-right">Avg Price</th>
+                    <th className="px-4 py-2.5 font-black text-right">% Share</th>
+                    <th className="px-4 py-2.5 font-black text-right">Bills</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E5E7EB]/20">
+                  {filteredItems.slice(0, 50).map((it, i) => (
+                    <tr
+                      key={`${it.name}-${it.variant || it.sku || i}`}
+                      className="hover:bg-[#F9FAFB]/50 transition-colors"
+                    >
+                      <td className="px-4 py-2.5 text-[11px] text-[#9BAB9A] font-bold">
+                        {i + 1}
+                      </td>
+                      <td className="px-4 py-2.5 font-bold text-[#111111] min-w-[180px] whitespace-normal">
+                        <div>{it.name}</div>
+                        {it.variant && it.variant !== '-' && (
+                          <span className="text-[11px] text-gray-500 font-normal">
+                            ({it.variant})
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-[#374151] whitespace-nowrap">
+                        {it.category || 'Uncategorized'}
+                      </td>
+                      <td className="px-4 py-2.5 text-[#6B7280] font-mono text-[11px] whitespace-nowrap">
+                        {it.sku || it.variant || '-'}
+                      </td>
+                      <td className="px-4 py-2.5 font-bold text-[#111111] text-right whitespace-nowrap">
+                        {Math.round(it.qty)}
+                      </td>
+                      <td className="px-4 py-2.5 font-bold text-emerald-700 text-right whitespace-nowrap">
+                        {formatCurrency(it.revenue)}
+                      </td>
+                      <td className="px-4 py-2.5 font-bold text-[#111111] text-right whitespace-nowrap">
+                        {formatCurrency(it.avgPrice ?? (it.qty > 0 ? it.revenue / it.qty : 0))}
+                      </td>
+                      <td className="px-4 py-2.5 font-bold text-gray-600 text-right whitespace-nowrap">
+                        {(it.share ?? 0).toFixed(1)}%
+                      </td>
+                      <td className="px-4 py-2.5 text-[#374151] text-right whitespace-nowrap">
+                        {it.billCount}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : (
+          <p className="text-center text-[13px] text-[#374151] py-6">
+            {searchQuery
+              ? `No ${pluralLabel} match your search query.`
+              : `No ${isProduct ? 'product' : 'service'} sales in selected period`}
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const { user } = useAuthStore()
   const { products, fetchProducts } = useProductStore()
@@ -273,6 +539,7 @@ export default function Dashboard() {
   const [search, setSearch] = useState({ invoiceNo: '', phone: '', customerName: '', dateFrom: '', dateTo: '' })
   const [todayBillsSearch, setTodayBillsSearch] = useState('')
   const [productAnalyticsSearch, setProductAnalyticsSearch] = useState('')
+  const [serviceAnalyticsSearch, setServiceAnalyticsSearch] = useState('')
   const [datePreset, setDatePreset] = useState<'today' | 'week' | 'month' | 'custom' | ''>('')
   const [historyQuickSearch, setHistoryQuickSearch] = useState('')
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
@@ -397,6 +664,10 @@ export default function Dashboard() {
     remarks: row.remarks ? String(row.remarks) : undefined,
     tailor_name: row.tailor_name ? String(row.tailor_name) : undefined,
     reference_number: row.reference_number ? String(row.reference_number) : undefined,
+    payments: Array.isArray(row.payments)
+      ? (row.payments as Array<{ mode: string; amount: number }>)
+      : (typeof row.payments === 'string' && row.payments.trim() ? JSON.parse(row.payments) : undefined),
+    change_given: toNumber(row.change_given, 0),
   })
 
   const handleAdvanceOrderCompleted = useCallback((advance: AdvanceOrder) => {
@@ -437,7 +708,7 @@ export default function Dashboard() {
     }
     setOrders(current => [completed, ...current.filter(order => order.id !== completed.id)])
     setSearchResults(current => [completed, ...current.filter(order => order.id !== completed.id)].slice(0, 100))
-    setOrderItems(current => [...completedItems.map(item => ({ order_id: completed.id, product_id: null, product_name: String(item.name || 'Product'), category: String(item.category || advance.category || ''), quantity: Number(item.quantity || 1), line_total: Number(item.line_total || 0), is_manual: false })), ...current.filter(row => row.order_id !== completed.id)])
+    setOrderItems(current => [...completedItems.map(item => ({ order_id: completed.id, product_id: null, product_name: String(item.name || 'Product'), variant_name: '', category: String(item.category || advance.category || ''), quantity: Number(item.quantity || 1), line_total: Number(item.line_total || 0), is_manual: false, source: 'advance_order' })), ...current.filter(row => row.order_id !== completed.id)])
   }, [user?.id])
 
   // Analytics (date-aware)
@@ -478,9 +749,33 @@ export default function Dashboard() {
 
     // Payment method breakdown (cash/QR/card — 'online' bills use a separate
     // payment rail and are intentionally not part of this split).
-    const cashRevenue = billableCompleted.filter(o => normalizePaymentMode(o.payment_mode) === 'cash').reduce((s, o) => s + getOrderTotal(o), 0)
-    const qrRevenue   = billableCompleted.filter(o => normalizePaymentMode(o.payment_mode) === 'qr').reduce((s, o) => s + getOrderTotal(o), 0)
-    const cardRevenue = billableCompleted.filter(o => normalizePaymentMode(o.payment_mode) === 'card').reduce((s, o) => s + getOrderTotal(o), 0)
+    // Aggregated from individual payments array (with legacy fallback to payment_mode).
+    let cashRevenue = 0
+    let qrRevenue = 0
+    let cardRevenue = 0
+
+    billableCompleted.forEach(o => {
+      if (Array.isArray(o.payments) && o.payments.length > 0) {
+        o.payments.forEach(p => {
+          const mode = normalizePaymentMode(p.mode)
+          const amt = Number(p.amount) || 0
+          if (mode === 'cash') {
+            const netCash = o.change_given ? Math.max(0, amt - Number(o.change_given)) : amt
+            cashRevenue += netCash
+          } else if (mode === 'qr') {
+            qrRevenue += amt
+          } else if (mode === 'card') {
+            cardRevenue += amt
+          }
+        })
+      } else {
+        const mode = normalizePaymentMode(o.payment_mode)
+        const total = getOrderTotal(o)
+        if (mode === 'cash') cashRevenue += total
+        else if (mode === 'qr') qrRevenue += total
+        else if (mode === 'card') cardRevenue += total
+      }
+    })
 
     // Expenses (from the expense tracker). Net Profit is finalized further
     // down, once item-level Product/Service revenue and COGS are known:
@@ -502,7 +797,7 @@ export default function Dashboard() {
 
     const todayKey  = toLocalDateKey(new Date())
     const monthKey  = todayKey.slice(0, 7)
-    const todaySales   = orders.filter(o => isCompletedStatus(o.status) && o.order_type !== 'whatsapp_request' && toLocalDateKey(o.created_at) === todayKey).reduce((s, o) => s + getOrderTotal(o), 0)
+    const todaySales = billableCompleted.filter(o => toLocalDateKey(o.created_at) === todayKey).reduce((s, o) => s + getOrderTotal(o), 0)
 
     // Today-specific analytics (for TODAY'S SALES tab)
     const todayOrders = billableCompleted.filter(o => toLocalDateKey(o.created_at) === todayKey)
@@ -568,82 +863,214 @@ export default function Dashboard() {
 
     // Item-level analytics
     const completedIds = new Set(billableCompleted.map(o => o.id))
-    const completedItems = orderItems.length > 0
+    const billableOrderMap = new Map(billableCompleted.map(o => [o.id, o]))
+
+    const rawCompletedItems: DashboardOrderItem[] = orderItems.length > 0
       ? orderItems.filter(item => completedIds.has(item.order_id))
-      : completedOrders.flatMap(order => parseOrderItems(order.items).map(row => ({
+      : billableCompleted.flatMap(order => parseOrderItems(order.items).map(row => ({
           order_id: order.id,
           product_id: (row as Record<string,unknown>).product_id as string | number | null | undefined,
           product_name: String((row as Record<string,unknown>).product_name || (row as Record<string,unknown>).name || 'Product'),
+          variant_name: String((row as Record<string,unknown>).variant_name || ''),
           category: String((row as Record<string,unknown>).category || ''),
           quantity: toNumber((row as Record<string,unknown>).quantity ?? (row as Record<string,unknown>).qty, 0),
           line_total: toNumber((row as Record<string,unknown>).line_total ?? (row as Record<string,unknown>).lineTotal, 0),
           is_manual: (row as Record<string,unknown>).is_manual === true || (row as Record<string,unknown>).source === 'manual',
+          source: String((row as Record<string,unknown>).source || ''),
         })))
 
-    const productMap    = new Map<string, { name: string; variant: string; qty: number; revenue: number; billCount: number }>()
-    const productOrders = new Map<string, Set<string>>()
-    const categoryMap   = new Map<string, { name: string; qty: number; revenue: number }>()
+    // Group items by order to compute gross line total sums and split discounts proportionally
+    const orderItemsGrouped = new Map<string, DashboardOrderItem[]>()
+    rawCompletedItems.forEach(item => {
+      const list = orderItemsGrouped.get(item.order_id) || []
+      list.push(item)
+      orderItemsGrouped.set(item.order_id, list)
+    })
+
     const prodCatLookup  = new Map(products.map(p => [String(p.name || '').trim().toLowerCase(), p.category || 'Uncategorized']))
-    // Product vs Service split (feature: catalog item type) + COGS, keyed by
-    // product_id first (reliable) and falling back to name match for manual/
-    // unregistered items that never had a product_id.
+    const prodSkuById    = new Map(products.map(p => [String(p.id), p.sku || '']))
+    const prodSkuByName  = new Map(products.map(p => [String(p.name || '').trim().toLowerCase(), p.sku || '']))
     const prodTypeById   = new Map(products.map(p => [String(p.id), p.itemType === 'service' ? 'service' as const : 'product' as const]))
     const prodTypeByName = new Map(products.map(p => [String(p.name || '').trim().toLowerCase(), p.itemType === 'service' ? 'service' as const : 'product' as const]))
     const prodCostById   = new Map(products.map(p => [String(p.id), toNumber(p.purchasePrice, 0)]))
 
-    let totalProductsSold = 0
+    type EnrichedItem = {
+      order_id: string
+      product_id: string | number | null | undefined
+      rawKey: string
+      mainName: string
+      variantName: string
+      categoryName: string
+      sku: string
+      qty: number
+      netRevenue: number
+      grossRevenue: number
+      is_manual: boolean
+      resolvedType: 'product' | 'service'
+    }
+
+    const enrichedItems: EnrichedItem[] = []
     let totalManualRevenue = 0
-    let productRevenue = 0
-    let serviceRevenue = 0
     let cogs = 0
 
-    completedItems.forEach(({ product_id, product_name, category, quantity, line_total, order_id, is_manual }) => {
-      const qty = toNumber(quantity, 0)
-      const rev = toNumber(line_total, 0)
-      totalProductsSold += qty
+    orderItemsGrouped.forEach((items, orderId) => {
+      const order = billableOrderMap.get(orderId)
+      const orderDiscount = order ? toNumber(order.discount_amount, 0) + toNumber(order.manual_discount_amount, 0) : 0
+      const orderGrossSubtotal = items.reduce((sum, it) => sum + toNumber(it.line_total, 0), 0)
 
-      const rawKey  = String(product_name || 'Product').trim() || 'Product'
-      const dashIdx = rawKey.indexOf(' - ')
-      const mainName   = dashIdx > 0 ? rawKey.slice(0, dashIdx) : rawKey
-      const variantName = dashIdx > 0 ? rawKey.slice(dashIdx + 3) : ''
+      items.forEach(it => {
+        const qty = toNumber(it.quantity, 0)
+        const grossRev = toNumber(it.line_total, 0)
+        // Proportional split of bill-level discounts
+        const discountShare = (orderGrossSubtotal > 0 && orderDiscount > 0)
+          ? (grossRev / orderGrossSubtotal) * Math.min(orderDiscount, orderGrossSubtotal)
+          : 0
+        const netRev = Math.max(0, grossRev - discountShare)
 
-      const pc = productMap.get(rawKey) || { name: mainName, variant: variantName, qty: 0, revenue: 0, billCount: 0 }
-      pc.qty += qty; pc.revenue += rev; productMap.set(rawKey, pc)
+        const rawKey = String(it.product_name || 'Product').trim() || 'Product'
+        const dashIdx = rawKey.indexOf(' - ')
+        const mainName = dashIdx > 0 ? rawKey.slice(0, dashIdx).trim() : rawKey
+        const variantFromKey = dashIdx > 0 ? rawKey.slice(dashIdx + 3).trim() : ''
+        const variantName = it.variant_name || variantFromKey
 
-      if (!productOrders.has(rawKey)) productOrders.set(rawKey, new Set())
-      productOrders.get(rawKey)!.add(order_id)
+        const idKey = it.product_id != null ? String(it.product_id) : ''
+        const sku = (idKey && prodSkuById.get(idKey)) || prodSkuByName.get(mainName.toLowerCase()) || ''
+        const catName = it.category || prodCatLookup.get(mainName.toLowerCase()) || 'Uncategorized'
 
-      const catName = category || prodCatLookup.get(mainName.toLowerCase()) || 'Uncategorized'
-      const cc = categoryMap.get(catName) || { name: catName, qty: 0, revenue: 0 }
-      cc.qty += qty; cc.revenue += rev; categoryMap.set(catName, cc)
+        // Catalog classification: strictly 'service' or 'product'
+        const isService =
+          (idKey && prodTypeById.get(idKey) === 'service') ||
+          prodTypeByName.get(mainName.toLowerCase()) === 'service' ||
+          (it.source === 'advance_order') ||
+          (order && order.order_type === 'advance_order') ||
+          /service|tailor|stitch/i.test(catName)
 
-      if (is_manual) totalManualRevenue += rev
+        const resolvedType: 'product' | 'service' = isService ? 'service' : 'product'
 
-      const idKey = product_id != null ? String(product_id) : ''
-      const itemType = (idKey && prodTypeById.get(idKey)) || prodTypeByName.get(mainName.toLowerCase()) || 'product'
-      if (itemType === 'service') serviceRevenue += rev
-      else productRevenue += rev
-      cogs += (idKey ? (prodCostById.get(idKey) || 0) : 0) * qty
+        if (it.is_manual) totalManualRevenue += netRev
+        if (resolvedType === 'product') {
+          cogs += (idKey ? (prodCostById.get(idKey) || 0) : 0) * qty
+        }
+
+        enrichedItems.push({
+          order_id: orderId,
+          product_id: it.product_id,
+          rawKey,
+          mainName,
+          variantName,
+          categoryName: catName,
+          sku,
+          qty,
+          netRevenue: netRev,
+          grossRevenue: grossRev,
+          is_manual: Boolean(it.is_manual),
+          resolvedType,
+        })
+      })
     })
+
+    // Compute catalog analytics for a given type ('product' | 'service')
+    function computeCatalogMetrics(targetType: 'product' | 'service') {
+      const itemsOfType = enrichedItems.filter(it => it.resolvedType === targetType)
+      const itemMap = new Map<string, {
+        name: string
+        variant: string
+        category: string
+        sku: string
+        qty: number
+        revenue: number
+        orderSet: Set<string>
+      }>()
+
+      let totalRevenue = 0
+      let totalSold = 0
+
+      itemsOfType.forEach(it => {
+        totalRevenue += it.netRevenue
+        totalSold += it.qty
+
+        const existing = itemMap.get(it.rawKey) || {
+          name: it.mainName,
+          variant: it.variantName,
+          category: it.categoryName,
+          sku: it.sku,
+          qty: 0,
+          revenue: 0,
+          orderSet: new Set<string>(),
+        }
+        existing.qty += it.qty
+        existing.revenue += it.netRevenue
+        if (!existing.sku && it.sku) existing.sku = it.sku
+        if ((!existing.category || existing.category === 'Uncategorized') && it.categoryName) {
+          existing.category = it.categoryName
+        }
+        existing.orderSet.add(it.order_id)
+        itemMap.set(it.rawKey, existing)
+      })
+
+      // Sort by revenue descending by default; ties broken by quantity
+      const sortedItems: CatalogItemData[] = Array.from(itemMap.values())
+        .map(it => ({
+          name: it.name,
+          variant: it.variant,
+          category: it.category,
+          sku: it.sku,
+          qty: it.qty,
+          revenue: it.revenue,
+          billCount: it.orderSet.size,
+          avgPrice: it.qty > 0 ? it.revenue / it.qty : 0,
+          share: totalRevenue > 0 ? (it.revenue / totalRevenue) * 100 : 0,
+        }))
+        .sort((a, b) => {
+          if (b.revenue !== a.revenue) return b.revenue - a.revenue
+          return b.qty - a.qty
+        })
+
+      const averageRevenue = totalSold > 0 ? totalRevenue / totalSold : 0
+      const bestItem = sortedItems[0]?.name || 'No sales yet'
+
+      return {
+        revenue: totalRevenue,
+        totalSold,
+        averageRevenue,
+        bestItem,
+        items: sortedItems,
+      }
+    }
+
+    const productAnalytics = computeCatalogMetrics('product')
+    const serviceAnalytics = computeCatalogMetrics('service')
+
+    const productRevenue = productAnalytics.revenue
+    const totalProductsSold = productAnalytics.totalSold
+    const averageProductRevenue = productAnalytics.averageRevenue
+    const bestProduct = productAnalytics.bestItem
+    const topProducts = productAnalytics.items
+
+    const serviceRevenue = serviceAnalytics.revenue
+    const totalServicesSold = serviceAnalytics.totalSold
+    const averageServiceRevenue = serviceAnalytics.averageRevenue
+    const bestService = serviceAnalytics.bestItem
+    const topServices = serviceAnalytics.items
 
     const totalRevenue = productRevenue + serviceRevenue
     const netProfit = totalRevenue - cogs - totalExpenses
     const isProfitable = netProfit >= 0
 
-    for (const [key, orderSet] of productOrders) {
-      const p = productMap.get(key); if (p) { p.billCount = orderSet.size; productMap.set(key, p) }
-    }
-
-    const topProducts   = Array.from(productMap.values()).sort((a, b) => b.qty - a.qty)
+    // Category distribution from completed sales
+    const categoryMap = new Map<string, { name: string; qty: number; revenue: number }>()
+    enrichedItems.forEach(it => {
+      const cc = categoryMap.get(it.categoryName) || { name: it.categoryName, qty: 0, revenue: 0 }
+      cc.qty += it.qty
+      cc.revenue += it.netRevenue
+      categoryMap.set(it.categoryName, cc)
+    })
     const topCategories = Array.from(categoryMap.values()).sort((a, b) => b.revenue - a.revenue)
-    const bestProduct   = topProducts[0]?.name || 'No sales yet'
     const bestCategory  = topCategories[0]?.name || 'No sales yet'
 
     // Average items per bill
     const avgItemsPerBill = billableCompleted.length > 0
-      ? totalProductsSold / billableCompleted.length : 0
-    const averageProductRevenue = totalProductsSold > 0
-      ? completedRevenue / totalProductsSold : 0
+      ? (totalProductsSold + totalServicesSold) / billableCompleted.length : 0
 
     // Category distribution for chart
     const categoryDist = Array.from(categoryMap.entries()).sort((a, b) => b[1].revenue - a[1].revenue).slice(0, 8)
@@ -785,6 +1212,10 @@ export default function Dashboard() {
       totalCompletedRevenue: totalRevenue,
       productRevenue,
       serviceRevenue,
+      totalServicesSold,
+      averageServiceRevenue,
+      bestService,
+      topServices,
       cogs,
       averageRevenuePerBill,
       todaySales,
@@ -888,10 +1319,12 @@ export default function Dashboard() {
           order_id: String((r as Record<string,unknown>).order_id || ''),
           product_id: (r as Record<string,unknown>).product_id as string | number | null,
           product_name: String((r as Record<string,unknown>).product_name || 'Product'),
+          variant_name: String((r as Record<string,unknown>).variant_name || ''),
           category: String((r as Record<string,unknown>).category || ''),
           quantity: toNumber((r as Record<string,unknown>).quantity, 0),
           line_total: toNumber((r as Record<string,unknown>).line_total, 0),
           is_manual: Boolean((r as Record<string,unknown>).is_manual),
+          source: String((r as Record<string,unknown>).source || ''),
         })))
       }
 
@@ -1049,6 +1482,8 @@ export default function Dashboard() {
       manualDiscountAmount: order.manual_discount_amount,
       gstAmount: order.total_gst,
       paymentMode: order.payment_mode,
+      payments: order.payments,
+      changeGiven: order.change_given,
       total: order.total,
     })
     const url = URL.createObjectURL(file)
@@ -1202,8 +1637,11 @@ export default function Dashboard() {
     if (preset === 'today') {
       setSearch(s => ({ ...s, dateFrom: todayStr, dateTo: todayStr }))
     } else if (preset === 'week') {
-      const weekAgo = new Date(today); weekAgo.setDate(today.getDate() - 6)
-      setSearch(s => ({ ...s, dateFrom: weekAgo.toISOString().slice(0, 10), dateTo: todayStr }))
+      // Calendar week: Monday 00:00 of the current week — not a rolling 7-day window
+      const dayOfWeek = today.getDay() // 0=Sun, 1=Mon...6=Sat
+      const offsetToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
+      const weekStart = new Date(today.getFullYear(), today.getMonth(), today.getDate() + offsetToMonday)
+      setSearch(s => ({ ...s, dateFrom: weekStart.toISOString().slice(0, 10), dateTo: todayStr }))
     } else if (preset === 'month') {
       setSearch(s => ({ ...s, dateFrom: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`, dateTo: todayStr }))
     }
@@ -1244,11 +1682,9 @@ export default function Dashboard() {
       if (invInput) qs.set('invoice', invInput)
       if (phoneInput) qs.set('phone', phoneInput)
       if (custInput) qs.set('customer', custInput)
-      // Apply date filters only if no specific text query is active or if custom date range was selected
-      if (!hasQuery || datePreset === 'custom') {
-        if (search.dateFrom) qs.set('date_from', search.dateFrom)
-        if (search.dateTo) qs.set('date_to', search.dateTo)
-      }
+      // Always apply date filters — text search + date preset are independent, additive filters
+      if (search.dateFrom) qs.set('date_from', search.dateFrom)
+      if (search.dateTo) qs.set('date_to', search.dateTo)
       if (billTypeFilter !== 'all') qs.set('bill_type', billTypeFilter)
       qs.set('limit', hasQuery ? '1000' : '500')
 
@@ -1317,6 +1753,50 @@ export default function Dashboard() {
       setSearchLoading(false)
     }
   }
+
+  // ── Auto-search: fire runSearch when dropdown filters change (instant, no debounce) ──
+  // We track the previous values in refs so we only re-run when a dropdown actually changes.
+  const prevBillTypeFilter = useRef(billTypeFilter)
+  const prevDatePreset = useRef(datePreset)
+  const prevDateFrom = useRef(search.dateFrom)
+  const prevDateTo = useRef(search.dateTo)
+  useEffect(() => {
+    const billTypeChanged = prevBillTypeFilter.current !== billTypeFilter
+    const datePresetChanged = prevDatePreset.current !== datePreset
+    const dateRangeChanged = prevDateFrom.current !== search.dateFrom || prevDateTo.current !== search.dateTo
+    prevBillTypeFilter.current = billTypeFilter
+    prevDatePreset.current = datePreset
+    prevDateFrom.current = search.dateFrom
+    prevDateTo.current = search.dateTo
+    // Auto-trigger for any dropdown/date change (text fields handled by debounce below)
+    if (billTypeChanged || datePresetChanged || dateRangeChanged) {
+      void runSearch()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [billTypeFilter, datePreset, search.dateFrom, search.dateTo])
+
+  // ── Auto-search: debounced trigger for text fields (300 ms) ──
+  const debouncedTextSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const prevQuickSearch = useRef(historyQuickSearch)
+  const prevInvoiceNo = useRef(search.invoiceNo)
+  const prevCustomerName = useRef(search.customerName)
+  const prevPhone = useRef(search.phone)
+  useEffect(() => {
+    const quickChanged = prevQuickSearch.current !== historyQuickSearch
+    const invoiceChanged = prevInvoiceNo.current !== search.invoiceNo
+    const customerChanged = prevCustomerName.current !== search.customerName
+    const phoneChanged = prevPhone.current !== search.phone
+    prevQuickSearch.current = historyQuickSearch
+    prevInvoiceNo.current = search.invoiceNo
+    prevCustomerName.current = search.customerName
+    prevPhone.current = search.phone
+    if (!quickChanged && !invoiceChanged && !customerChanged && !phoneChanged) return
+    if (debouncedTextSearchRef.current) clearTimeout(debouncedTextSearchRef.current)
+    debouncedTextSearchRef.current = setTimeout(() => { void runSearch() }, 300)
+    return () => { if (debouncedTextSearchRef.current) clearTimeout(debouncedTextSearchRef.current) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyQuickSearch, search.invoiceNo, search.customerName, search.phone])
+
 
   // ΓöÇΓöÇ Product CRUD ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
   const handleSaveProd = async (e: FormEvent) => {
@@ -1597,7 +2077,7 @@ export default function Dashboard() {
 
   // Auto-refresh analytics data every 30 seconds
   useEffect(() => {
-    if (tab !== 'pos_analytics' || (posAnalyticsTab !== 'today' && posAnalyticsTab !== 'products' && posAnalyticsTab !== 'categories' && posAnalyticsTab !== 'coupons')) return
+    if (tab !== 'pos_analytics' || (posAnalyticsTab !== 'today' && posAnalyticsTab !== 'products' && posAnalyticsTab !== 'services' && posAnalyticsTab !== 'categories' && posAnalyticsTab !== 'coupons')) return
     const interval = setInterval(() => { void loadData() }, 30000)
     return () => clearInterval(interval)
   }, [tab, posAnalyticsTab, loadData])
@@ -2081,6 +2561,7 @@ export default function Dashboard() {
                           subtotal: normalizedItems.reduce((sum, item) => sum + item.line_total, 0),
                           total: getOrderTotal(order),
                           paymentMode: order.payment_mode || order.payment_method,
+                          payments: order.payments,
                         })
 
                         return (
@@ -2363,6 +2844,7 @@ export default function Dashboard() {
                   { id: 'revenue' as const,  label: 'Revenue',       icon: <TrendingUp size={15} className="shrink-0" /> },
                   { id: 'today' as const,    label: "Today's Sales", icon: <Receipt size={15} className="shrink-0" /> },
                   { id: 'products' as const, label: 'Products',      icon: <Package size={15} className="shrink-0" /> },
+                  { id: 'services' as const, label: 'Services',      icon: <Scissors size={15} className="shrink-0" /> },
                   { id: 'coupons' as const,  label: 'Coupons',       icon: <Ticket size={15} className="shrink-0" /> },
                 ]).map(({ id, label, icon }) => {
                   const isActive = posAnalyticsTab === id
@@ -2772,117 +3254,30 @@ export default function Dashboard() {
 
             {/* Products sub-tab */}
             {posAnalyticsTab === 'products' && (
-              <div className="space-y-6">
-                {/* Key metrics row: Revenue is 1st KPI card */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  {[
-                    { label: 'Total Product Revenue', value: formatCurrency(analytics.productRevenue), icon: <RMIcon size={18} />, from: 'from-emerald-500 to-teal-600' },
-                    { label: 'Total Products Sold', value: String(Math.round(analytics.totalProductsSold)), icon: <Package size={18} />, from: 'from-blue-500 to-indigo-600' },
-                    { label: 'Average Product Revenue', value: formatCurrency(analytics.averageProductRevenue), icon: <RMIcon size={18} />, from: 'from-violet-500 to-purple-600' },
-                    { label: 'Top Product', value: analytics.bestProduct || 'No sales yet', icon: <Trophy size={18} />, from: 'from-amber-500 to-orange-600' },
-                  ].map((card, i) => (
-                    <div key={i} className={`relative overflow-hidden rounded-2xl p-5 shadow-lg border border-white/20 bg-gradient-to-br ${card.from} flex flex-col justify-between min-h-[120px]`}>
-                      <div className="absolute inset-0 bg-gradient-to-tl from-white/30 via-white/10 to-transparent" />
-                      <div className="relative z-10 flex flex-col justify-between h-full">
-                        <div className="flex items-center justify-between gap-2 mb-2">
-                          <p className="text-[10px] uppercase font-black text-white/80 tracking-wider">{card.label}</p>
-                          <div className="w-9 h-9 rounded-xl bg-white/25 backdrop-blur-sm flex items-center justify-center text-white shadow-sm shrink-0">{card.icon}</div>
-                        </div>
-                        <p className="text-[18px] sm:text-[22px] font-extrabold text-white drop-shadow-sm break-words leading-tight">{card.value}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+              <CatalogAnalyticsView
+                type="product"
+                totalRevenue={analytics.productRevenue}
+                totalSold={analytics.totalProductsSold}
+                averageRevenue={analytics.averageProductRevenue}
+                bestItem={analytics.bestProduct}
+                items={analytics.topProducts}
+                searchQuery={productAnalyticsSearch}
+                onSearchChange={setProductAnalyticsSearch}
+              />
+            )}
 
-                {/* Full product table with Search by Name, SKU, Category */}
-                <div className="bg-white rounded-2xl border border-[#E5E7EB]/30 p-5 shadow-sm">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                    <div>
-                      <h3 className="text-[15px] font-bold text-[#111111]">All Products Analytics</h3>
-                      <p className="text-[12px] text-[#6B7280]">Search by Product Name, SKU, or Category for instant statistics</p>
-                    </div>
-                    <span className="text-[11px] font-bold text-[#10B981] bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200 self-start sm:self-auto">{analytics.topProducts.length} products</span>
-                  </div>
-                  <div className="mb-4">
-                    <input
-                      type="text"
-                      placeholder="Search by Product Name, SKU, or Category..."
-                      value={productAnalyticsSearch}
-                      onChange={e => setProductAnalyticsSearch(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-[#F9FAFB] border border-[#E5E7EB]/60 rounded-xl text-[13px] font-bold text-[#111111] placeholder:text-[#8A9384] focus:outline-none focus:border-[#7daa8f] transition-colors"
-                    />
-                  </div>
-                  {(() => {
-                    const filteredProds = analytics.topProducts.filter(p => {
-                      if (!productAnalyticsSearch.trim()) return true
-                      const q = productAnalyticsSearch.toLowerCase()
-                      return p.name.toLowerCase().includes(q) || (p.variant && p.variant.toLowerCase().includes(q))
-                    })
-                    return filteredProds.length > 0 ? (
-                      <>
-                      <div className="space-y-3 md:hidden">
-                        {filteredProds.slice(0, 50).map((p, i) => (
-                          <div key={`${p.name}-${p.variant || i}`} className="rounded-2xl border border-[#E5E7EB]/30 bg-[#FBFAF6] p-4">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="text-[13px] font-black text-[#9BAB9A]">#{i + 1}</p>
-                                <p className="text-[16px] font-bold text-[#111111] break-words">{p.name}</p>
-                                <p className="text-[13px] text-[#374151]">{p.variant || 'No variant'}</p>
-                              </div>
-                              <p className="text-[14px] font-black text-emerald-700">{formatCurrency(p.revenue)}</p>
-                            </div>
-                            <div className="mt-3 grid grid-cols-3 gap-3 text-[13px]">
-                              <div className="flex flex-col justify-between">
-                                <p className="text-[#9BAB9A] uppercase text-[11px] font-black leading-tight">Qty Sold</p>
-                                <p className="font-bold text-[#111111] mt-1">{Math.round(p.qty)}</p>
-                              </div>
-                              <div className="flex flex-col justify-between">
-                                <p className="text-[#9BAB9A] uppercase text-[11px] font-black leading-tight">Bills</p>
-                                <p className="font-bold text-[#111111] mt-1">{p.billCount}</p>
-                              </div>
-                              <div className="flex flex-col justify-between">
-                                <p className="text-[#9BAB9A] uppercase text-[11px] font-black leading-tight">Avg Revenue/Bill</p>
-                                <p className="font-bold text-[#111111] mt-1">{formatCurrency(p.billCount > 0 ? p.revenue / p.billCount : 0)}</p>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="hidden md:block overflow-x-auto rounded-xl border border-[#E5E7EB]/30">
-                        <table className="w-full min-w-[580px] text-left text-[12px]">
-                          <thead className="bg-[#F9FAFB] text-[10px] uppercase tracking-wider text-[#374151]">
-                            <tr>
-                              <th className="px-4 py-2.5 font-black">#</th>
-                              <th className="px-4 py-2.5 font-black">Product</th>
-                              <th className="px-4 py-2.5 font-black">Variant / SKU</th>
-                              <th className="px-4 py-2.5 font-black">Qty Sold</th>
-                              <th className="px-4 py-2.5 font-black">Revenue</th>
-                              <th className="px-4 py-2.5 font-black">Bills</th>
-                              <th className="px-4 py-2.5 font-black">Avg Revenue/Bill</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-[#E5E7EB]/20">
-                            {filteredProds.slice(0, 50).map((p, i) => (
-                              <tr key={`${p.name}-${p.variant || i}`} className="hover:bg-[#F9FAFB]/50">
-                                <td className="px-4 py-2 text-[11px] text-[#9BAB9A] font-bold">{i + 1}</td>
-                                <td className="px-4 py-2 font-bold text-[#111111]">{p.name}</td>
-                                <td className="px-4 py-2 text-[#374151]">{p.variant || '-'}</td>
-                                <td className="px-4 py-2 font-bold">{Math.round(p.qty)}</td>
-                                <td className="px-4 py-2 font-bold text-emerald-700">{formatCurrency(p.revenue)}</td>
-                                <td className="px-4 py-2 text-[#374151]">{p.billCount}</td>
-                                <td className="px-4 py-2 font-bold text-[#111111]">{formatCurrency(p.billCount > 0 ? p.revenue / p.billCount : 0)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      </>
-                    ) : (
-                      <p className="text-center text-[13px] text-[#374151] py-6">{productAnalyticsSearch ? 'No products match your search query.' : 'No product sales in selected period'}</p>
-                    )
-                  })()}
-                </div>
-              </div>
+            {/* Services sub-tab */}
+            {posAnalyticsTab === 'services' && (
+              <CatalogAnalyticsView
+                type="service"
+                totalRevenue={analytics.serviceRevenue}
+                totalSold={analytics.totalServicesSold}
+                averageRevenue={analytics.averageServiceRevenue}
+                bestItem={analytics.bestService}
+                items={analytics.topServices}
+                searchQuery={serviceAnalyticsSearch}
+                onSearchChange={setServiceAnalyticsSearch}
+              />
             )}
 
             {/* Categories sub-tab */}
@@ -4581,6 +4976,8 @@ export default function Dashboard() {
                     manualDiscountAmount={invoicePreviewOrder.manual_discount_amount}
                     gstAmount={invoicePreviewOrder.total_gst}
                     paymentMode={invoicePreviewOrder.payment_mode}
+                    payments={invoicePreviewOrder.payments}
+                    changeGiven={invoicePreviewOrder.change_given}
                     total={invoicePreviewOrder.total}
                     status={invoicePreviewOrder.status}
                   />

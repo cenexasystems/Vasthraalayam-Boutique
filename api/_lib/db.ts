@@ -1,10 +1,6 @@
 import postgres from 'postgres'
 
-const connectionString = process.env.DATABASE_URL
-
-if (!connectionString) {
-  throw new Error('DATABASE_URL is not set')
-}
+const connectionString = process.env.DATABASE_URL || 'postgresql://localhost:5432/postgres'
 
 // Reused across warm serverless invocations so we don't open a fresh
 // connection (against Neon's pooled endpoint) on every request.
@@ -15,7 +11,8 @@ export const sql =
   postgres(connectionString, {
     max: 5,
     idle_timeout: 20,
-    connect_timeout: 10,
+    connect_timeout: 4,
+    onnotice: () => {},
   })
 
 if (!globalForSql.__neonSql) {

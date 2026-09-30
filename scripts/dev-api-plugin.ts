@@ -5,11 +5,8 @@ import type { Plugin, ViteDevServer } from 'vite'
 
 /**
  * Serves the Vercel-style serverless functions under api/ from Vite's own
- * dev server, so `npm run dev` works without the Vercel CLI (which needs an
- * account login to run `vercel dev`). Mirrors Vercel's file-based routing —
- * literal segments win over a `[param].ts`/`[param]/` dynamic match — and
- * adapts Node's req/res to the minimal VercelRequest/VercelResponse surface
- * these handlers use (req.query, req.body, res.status().json()).
+ * dev server, so `npm run dev` works without the Vercel CLI.
+ * Supports Vercel rewrites (e.g. /api/auth/login -> /api/auth).
  */
 
 const API_ROOT = path.resolve(process.cwd(), 'api')
@@ -17,6 +14,77 @@ const API_ROOT = path.resolve(process.cwd(), 'api')
 interface ResolvedRoute {
   file: string
   params: Record<string, string>
+}
+
+function applyVercelRewrites(pathname: string): { rewrittenPath: string; extraParams: Record<string, string> } {
+  const extraParams: Record<string, string> = {}
+
+  if (pathname === '/auth/login' || pathname === '/api/auth/login') {
+    return { rewrittenPath: '/auth', extraParams }
+  }
+  if (pathname === '/inventory/adjust') {
+    extraParams.action = 'adjust'
+    return { rewrittenPath: '/inventory', extraParams }
+  }
+  if (pathname === '/inventory/receive') {
+    extraParams.action = 'receive'
+    return { rewrittenPath: '/inventory', extraParams }
+  }
+  if (pathname === '/settings/password') {
+    extraParams.action = 'password'
+    return { rewrittenPath: '/settings', extraParams }
+  }
+
+  const lookupMatch = pathname.match(/^\/barcode-registry\/lookup\/([^/]+)$/)
+  if (lookupMatch) {
+    extraParams.action = 'lookup'
+    extraParams.code = decodeURIComponent(lookupMatch[1])
+    return { rewrittenPath: '/barcode-registry', extraParams }
+  }
+
+  const barcodeIdMatch = pathname.match(/^\/barcode-registry\/([^/]+)$/)
+  if (barcodeIdMatch) {
+    extraParams.id = decodeURIComponent(barcodeIdMatch[1])
+    return { rewrittenPath: '/barcode-registry', extraParams }
+  }
+
+  const catMatch = pathname.match(/^\/categories\/([^/]+)$/)
+  if (catMatch) {
+    extraParams.id = decodeURIComponent(catMatch[1])
+    return { rewrittenPath: '/categories', extraParams }
+  }
+
+  const couponIdMatch = pathname.match(/^\/coupons\/id\/([^/]+)$/)
+  if (couponIdMatch) {
+    extraParams.id = decodeURIComponent(couponIdMatch[1])
+    return { rewrittenPath: '/coupons', extraParams }
+  }
+
+  const couponCodeMatch = pathname.match(/^\/coupons\/([^/]+)$/)
+  if (couponCodeMatch) {
+    extraParams.code = decodeURIComponent(couponCodeMatch[1])
+    return { rewrittenPath: '/coupons', extraParams }
+  }
+
+  const orderMatch = pathname.match(/^\/orders\/([^/]+)$/)
+  if (orderMatch) {
+    extraParams.id = decodeURIComponent(orderMatch[1])
+    return { rewrittenPath: '/orders', extraParams }
+  }
+
+  const prodMatch = pathname.match(/^\/products\/([^/]+)$/)
+  if (prodMatch) {
+    extraParams.id = decodeURIComponent(prodMatch[1])
+    return { rewrittenPath: '/products', extraParams }
+  }
+
+  const variantMatch = pathname.match(/^\/variants\/([^/]+)$/)
+  if (variantMatch) {
+    extraParams.id = decodeURIComponent(variantMatch[1])
+    return { rewrittenPath: '/variants', extraParams }
+  }
+
+  return { rewrittenPath: pathname, extraParams }
 }
 
 function resolveRoute(dir: string, segments: string[], params: Record<string, string>): ResolvedRoute | null {
@@ -73,7 +141,8 @@ export function neonApiDevPlugin(): Plugin {
     configureServer(server: ViteDevServer) {
       server.middlewares.use('/api', async (req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) => {
         const url = new URL(req.url || '/', 'http://localhost')
-        const segments = url.pathname.split('/').filter(Boolean)
+        const { rewrittenPath, extraParams } = applyVercelRewrites(url.pathname)
+        const segments = rewrittenPath.split('/').filter(Boolean)
         const route = resolveRoute(API_ROOT, segments, {})
         if (!route) {
           next()
@@ -81,7 +150,7 @@ export function neonApiDevPlugin(): Plugin {
         }
 
         try {
-          const query: Record<string, string> = { ...route.params }
+          const query: Record<string, string> = { ...route.params, ...extraParams }
           for (const [key, value] of url.searchParams) query[key] = value
 
           let body: unknown

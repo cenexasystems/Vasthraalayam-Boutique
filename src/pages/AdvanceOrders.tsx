@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { CalendarDays, CheckCircle2, Clock3, Download, Eye, FileText, MessageCircle, PackageCheck, Printer, RefreshCw, Search, X, Trash2 } from 'lucide-react'
-import { supabase, isSupabaseConfigured } from '../lib/supabase'
+import { neonApi } from '../lib/neonApi'
 import { formatCurrency } from '../lib/retail'
 import { invoicePdfFile } from '../lib/invoicePdf'
 import { printThermalReceipt } from '../lib/thermalPrint'
@@ -63,7 +63,6 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
   const [couponInput, setCouponInput] = useState('')
   const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; percentage: number } | null>(null)
   const [couponError, setCouponError] = useState('')
-  const [availableCoupons, setAvailableCoupons] = useState<{ code: string; percentage: number }[]>([])
   const [manualDiscount, setManualDiscount] = useState('')
   const [manualDiscountType, setManualDiscountType] = useState<'rm' | '%'>('rm')
 
@@ -85,19 +84,18 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
     }
   }
 
-  // Fetch active coupons for the payment modal
-  useEffect(() => {
-    if (!isSupabaseConfigured) return
-    supabase.from('coupons').select('code, percentage').eq('is_active', true)
-      .then(({ data }) => { if (data) setAvailableCoupons(data as { code: string; percentage: number }[]) })
-  }, [])
-
-  const applyCoupon = () => {
+  // Validate coupon against Neon /api/coupons/:code
+  const applyCoupon = async () => {
     const code = couponInput.trim().toUpperCase()
-    const found = availableCoupons.find(c => c.code.toUpperCase() === code)
-    if (!found) { setCouponError('Invalid or inactive coupon code.'); return }
-    setAppliedCoupon(found)
+    if (!code) { setCouponError('Enter a coupon code'); return }
     setCouponError('')
+    try {
+      const res = await neonApi.get<{ code: string; percentage: number }>(`/coupons/${encodeURIComponent(code)}`)
+      if (res.error || !res.data) { setCouponError('Invalid or inactive coupon code.'); return }
+      setAppliedCoupon({ code: res.data.code, percentage: Number(res.data.percentage) })
+    } catch {
+      setCouponError('Could not validate coupon. Try again.')
+    }
   }
 
   const removeCoupon = () => { setAppliedCoupon(null); setCouponInput(''); setCouponError('') }
@@ -154,7 +152,13 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
     if (dateFilter !== 'all') {
       const created = new Date(order.created_at); const now = new Date()
       if (dateFilter === 'today' && dateKey(created) !== dateKey(now)) return false
-      if (dateFilter === 'week' && created < new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6)) return false
+      if (dateFilter === 'week') {
+        // Calendar week: Monday 00:00:00 of the current week
+        const dayOfWeek = now.getDay() // 0=Sun, 1=Mon...6=Sat
+        const offsetToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
+        const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offsetToMonday, 0, 0, 0, 0)
+        if (created < weekStart) return false
+      }
       if (dateFilter === 'month' && (created.getMonth() !== now.getMonth() || created.getFullYear() !== now.getFullYear())) return false
     }
     return true
@@ -486,9 +490,8 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
                   </div>
                 ) : (
                   <>
-                    <input list="adv-coupon-list" className={`${inputClass} flex-1`} value={couponInput} onChange={e=>{setCouponInput(e.target.value.toUpperCase());setCouponError('')}} placeholder="Enter code" />
-                    <datalist id="adv-coupon-list">{availableCoupons.map(c=><option key={c.code} value={c.code}/>)}</datalist>
-                    <button type="button" onClick={applyCoupon} className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-black text-white hover:bg-violet-700 cursor-pointer transition">Apply</button>
+                    <input className={`${inputClass} flex-1`} value={couponInput} onChange={e=>{setCouponInput(e.target.value.toUpperCase());setCouponError('')}} placeholder="Enter coupon code" />
+                    <button type="button" onClick={() => void applyCoupon()} className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-black text-white hover:bg-violet-700 cursor-pointer transition">Apply</button>
                   </>
                 )}
               </div>

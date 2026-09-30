@@ -10,25 +10,25 @@
   "scope": "/",
   "icons": [
     {
-      "src": "/chaji-icon-192.png",
+      "src": "/vasthraalayam-icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/chaji-icon-512.png",
+      "src": "/vasthraalayam-icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/chaji-icon-maskable-192.png",
+      "src": "/vasthraalayam-icon-maskable-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "/chaji-icon-maskable-512.png",
+      "src": "/vasthraalayam-icon-maskable-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

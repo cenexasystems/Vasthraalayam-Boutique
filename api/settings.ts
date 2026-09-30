@@ -25,8 +25,13 @@ const WRITABLE_COLUMNS = new Set([
 ])
 
 async function get(_req: VercelRequest, res: VercelResponse) {
-  const rows = await sql.unsafe(`SELECT ${SETTINGS_COLUMNS} FROM public.store_settings WHERE id = 1 LIMIT 1`)
-  res.status(200).json({ data: rows[0] ?? null })
+  try {
+    const rows = await sql.unsafe(`SELECT ${SETTINGS_COLUMNS} FROM public.store_settings WHERE id = 1 LIMIT 1`)
+    res.status(200).json({ data: rows[0] ?? null })
+  } catch (err) {
+    console.warn('[settings] DB unreachable or unconfigured, returning null fallback')
+    res.status(200).json({ data: null })
+  }
 }
 
 async function putSettings(req: VercelRequest, res: VercelResponse) {

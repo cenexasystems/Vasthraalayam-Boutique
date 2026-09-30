@@ -8,6 +8,10 @@
       "destination": "/api/auth"
     },
     {
+      "source": "/api/advance-orders/:id",
+      "destination": "/api/advance-orders?id=:id"
+    },
+    {
       "source": "/api/barcode-registry/lookup/:code",
       "destination": "/api/barcode-registry?action=lookup&code=:code"
     },
@@ -52,7 +56,7 @@
       "destination": "/api/variants?id=:id"
     },
     {
-      "source": "/((?!api/|assets/|favicon|robots|chaji|clad|manifest|sw|workbox|.*\\.[a-zA-Z0-9]+$).*)",
+      "source": "/((?!api/|assets/|favicon|robots|vasthraalayam|manifest|sw|workbox|.*\\.[a-zA-Z0-9]+$).*)",
       "destination": "/index.html"
     }
   ],

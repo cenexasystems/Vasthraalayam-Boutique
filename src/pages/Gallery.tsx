@@ -177,7 +177,7 @@ export default function Gallery() {
             Inside Our Store
           </h1>
           <p className="text-[14px] sm:text-[16px] font-bold text-[#5f6d59] mb-4">
-            Sevoor, Arani
+            Ullagaram, Puzhudhivakkam, Chennai
           </p>
           <p className="text-[15px] text-[#374151] font-medium leading-[1.7] max-w-lg mx-auto">
             Explore our traditional herbal and pooja store through real photographs

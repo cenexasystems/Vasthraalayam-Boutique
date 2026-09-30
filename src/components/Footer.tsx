@@ -1,12 +1,11 @@
 import { useMemo } from 'react'
-import { Leaf, Phone, Mail, MapPin } from 'lucide-react'
+import { Leaf, Phone, MapPin } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useLangStore } from '../store/langStore'
 import { useProductStore } from '../store/store'
 import {
   BRAND_EN,
   BRAND_SUBTITLE,
-  BRAND_EMAIL,
   BRAND_LOCATION_LINK,
   BRAND_PRIMARY_PHONE_DISPLAY,
   BRAND_PRIMARY_PHONE_E164,
@@ -17,6 +16,8 @@ import {
   BRAND_ADDRESS,
   BRAND_LOGO,
   BRAND_ICON,
+  BRAND_INSTAGRAM,
+  BRAND_INSTAGRAM_URL,
 } from '../lib/brand'
 
 export default function Footer() {
@@ -42,16 +43,11 @@ export default function Footer() {
       display: BRAND_PRIMARY_PHONE_DISPLAY,
       href: `tel:${BRAND_PRIMARY_PHONE_E164}`,
     },
-    {
+    ...(BRAND_SECONDARY_PHONE_DISPLAY !== BRAND_PRIMARY_PHONE_DISPLAY ? [{
       label: t('footer.secondary_number'),
       display: BRAND_SECONDARY_PHONE_DISPLAY,
       href: `tel:${BRAND_SECONDARY_PHONE_E164}`,
-    },
-    {
-      label: t('footer.third_number'),
-      display: BRAND_THIRD_PHONE_DISPLAY,
-      href: `tel:${BRAND_THIRD_PHONE_E164}`,
-    },
+    }] : []),
   ]
 
   const remedies = useMemo(() => {
@@ -118,10 +114,16 @@ export default function Footer() {
                 </div>
               </li>
             ))}
-            <li className="flex items-start gap-3 flex-wrap">
-              <Mail size={15} className="text-sage mt-0.5 shrink-0" />
-              <a href={`mailto:${BRAND_EMAIL}`} className="min-w-0 break-all hover:text-white transition-colors">{BRAND_EMAIL}</a>
-            </li>
+            {BRAND_INSTAGRAM && (
+              <li className="flex items-start gap-3 flex-wrap">
+                <svg className="w-4 h-4 text-sage mt-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect width="20" height="20" x="2" y="2" rx="5" ry="5"/>
+                  <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/>
+                  <line x1="17.5" x2="17.51" y1="6.5" y2="6.5"/>
+                </svg>
+                <a href={BRAND_INSTAGRAM_URL} target="_blank" rel="noreferrer" className="min-w-0 break-all hover:text-white transition-colors">@{BRAND_INSTAGRAM}</a>
+              </li>
+            )}
           </ul>
         </div>
       </div>

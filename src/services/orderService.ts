@@ -20,7 +20,10 @@ type CreateOrderInput = {
 
   // POS additions
   paymentMethod?: string
+  paymentMode?: string
   splitDetails?: Record<string, unknown>
+  payments?: Array<{ mode: 'cash' | 'qr' | 'card' | 'online' | string; amount: number }>
+  changeGiven?: number
   totalGst?: number
   gstEnabled?: boolean
 }
@@ -29,6 +32,10 @@ type CreatedOrder = {
   orderId: string
   invoiceNo: string
   createdAt: string
+  total?: number
+  payments?: Array<{ mode: string; amount: number }>
+  changeGiven?: number
+  paymentMode?: string
 }
 
 // Orders now live in Neon (Phase 1 of the Supabase migration) — see
@@ -54,10 +61,17 @@ export const createOrderWithStock = async (input: CreateOrderInput): Promise<Cre
   const couponPercentage = Number(input.couponPercentage || 0)
   const totalGst = Number(input.totalGst || 0)
   const gstEnabled = Boolean(input.gstEnabled)
-  const paymentMethod = input.paymentMethod || 'cash'
+  const paymentMethod = input.paymentMethod || input.paymentMode || 'cash'
   const splitDetails = input.splitDetails || {}
 
-  const { data, error } = await neonApi.post<{ order_id: string; invoice_no: string; total: number }>('/checkout', {
+  const { data, error } = await neonApi.post<{
+    order_id: string
+    invoice_no: string
+    total: number
+    payments?: Array<{ mode: string; amount: number }>
+    change_given?: number
+    payment_mode?: string
+  }>('/checkout', {
     customer_name: customerName,
     phone,
     address,
@@ -76,16 +90,23 @@ export const createOrderWithStock = async (input: CreateOrderInput): Promise<Cre
     total_gst: totalGst,
     gst_enabled: gstEnabled,
     payment_method: paymentMethod,
+    payment_mode: input.paymentMode || paymentMethod,
+    payments: input.payments,
+    change_given: input.changeGiven ?? 0,
     split_details: splitDetails,
   })
 
   if (error || !data) {
-    throw error || new Error('Checkout did not return an order')
+    throw error || new Error(error ? (error as Error).message : 'Checkout did not return an order')
   }
 
   return {
     orderId: data.order_id,
     invoiceNo: data.invoice_no,
     createdAt: new Date().toISOString(),
+    total: data.total,
+    payments: data.payments,
+    changeGiven: data.change_given,
+    paymentMode: data.payment_mode,
   }
 }

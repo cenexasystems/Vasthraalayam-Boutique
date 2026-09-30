@@ -15,10 +15,10 @@ The app keeps the established dashboard, POS billing, catalog, category, coupon,
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
-- `VITE_WHATSAPP_NUMBER=918925094465`
+- `VITE_WHATSAPP_NUMBER=919884423899`
 - `DATABASE_URL` — Neon connection string (server-side only, see `neon/README.md`)
 - `ADMIN_ID` / `ADMIN_PASSWORD` — Admin portal credentials, verified server-side in `api/auth/login.ts` (never sent to the browser)
 - `STAFF_ID` / `STAFF_PASSWORD` — Staff portal credentials, same as above
 - `SESSION_SECRET` — signs the session tokens issued on login (`api/_lib/session.ts`); rotating it logs everyone out
 
-Brand assets are located in `public/chaji-logo.jpeg`.
+Brand assets are located in `public/vasthraalayam-logo.jpeg`.

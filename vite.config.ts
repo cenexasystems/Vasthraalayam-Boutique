@@ -12,15 +12,15 @@ export default defineConfig({
     VitePWA({
       selfDestroying: true,
       includeAssets: [
-        'chaji-logo.jpeg',
-        'chaji-logo.png',
-        'chaji-icon.png',
-        'chaji-icon-192.png',
-        'chaji-icon-512.png',
-        'chaji-icon-maskable-192.png',
-        'chaji-icon-maskable-512.png',
+        'vasthraalayam-logo.jpeg',
+        'vasthraalayam-logo.png',
+        'vasthraalayam-icon.png',
+        'vasthraalayam-icon-192.png',
+        'vasthraalayam-icon-512.png',
+        'vasthraalayam-icon-maskable-192.png',
+        'vasthraalayam-icon-maskable-512.png',
         'apple-touch-icon.png',
-        'chaji-favicon.png',
+        'vasthraalayam-favicon.png',
         'robots.txt',
       ],
       manifest: {
@@ -35,25 +35,25 @@ export default defineConfig({
         scope: '/',
         icons: [
           {
-            src: '/chaji-icon-192.png?v=4',
+            src: '/vasthraalayam-icon-192.png?v=5',
             sizes: '192x192',
             type: 'image/png',
             purpose: 'any',
           },
           {
-            src: '/chaji-icon-512.png?v=4',
+            src: '/vasthraalayam-icon-512.png?v=5',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any',
           },
           {
-            src: '/chaji-icon-maskable-192.png?v=4',
+            src: '/vasthraalayam-icon-maskable-192.png?v=5',
             sizes: '192x192',
             type: 'image/png',
             purpose: 'maskable',
           },
           {
-            src: '/chaji-icon-maskable-512.png?v=4',
+            src: '/vasthraalayam-icon-maskable-512.png?v=5',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'maskable',

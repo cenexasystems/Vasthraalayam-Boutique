@@ -48,11 +48,11 @@ export default function AdminLogin() {
             <p className="text-[11px] font-black uppercase tracking-[0.26em] text-brand-onDark">{BRAND_SUBTITLE}</p>
           </div>
           <div className="my-auto flex flex-col items-center justify-center py-6 w-full">
-            <div className="relative p-6 sm:p-8 rounded-3xl bg-[#223126] border border-[#7daa8f]/40 shadow-[0_20px_50px_rgba(0,0,0,0.5),0_0_40px_rgba(125, 170, 143,0.15)] flex items-center justify-center max-w-[280px] w-full aspect-square">
+            <div className="relative p-2 sm:p-2.5 rounded-3xl bg-[#223126] border border-[#7daa8f]/40 shadow-[0_20px_50px_rgba(0,0,0,0.5),0_0_40px_rgba(125, 170, 143,0.15)] flex items-center justify-center max-w-[280px] w-full aspect-square overflow-hidden">
               <img
                 src={logoUrl}
                 alt={BRAND_EN}
-                className="w-full h-full object-contain filter drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)]"
+                className="w-full h-full object-contain rounded-2xl filter drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)]"
               />
             </div>
           </div>
@@ -64,9 +64,9 @@ export default function AdminLogin() {
           {/* Brand */}
           <div className="mb-4 sm:mb-5 flex flex-col items-center text-center lg:items-start lg:text-left">
             {/* Mobile-only logo (since left panel is hidden on mobile) */}
-            <div className="mb-3 lg:hidden flex justify-center">
-              <div className="w-16 h-16 rounded-2xl bg-brand-black border border-[#7daa8f]/50 p-2 flex items-center justify-center shadow-md">
-                <img src={logoUrl} alt={BRAND_EN} className="w-full h-full object-contain" />
+            <div className="mb-4 lg:hidden flex justify-center">
+              <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-[#223126] border border-[#7daa8f]/40 p-1 flex items-center justify-center shadow-lg overflow-hidden">
+                <img src={logoUrl} alt={BRAND_EN} className="w-full h-full object-contain rounded-xl" />
               </div>
             </div>
             <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#5f6d59]">{BRAND_SUBTITLE}</p>

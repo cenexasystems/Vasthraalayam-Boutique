@@ -29,7 +29,14 @@ export interface AnalyticsExportData {
   todayHourlyTrend: Array<{ hour: string; key: string; revenue: number }>
   todayTopProducts: Array<{ name: string; qty: number; revenue: number }>
   todayBills?: Array<{ invoice_no?: string; id?: string; customer_name?: string; total: number; created_at: string; status: string; order_mode?: string }>
-  topProducts: Array<{ name: string; variant?: string; qty: number; revenue: number; billCount: number }>
+  productRevenue?: number
+  serviceRevenue?: number
+  totalServicesSold?: number
+  averageProductRevenue?: number
+  averageServiceRevenue?: number
+  bestService?: string
+  topProducts: Array<{ name: string; variant?: string; category?: string; sku?: string; qty: number; revenue: number; billCount: number; avgPrice?: number; share?: number }>
+  topServices?: Array<{ name: string; variant?: string; category?: string; sku?: string; qty: number; revenue: number; billCount: number; avgPrice?: number; share?: number }>
   topCategories: Array<{ name: string; qty: number; revenue: number }>
   categoryDist?: Array<{ name: string; value: number }>
   topCoupons: Array<{ code: string; usage: number; discounts: number }>
@@ -39,7 +46,7 @@ export interface AnalyticsExportData {
   couponDailyTrend?: Array<{ day: string; date: string; orders: number; discounts: number }>
 }
 
-export type AnalyticsTabKey = 'revenue' | 'today' | 'products' | 'categories' | 'coupons' | string
+export type AnalyticsTabKey = 'revenue' | 'today' | 'products' | 'services' | 'categories' | 'coupons' | string
 
 interface ExportOptions {
   data: AnalyticsExportData
@@ -143,6 +150,34 @@ export function exportAnalyticsToCSV({ data, activeTab, datePreset, dateFrom, da
     data.topCategories.forEach((cat, index) => {
       rows.push([String(index + 1), cat.name, String(Math.round(cat.qty)), cat.revenue.toFixed(2)])
     })
+  } else if (activeTab === 'services') {
+    rows.push(['--- SERVICE PERFORMANCE BREAKDOWN ---'])
+    rows.push(['Metric', 'Value'])
+    rows.push(['Total Service Revenue (INR)', (data.serviceRevenue || 0).toFixed(2)])
+    rows.push(['Total Services Sold', String(Math.round(data.totalServicesSold || 0))])
+    rows.push(['Average Service Revenue (INR)', (data.averageServiceRevenue || 0).toFixed(2)])
+    rows.push(['Top Performing Service', data.bestService || 'No sales yet'])
+    rows.push([])
+
+    rows.push(['--- ALL SERVICES LIST ---'])
+    rows.push(['Rank', 'Service Name', 'Category', 'SKU / Code', 'Units Sold', 'Revenue (INR)', 'Bill Count', 'Avg Price (INR)', 'Revenue Share (%)'])
+    const servicesList = data.topServices || []
+    servicesList.forEach((item, index) => {
+      const avgPrice = item.avgPrice ?? (item.qty > 0 ? item.revenue / item.qty : 0)
+      const share = item.share ?? ((data.serviceRevenue || 0) > 0 ? (item.revenue / (data.serviceRevenue || 1)) * 100 : 0)
+      rows.push([
+        String(index + 1),
+        item.name,
+        item.category || '-',
+        item.sku || item.variant || '-',
+        String(Math.round(item.qty)),
+        item.revenue.toFixed(2),
+        String(item.billCount),
+        avgPrice.toFixed(2),
+        `${share.toFixed(1)}%`,
+      ])
+    })
+    rows.push([])
   } else if (activeTab === 'coupons') {
     rows.push(['--- COUPON PERFORMANCE SUMMARY ---'])
     rows.push(['Metric', 'Value'])
@@ -206,6 +241,18 @@ export async function exportAnalyticsToPDF({
   const maxHourlyRev = Math.max(1, ...data.todayHourlyTrend.map((s) => s.revenue))
   const totalCatRev = Math.max(1, data.topCategories.reduce((sum, c) => sum + c.revenue, 0))
 
+  const isServicesTab = activeTab === 'services'
+  const isProductsTab = activeTab === 'products'
+  const card1Label = isServicesTab ? 'Total Service Revenue' : isProductsTab ? 'Total Product Revenue' : 'Total Revenue'
+  const card1Value = isServicesTab ? (data.serviceRevenue ?? 0) : isProductsTab ? (data.productRevenue ?? data.totalCompletedRevenue) : data.totalCompletedRevenue
+  const card4Label = isServicesTab ? 'Total Services Sold' : 'Total Items Sold'
+  const card4Value = isServicesTab ? `${Math.round(data.totalServicesSold || 0)} Services` : `${Math.round(data.totalProductsSold)} Pcs`
+  const card4Top = isServicesTab ? `Top: ${(data.bestService || 'No sales yet').slice(0, 14)}` : `Top: ${(data.bestProduct || 'No sales yet').slice(0, 14)}`
+  const topItemsTitle = isServicesTab ? 'Top Performing Services' : 'Top Performing Products'
+  const topItemsList = isServicesTab ? (data.topServices || []).slice(0, 5) : data.topProducts.slice(0, 5)
+  const topItemColName = isServicesTab ? 'Service' : 'Product'
+  const topItemUnit = isServicesTab ? 'svcs' : 'pcs'
+
   // Create an offscreen container specifically styled for clean A4 printing
   const container = document.createElement('div')
   container.style.position = 'fixed'
@@ -246,9 +293,9 @@ export async function exportAnalyticsToPDF({
       <!-- KPI Summary Cards Grid -->
       <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px;">
         <div style="background: #FBF9F4; border: 1px solid #ead7b7; border-radius: 12px; padding: 12px 14px; min-height: 84px; display: flex; flex-direction: column; justify-content: space-between; box-sizing: border-box;">
-          <div style="font-size: 8.5px; font-weight: 800; text-transform: uppercase; color: #666; margin-bottom: 4px; letter-spacing: 0.3px;">Total Revenue</div>
-          <div style="font-size: 16px; font-weight: 900; color: ${getThemeColor()}; line-height: 1.2;">${formatCurrency(data.totalCompletedRevenue)}</div>
-          <div style="font-size: 8px; color: #10B981; font-weight: 700; margin-top: 4px;">POS & Walk-in sales</div>
+          <div style="font-size: 8.5px; font-weight: 800; text-transform: uppercase; color: #666; margin-bottom: 4px; letter-spacing: 0.3px;">${card1Label}</div>
+          <div style="font-size: 16px; font-weight: 900; color: ${getThemeColor()}; line-height: 1.2;">${formatCurrency(card1Value)}</div>
+          <div style="font-size: 8px; color: #10B981; font-weight: 700; margin-top: 4px;">${isServicesTab ? 'Service orders' : 'POS & Walk-in sales'}</div>
         </div>
         <div style="background: ${data.isProfitable ? '#ECFDF5' : '#FFF1F2'}; border: 1px solid ${data.isProfitable ? '#A7F3D0' : '#FECDD3'}; border-radius: 12px; padding: 12px 14px; min-height: 84px; display: flex; flex-direction: column; justify-content: space-between; box-sizing: border-box;">
           <div style="font-size: 8.5px; font-weight: 800; text-transform: uppercase; color: ${data.isProfitable ? '#065F46' : '#9F1239'}; margin-bottom: 4px; letter-spacing: 0.3px;">${data.isProfitable ? 'Net Profit' : 'Net Loss'}</div>
@@ -261,9 +308,9 @@ export async function exportAnalyticsToPDF({
           <div style="font-size: 8px; color: #5f6d59; font-weight: 700; margin-top: 4px;">Avg ${formatCurrency(data.averageRevenuePerBill)}/bill</div>
         </div>
         <div style="background: #FBF9F4; border: 1px solid #ead7b7; border-radius: 12px; padding: 12px 14px; min-height: 84px; display: flex; flex-direction: column; justify-content: space-between; box-sizing: border-box;">
-          <div style="font-size: 8.5px; font-weight: 800; text-transform: uppercase; color: #666; margin-bottom: 4px; letter-spacing: 0.3px;">Total Items Sold</div>
-          <div style="font-size: 16px; font-weight: 900; color: ${getThemeColor()}; line-height: 1.2;">${Math.round(data.totalProductsSold)} Pcs</div>
-          <div style="font-size: 8px; color: #6366F1; font-weight: 700; margin-top: 4px;">Top: ${data.bestProduct.slice(0, 14)}</div>
+          <div style="font-size: 8.5px; font-weight: 800; text-transform: uppercase; color: #666; margin-bottom: 4px; letter-spacing: 0.3px;">${card4Label}</div>
+          <div style="font-size: 16px; font-weight: 900; color: ${getThemeColor()}; line-height: 1.2;">${card4Value}</div>
+          <div style="font-size: 8px; color: #6366F1; font-weight: 700; margin-top: 4px;">${card4Top}</div>
         </div>
       </div>
 
@@ -365,26 +412,25 @@ export async function exportAnalyticsToPDF({
         <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 14px; padding: 14px; display: flex; flex-direction: column; justify-content: space-between;">
           <div>
             <h3 style="margin: 0 0 10px 0; font-size: 11.5px; font-weight: 900; color: ${getThemeColor()}; text-transform: uppercase; letter-spacing: 0.3px;">
-              Top Performing Products
+              ${topItemsTitle}
             </h3>
             <table style="width: 100%; border-collapse: collapse; font-size: 8.5px;">
               <thead>
                 <tr style="border-bottom: 1.5px solid #E5E7EB; text-align: left; color: #666; text-transform: uppercase; font-size: 7.5px;">
                   <th style="padding: 4px 0;">#</th>
-                  <th style="padding: 4px 0;">Product</th>
+                  <th style="padding: 4px 0;">${topItemColName}</th>
                   <th style="padding: 4px 0; text-align: right;">Qty</th>
                   <th style="padding: 4px 0; text-align: right;">Revenue</th>
                 </tr>
               </thead>
               <tbody>
-                ${data.topProducts
-                  .slice(0, 5)
+                ${topItemsList
                   .map(
                     (p, idx) => `
                   <tr style="border-bottom: 1px solid #F3F4F6;">
                     <td style="padding: 5px 0; font-weight: 800; color: #888;">${idx + 1}</td>
                     <td style="padding: 5px 0; font-weight: 700; color: #111; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</td>
-                    <td style="padding: 5px 0; text-align: right; font-weight: 800; color: #4B5563;">${Math.round(p.qty)} pcs</td>
+                    <td style="padding: 5px 0; text-align: right; font-weight: 800; color: #4B5563;">${Math.round(p.qty)} ${topItemUnit}</td>
                     <td style="padding: 5px 0; text-align: right; font-weight: 900; color: ${getThemeColor()};">${formatCurrency(p.revenue)}</td>
                   </tr>
                 `

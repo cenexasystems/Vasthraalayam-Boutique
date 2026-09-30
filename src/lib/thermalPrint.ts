@@ -1,4 +1,4 @@
-import { BRAND_ADDRESS, BRAND_EMAIL, BRAND_EN, BRAND_INSTAGRAM, BRAND_PRIMARY_PHONE_DISPLAY } from './brand'
+import { BRAND_ADDRESS, BRAND_EN, BRAND_INSTAGRAM, BRAND_PRIMARY_PHONE_DISPLAY } from './brand'
 import { LOGO_BASE64 } from './logoBase64'
 import { formatCurrency, formatInvoiceNo } from './retail'
 
@@ -20,6 +20,9 @@ export interface ThermalReceiptData {
   manualDiscount?: number
   totalGst?: number
   total: number
+  paymentMode?: string
+  payments?: Array<{ mode: string; amount: number }>
+  changeGiven?: number
   storeName?: string
   storePhone?: string
   storeAddress?: string
@@ -106,7 +109,7 @@ export function printThermalReceipt(data: ThermalReceiptData) {
           <div class="font-bold" style="font-size: 16px; letter-spacing: 2px;">${data.storeName || BRAND_EN}</div>
           <div style="font-size: 10px; margin-top: 2px;">${data.storeAddress || BRAND_ADDRESS}</div>
           <div class="mt-1" style="font-size: 10px;">Ph: ${data.storePhone || BRAND_PRIMARY_PHONE_DISPLAY}</div>
-          <div style="font-size: 9px; color: #333;">${data.storeEmail || BRAND_EMAIL} | Insta: @${BRAND_INSTAGRAM}</div>
+          <div style="font-size: 9px; color: #333;">Insta: @${BRAND_INSTAGRAM}</div>
         </div>
 
         <div class="border-bottom border-top" style="font-size: 11px;">
@@ -183,6 +186,22 @@ export function printThermalReceipt(data: ThermalReceiptData) {
               <td class="text-left">Total</td>
               <td class="text-right">${formatCurrency(data.total)}</td>
             </tr>
+            ${data.payments && data.payments.length > 0 ? data.payments.map(p => `
+              <tr>
+                <td class="text-left" style="font-size: 11px; text-transform: capitalize; padding-top: 3px;">• ${p.mode === 'qr' ? 'QR / UPI' : p.mode}</td>
+                <td class="text-right" style="font-size: 11px; padding-top: 3px;">${formatCurrency(p.amount)}</td>
+              </tr>
+            `).join('') + ((data.changeGiven || 0) > 0 ? `
+              <tr>
+                <td class="text-left" style="font-size: 11px; color: #333;">Change Given</td>
+                <td class="text-right" style="font-size: 11px; font-weight: bold;">${formatCurrency(data.changeGiven || 0)}</td>
+              </tr>
+            ` : '') : (data.paymentMode ? `
+              <tr>
+                <td class="text-left" style="font-size: 11px; text-transform: capitalize; padding-top: 3px;">Mode</td>
+                <td class="text-right" style="font-size: 11px; padding-top: 3px;">${data.paymentMode}</td>
+              </tr>
+            ` : '')}
           </table>
         </div>
 

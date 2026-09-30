@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import type { JSONValue } from 'postgres'
 import { sql } from './_lib/db.js'
 import { requireAuth } from './_lib/guard.js'
 import { methodRouter } from './_lib/handler.js'
@@ -18,6 +19,8 @@ const PATCHABLE_COLUMNS = new Set([
   'gst_amount',
   'payment_mode',
   'payment_method',
+  'payments',
+  'change_given',
   'discount_amount',
   'manual_discount_amount',
   'delivery_charge',
@@ -31,11 +34,13 @@ const PATCHABLE_COLUMNS = new Set([
 
 function digitsOf(s: string) { return s.replace(/\D/g, '') }
 
+function round2(num: number): number {
+  return Math.round((num + Number.EPSILON) * 100) / 100
+}
+
 /**
  * Builds an OR'd group of ILIKE conditions across invoice_no/customer_name/
- * phone for a single free-text query, including digit-only variants — this
- * mirrors Dashboard.tsx's old client-built .or('invoice_no.ilike...,...')
- * Supabase query string, just expressed as SQL fragments instead.
+ * phone for a single free-text query, including digit-only variants.
  */
 function textSearchGroup(qText: string, fields: Array<'invoice_no' | 'customer_name' | 'phone'>) {
   const digitsOnly = digitsOf(qText)
@@ -56,6 +61,20 @@ function textSearchGroup(qText: string, fields: Array<'invoice_no' | 'customer_n
   let group = parts[0]
   for (let i = 1; i < parts.length; i++) group = sql`${group} OR ${parts[i]}`
   return group
+}
+
+/**
+ * Ensures old records with an empty payments array fall back to payment_mode + total
+ */
+function formatOrderRow(row: Record<string, unknown>) {
+  const payments = Array.isArray(row.payments) && row.payments.length > 0
+    ? row.payments
+    : [{ mode: String(row.payment_mode || row.payment_method || 'cash').toLowerCase(), amount: Number(row.total || 0) }]
+  return {
+    ...row,
+    payments,
+    change_given: Number(row.change_given || 0),
+  }
 }
 
 async function list(req: VercelRequest, res: VercelResponse) {
@@ -94,24 +113,35 @@ async function list(req: VercelRequest, res: VercelResponse) {
       id, invoice_no, customer_name, phone, address, created_at, total, status,
       order_mode, order_type, user_id, items, coupon_code, discount_amount,
       manual_discount_amount, delivery_charge, total_gst, gst_amount, payment_mode,
-      payment_method, remarks, tailor_name, reference_number, invoice_pdf_url
+      payment_method, remarks, tailor_name, reference_number, invoice_pdf_url,
+      payments, change_given
     FROM public.orders
     WHERE ${whereClause}
     ORDER BY created_at DESC
     LIMIT ${limit}
   `
-  res.status(200).json({ data: rows })
+  res.status(200).json({ data: rows.map(formatOrderRow) })
 }
 
 async function getById(req: VercelRequest, res: VercelResponse) {
   if (!requireAuth(req, res)) return
   const id = String(req.query.id)
-  const rows = await sql`SELECT id, invoice_no FROM public.orders WHERE id = ${id} LIMIT 1`
+  const rows = await sql`
+    SELECT
+      id, invoice_no, customer_name, phone, address, created_at, total, status,
+      order_mode, order_type, user_id, items, coupon_code, discount_amount,
+      manual_discount_amount, delivery_charge, total_gst, gst_amount, payment_mode,
+      payment_method, remarks, tailor_name, reference_number, invoice_pdf_url,
+      payments, change_given
+    FROM public.orders
+    WHERE id = ${id}
+    LIMIT 1
+  `
   if (rows.length === 0) {
     res.status(404).json({ error: 'Order not found' })
     return
   }
-  res.status(200).json({ data: rows[0] })
+  res.status(200).json({ data: formatOrderRow(rows[0] as Record<string, unknown>) })
 }
 
 async function get(req: VercelRequest, res: VercelResponse) {
@@ -129,6 +159,29 @@ async function patch(req: VercelRequest, res: VercelResponse) {
     if (PATCHABLE_COLUMNS.has(key)) updates[key] = value
   }
 
+  // Handle payments array validation and formatting if provided
+  if (Array.isArray(body.payments)) {
+    const rawPayments = body.payments as Array<{ mode?: string; amount?: unknown }>
+    const validPayments: Array<{ mode: string; amount: number }> = []
+    for (const p of rawPayments) {
+      const mode = String(p.mode || '').toLowerCase()
+      const amt = round2(Number(p.amount) || 0)
+      if (amt > 0 && ['cash', 'qr', 'card', 'online'].includes(mode)) {
+        validPayments.push({ mode, amount: amt })
+      }
+    }
+    updates.payments = sql.json(validPayments as unknown as JSONValue)
+    if (validPayments.length > 0) {
+      const computedMode = validPayments.length > 1 ? 'split' : validPayments[0].mode
+      updates.payment_mode = computedMode
+      updates.payment_method = computedMode
+    }
+  }
+
+  if (body.change_given !== undefined) {
+    updates.change_given = round2(Number(body.change_given) || 0)
+  }
+
   if (Object.keys(updates).length === 0) {
     res.status(400).json({ error: 'No updatable fields provided' })
     return
@@ -138,7 +191,7 @@ async function patch(req: VercelRequest, res: VercelResponse) {
     UPDATE public.orders
     SET ${sql(updates)}, updated_at = NOW()
     WHERE id = ${id}
-    RETURNING id
+    RETURNING id, invoice_no, total, payments, change_given, payment_mode
   `
 
   if (rows.length === 0) {
@@ -146,15 +199,10 @@ async function patch(req: VercelRequest, res: VercelResponse) {
     return
   }
 
-  res.status(200).json({ data: rows[0] })
+  res.status(200).json({ data: formatOrderRow(rows[0] as Record<string, unknown>) })
 }
 
 async function del(req: VercelRequest, res: VercelResponse) {
-  // Order deletion is destructive and irreversible (permanently removes a
-  // billing record). The old client-side gate for this was a hardcoded
-  // password prompt shown to staff (visible in the bundle, trivially
-  // bypassable) — replaced here with real server-side role enforcement:
-  // admin only.
   if (!requireAuth(req, res, ['admin'])) return
   const id = String(req.query.id)
   const rows = await sql`DELETE FROM public.orders WHERE id = ${id} RETURNING id`

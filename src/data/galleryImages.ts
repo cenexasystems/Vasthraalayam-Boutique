@@ -13,7 +13,7 @@ export const galleryImages: GalleryImage[] = [
   {
     id: 1,
     title: 'Our Store',
-    description: 'VASTHRAALAYAM BOUTIQUE in Sevoor, Arani',
+    description: 'VASTHRAALAYAM BOUTIQUE in Ullagaram, Puzhudhivakkam, Chennai',
     image: BASE + 'WhatsApp Image 2026-06-06 at 7.55.33 AM.jpeg',
     tags: ['store', 'front', 'heritage'],
   },

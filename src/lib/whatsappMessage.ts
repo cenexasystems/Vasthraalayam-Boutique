@@ -17,6 +17,7 @@ export type BuildWhatsAppMessageInput = {
   invoiceDate?: string
   invoiceUrl?: string
   paymentMode?: string
+  payments?: Array<{ mode: string; amount: number }>
   items?: WhatsAppLineItem[]
   subtotal?: number
   couponDiscount?: number
@@ -56,6 +57,15 @@ export const buildProfessionalWhatsAppMessage = (input: BuildWhatsAppMessageInpu
     ? input.items.map(item => `• ${item.name} (x${item.qty}) - ₹ ${Number(item.lineTotal || 0).toFixed(2)}`).join('\n')
     : ''
 
+  const paymentDisplay = (() => {
+    if (input.payments && input.payments.length > 0) {
+      return input.payments
+        .map(p => `${p.mode === 'qr' ? 'QR' : p.mode.charAt(0).toUpperCase() + p.mode.slice(1)} ₹${Number(p.amount || 0).toFixed(2)}`)
+        .join(', ')
+    }
+    return input.paymentMode || ''
+  })()
+
   return `✨ *${BRAND_EN}* ✨
 🛍️ *Official Purchase Invoice & Receipt* 🛍️
 
@@ -65,7 +75,7 @@ Thank you for shopping at ${BRAND_EN}! We truly appreciate your patronage.
 
 🧾 *INVOICE DETAILS*
 📌 *Invoice No:* #${formattedNo}
-${input.invoiceDate ? `📅 *Date:* ${new Date(input.invoiceDate).toLocaleDateString('en-IN')}\n` : ''}${input.paymentMode ? `💳 *Payment Mode:* ${input.paymentMode}\n` : ''}${input.total !== undefined ? `💰 *Total Amount:* ₹ ${Number(input.total || 0).toFixed(2)}\n` : ''}
+${input.invoiceDate ? `📅 *Date:* ${new Date(input.invoiceDate).toLocaleDateString('en-IN')}\n` : ''}${paymentDisplay ? `💳 *Payment Mode:* ${paymentDisplay}\n` : ''}${input.total !== undefined ? `💰 *Total Amount:* ₹ ${Number(input.total || 0).toFixed(2)}\n` : ''}
 ${itemsText ? `📦 *ITEMS ORDERED:*\n${itemsText}\n\n` : ''}📄 *View & Download Digital Invoice / PDF:*
 👉 ${invoiceUrl}
 

@@ -305,6 +305,7 @@ export default function DigitalInvoice() {
       gstAmount: invoice.total_gst || invoice.gst_amount || 0,
       total: invoice.total,
       paymentMode: invoice.payment_mode || invoice.payment_method,
+      payments: invoice.payments,
     })
 
     const invoiceUrl = window.location.href
@@ -405,6 +406,8 @@ export default function DigitalInvoice() {
             total={invoice.total > 0 ? invoice.total : (subtotal + (invoice.delivery_charge || 0) + (invoice.total_gst || invoice.gst_amount || 0) - (invoice.discount_amount || 0) - (invoice.manual_discount_amount || 0))}
             status={invoice.status}
             paymentMode={invoice.payment_mode || invoice.payment_method}
+            payments={invoice.payments}
+            changeGiven={invoice.change_given}
           />
         </div>
       </div>
