@@ -21,6 +21,7 @@ const WRITABLE_COLUMNS = new Set([
 
 async function list(req: VercelRequest, res: VercelResponse) {
   if (!requireAuth(req, res)) return
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
   const productId = req.query.product_id ? Number(req.query.product_id) : null
 
   const rows = productId
@@ -35,6 +36,7 @@ async function list(req: VercelRequest, res: VercelResponse) {
 
 async function getById(req: VercelRequest, res: VercelResponse) {
   if (!requireAuth(req, res)) return
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
   const id = String(req.query.id)
   const rows = await sql`SELECT id, product_id, stock FROM public.product_variants WHERE id = ${id} LIMIT 1`
   if (rows.length === 0) {

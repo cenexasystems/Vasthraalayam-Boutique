@@ -404,7 +404,7 @@ export const useCartStore = create<CartState>()(
         const items = [...get().items]
         const existing = items.find(i => i.id === product.id)
 
-        const basePrice = product.offerPrice || product.price
+        const basePrice = product.price
         const lineTotal = calculateLineTotal(qty, product.unitType, product.baseQuantity, basePrice)
 
         if (existing) {

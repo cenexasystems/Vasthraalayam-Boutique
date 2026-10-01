@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { X, Tag, IndianRupee, AlertCircle, Barcode, Check } from 'lucide-react'
 import { updateItemPrice } from '../../services/productService'
 import type { InventoryStockItem } from '../../services/inventoryService'
+import { useProductStore } from '../../store/store'
 
 interface Props {
   isOpen: boolean
@@ -72,6 +73,8 @@ export const QuickPriceModal: React.FC<Props> = ({ isOpen, item, onClose, onSucc
         newPrice: numPrice,
         newCostPrice: numCost,
       })
+
+      void useProductStore.getState().fetchProducts(true)
 
       onSuccess({
         id: item.id,

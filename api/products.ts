@@ -33,12 +33,14 @@ const WRITABLE_COLUMNS = new Set([
 
 async function list(req: VercelRequest, res: VercelResponse) {
   if (!requireAuth(req, res)) return
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
   const rows = await sql.unsafe(`SELECT ${PRODUCT_COLUMNS} FROM public.products ORDER BY sort_order ASC`)
   res.status(200).json({ data: rows })
 }
 
 async function getById(req: VercelRequest, res: VercelResponse) {
   if (!requireAuth(req, res)) return
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
   const id = Number(req.query.id)
   const rows = await sql.unsafe(
     `SELECT ${PRODUCT_COLUMNS} FROM public.products WHERE id = $1 LIMIT 1`,
@@ -70,6 +72,10 @@ async function create(req: VercelRequest, res: VercelResponse) {
     if (WRITABLE_COLUMNS.has(key)) insertData[key] = value
   }
 
+  if (insertData.price !== undefined && insertData.offer_price === undefined) {
+    insertData.offer_price = insertData.price
+  }
+
   const rows = await sql`
     INSERT INTO public.products ${sql(insertData)}
     RETURNING id, name
@@ -89,6 +95,11 @@ async function put(req: VercelRequest, res: VercelResponse) {
   if (Object.keys(updates).length === 0) {
     res.status(400).json({ error: 'No updatable fields provided' })
     return
+  }
+
+  // Single source of truth: keep offer_price aligned with price
+  if (updates.price !== undefined) {
+    updates.offer_price = updates.price
   }
 
   const rows = await sql`

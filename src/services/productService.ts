@@ -18,7 +18,10 @@ export async function updateItemPrice(params: {
 }): Promise<void> {
   if (params.newPrice < 0) throw new Error('Price cannot be negative')
 
-  const updatePayload: Record<string, unknown> = { price: params.newPrice }
+  const updatePayload: Record<string, unknown> = {
+    price: params.newPrice,
+    offer_price: params.newPrice,
+  }
   if (params.newCostPrice !== undefined && params.newCostPrice >= 0) {
     updatePayload.purchase_price = params.newCostPrice
   }

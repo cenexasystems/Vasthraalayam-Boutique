@@ -93,7 +93,7 @@ const toProductId = (v: string | number): string | null => {
 }
 
 const makePosItem = (p: Product, qty?: number): PosItem => {
-  const basePrice = p.offerPrice || p.price
+  const basePrice = p.price
   const q = Math.max(1, Math.round(qty ?? 1))
   const packLabel = p.predefinedOptions[0]?.label ?? p.unitLabel
   const isUnregistered = p.category === 'Unregistered'
@@ -2067,7 +2067,6 @@ export default function Pos(props: PosProps = {}) {
           onClose={() => setCatalogOpen(false)}
           onAdd={(p) => {
             void addItem(p)
-            setCatalogOpen(false)
           }}
         />
       )}
