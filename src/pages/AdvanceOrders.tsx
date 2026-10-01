@@ -174,7 +174,7 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
       if (dateFilter === 'month' && (created.getMonth() !== now.getMonth() || created.getFullYear() !== now.getFullYear())) return false
     }
     return true
-  }), [orders, search, statusFilter, dateFilter])
+  }), [validOrders, search, statusFilter, dateFilter])
 
   const create = async (event: FormEvent) => {
     event.preventDefault(); setSaving(true); setError(''); setNotice('')

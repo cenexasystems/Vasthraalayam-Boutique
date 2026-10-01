@@ -66,26 +66,39 @@ function normalizeOrder(row: Record<string, unknown>) {
 // ─── GET /api/advance-orders — list all ──────────────────────────────────────
 async function list(req: VercelRequest, res: VercelResponse) {
   if (!requireAuth(req, res)) return
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
 
-  const rows = await sql`
-    SELECT
-      id, deposit_id, customer_name, phone, address,
-      product_name, products, category, description,
-      total_amount, deposit_amount, remaining_balance,
-      expected_delivery_date, status, remarks,
-      COALESCE(reference_number, '') AS reference_number,
-      created_by, created_by_name, created_at, updated_at,
-      completed_at, completed_order_id, invoice_number, final_payment_method
-    FROM public.advance_orders
-    ORDER BY created_at DESC
-    LIMIT 1000
-  `
-  res.status(200).json({ data: rows.map(r => normalizeOrder(r as Record<string, unknown>)) })
+  try {
+    const rows = await sql`
+      SELECT
+        id, deposit_id, customer_name, phone, address,
+        product_name, products, category, description,
+        total_amount, deposit_amount, remaining_balance,
+        expected_delivery_date, status, remarks,
+        COALESCE(reference_number, '') AS reference_number,
+        created_by, created_by_name, created_at, updated_at,
+        completed_at, completed_order_id, invoice_number, final_payment_method
+      FROM public.advance_orders
+      ORDER BY created_at DESC
+      LIMIT 1000
+    `
+    res.status(200).json({ data: rows.map(r => normalizeOrder(r as Record<string, unknown>)) })
+  } catch (err: unknown) {
+    console.error('[advance-orders list error, trying fallback]', err)
+    try {
+      const rows = await sql`SELECT * FROM public.advance_orders ORDER BY created_at DESC LIMIT 1000`
+      res.status(200).json({ data: rows.map(r => normalizeOrder(r as Record<string, unknown>)) })
+    } catch (fallbackErr: unknown) {
+      console.error('[advance-orders list fallback failed]', fallbackErr)
+      res.status(500).json({ error: 'Failed to load advance orders' })
+    }
+  }
 }
 
 // ─── GET /api/advance-orders?id=:id — single order ───────────────────────────
 async function getById(req: VercelRequest, res: VercelResponse) {
   if (!requireAuth(req, res)) return
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
   const id = String(req.query.id)
   const rows = await sql`
     SELECT * FROM public.advance_orders WHERE id = ${id} LIMIT 1
@@ -97,6 +110,7 @@ async function getById(req: VercelRequest, res: VercelResponse) {
 // ─── GET /api/advance-orders?history=:id — timeline + payments ───────────────
 async function getHistory(req: VercelRequest, res: VercelResponse) {
   if (!requireAuth(req, res)) return
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
   const id = String(req.query.history)
   const [timeline, payments] = await Promise.all([
     sql`SELECT * FROM public.advance_order_timeline WHERE advance_order_id = ${id} ORDER BY created_at ASC`,
@@ -107,6 +121,7 @@ async function getHistory(req: VercelRequest, res: VercelResponse) {
 
 // ─── GET handler dispatch ─────────────────────────────────────────────────────
 async function get(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
   if (req.query.history !== undefined) return getHistory(req, res)
   if (req.query.id !== undefined) return getById(req, res)
   return list(req, res)
