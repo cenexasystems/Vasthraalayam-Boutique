@@ -36,9 +36,7 @@ export interface ExpenseFilterPayload {
 }
 
 const STORAGE_EXPENSES_KEY = 'vasthraalayam_expenses_records_v1'
-const LEGACY_STORAGE_EXPENSES_KEY = 'chaji_expenses_records_v1'
 const STORAGE_CATEGORIES_KEY = 'vasthraalayam_expense_categories_v1'
-const LEGACY_STORAGE_CATEGORIES_KEY = 'chaji_expense_categories_v1'
 
 // Default starter categories
 export const DEFAULT_EXPENSE_CATEGORIES: string[] = [
@@ -56,7 +54,7 @@ let remoteCategoriesAvailable: boolean | null = null
 
 const loadLocalExpenses = (): ExpenseRecord[] => {
   try {
-    const raw = localStorage.getItem(STORAGE_EXPENSES_KEY) || localStorage.getItem(LEGACY_STORAGE_EXPENSES_KEY)
+    const raw = localStorage.getItem(STORAGE_EXPENSES_KEY)
     return raw ? (JSON.parse(raw) as ExpenseRecord[]) : []
   } catch {
     return []

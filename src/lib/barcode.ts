@@ -46,13 +46,11 @@ export const DEFAULT_BARCODE_SETTINGS: BarcodeSettings = {
 }
 
 const SETTINGS_KEY = 'vasthraalayam_barcode_settings'
-const LEGACY_SETTINGS_KEY = 'chaji_barcode_settings'
 const CUSTOM_SIZES_KEY = 'vasthraalayam_custom_label_sizes'
-const LEGACY_CUSTOM_SIZES_KEY = 'chaji_custom_label_sizes'
 
 export function getStoredBarcodeSettings(): BarcodeSettings {
   try {
-    const raw = localStorage.getItem(SETTINGS_KEY) || localStorage.getItem(LEGACY_SETTINGS_KEY)
+    const raw = localStorage.getItem(SETTINGS_KEY)
     if (raw) return { ...DEFAULT_BARCODE_SETTINGS, ...JSON.parse(raw) }
   } catch (e) {
     console.error('Failed to parse barcode settings:', e)
