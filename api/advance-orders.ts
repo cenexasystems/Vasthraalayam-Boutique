@@ -97,22 +97,41 @@ async function create(req: VercelRequest, res: VercelResponse) {
   if (!session) return
   const body = (req.body ?? {}) as Record<string, unknown>
 
+  // ── Server-side validation ─────────────────────────────────────────────────
+  const customerName = String(body.p_customer_name || body.customer_name || '').trim()
+  const phone = String(body.p_phone || body.phone || '').trim()
+  const productName = String(body.p_product_name || body.product_name || '').trim()
+  const totalAmount = Number(body.p_total_amount || body.total_amount || 0)
+  const depositAmount = Number(body.p_deposit_amount || body.deposit_amount || 0)
+  const deliveryDate = String(body.p_expected_delivery_date || body.expected_delivery_date || '').trim()
+  const products = Array.isArray(body.p_products || body.products) ? (body.p_products || body.products) as unknown[] : []
+  const paymentMethod = String(body.p_payment_method || body.payment_method || '').toLowerCase()
+
+  if (!customerName) { res.status(400).json({ error: 'Customer name is required' }); return }
+  if (!phone) { res.status(400).json({ error: 'Phone number is required' }); return }
+  if (!productName && products.length === 0) { res.status(400).json({ error: 'At least one product is required' }); return }
+  if (!Number.isFinite(totalAmount) || totalAmount <= 0) { res.status(400).json({ error: 'Total amount must be greater than zero' }); return }
+  if (!Number.isFinite(depositAmount) || depositAmount <= 0) { res.status(400).json({ error: 'Deposit amount must be greater than zero' }); return }
+  if (depositAmount >= totalAmount) { res.status(400).json({ error: 'Deposit must be less than the total amount' }); return }
+  if (!deliveryDate) { res.status(400).json({ error: 'Expected delivery date is required' }); return }
+  if (!['cash', 'upi', 'card'].includes(paymentMethod)) { res.status(400).json({ error: 'Select a valid payment method: cash, upi, or card' }); return }
+
   try {
     const rows = await sql`
       SELECT public.create_advance_order(
-        p_customer_name       => ${String(body.p_customer_name || body.customer_name || '')},
-        p_phone               => ${String(body.p_phone || body.phone || '')},
-        p_address             => ${String(body.p_address || body.address || '')},
-        p_product_name        => ${String(body.p_product_name || body.product_name || '')},
-        p_category            => ${String(body.p_category || body.category || '')},
-        p_description         => ${String(body.p_description || body.description || '')},
-        p_total_amount        => ${Number(body.p_total_amount || body.total_amount || 0)},
-        p_deposit_amount      => ${Number(body.p_deposit_amount || body.deposit_amount || 0)},
-        p_expected_delivery_date => ${String(body.p_expected_delivery_date || body.expected_delivery_date || '')},
-        p_remarks             => ${String(body.p_remarks || body.remarks || '')},
-        p_payment_method      => ${String(body.p_payment_method || body.payment_method || 'cash')},
-        p_created_by_name     => ${String(body.p_created_by_name || body.created_by_name || session.portalId || '')},
-        p_products            => ${sql.json((Array.isArray(body.p_products || body.products) ? (body.p_products || body.products) : []) as unknown as JSONValue)},
+        p_customer_name       => ${customerName},
+        p_phone               => ${phone},
+        p_address             => ${String(body.p_address || body.address || '').trim()},
+        p_product_name        => ${productName || (products as Record<string, unknown>[]).map(p => String(p.name || '')).filter(Boolean).join(', ')},
+        p_category            => ${String(body.p_category || body.category || '').trim()},
+        p_description         => ${String(body.p_description || body.description || '').trim()},
+        p_total_amount        => ${totalAmount},
+        p_deposit_amount      => ${depositAmount},
+        p_expected_delivery_date => ${deliveryDate},
+        p_remarks             => ${String(body.p_remarks || body.remarks || '').trim()},
+        p_payment_method      => ${paymentMethod},
+        p_created_by_name     => ${String(body.p_created_by_name || body.created_by_name || session.portalId || '').trim()},
+        p_products            => ${sql.json(products as unknown as JSONValue)},
         p_created_by          => ${session.portalId}
       ) AS result
     `
@@ -132,6 +151,7 @@ async function create(req: VercelRequest, res: VercelResponse) {
     res.status(400).json({ error: err instanceof Error ? err.message : 'Failed to create advance order' })
   }
 }
+
 
 // ─── PATCH /api/advance-orders?id=:id — status update ───────────────────────
 async function patch(req: VercelRequest, res: VercelResponse) {

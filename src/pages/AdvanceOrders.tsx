@@ -35,6 +35,16 @@ const STATUS_STYLES: Record<AdvanceStatus, string> = {
 const initialForm = { customerName: '', phone: '', address: '', productName: '', category: '', description: '', totalAmount: '', depositAmount: '', expectedDeliveryDate: '', status: 'pending_deposit' as AdvanceStatus, remarks: '', reference_number: '', paymentMethod: 'cash' as AdvancePaymentMethod }
 const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 
+/** Safe delivery date formatter — returns "Not set" for null/empty/invalid dates */
+function safeDeliveryDate(value: string | null | undefined): string {
+  if (!value || String(value).trim() === '') return 'Not set'
+  // expected_delivery_date is stored as DATE (YYYY-MM-DD) or ISO string
+  const dateStr = String(value).includes('T') ? value : `${value}T00:00:00`
+  const d = new Date(dateStr as string)
+  if (isNaN(d.getTime())) return 'Not set'
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
 type AdvanceOrdersProps = {
   onOrderCompleted?: (order?: AdvanceOrder) => void
 }
@@ -314,7 +324,7 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
                   <td className="px-4 py-3.5 align-middle whitespace-nowrap">
                     <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-700">
                       <CalendarDays size={14} className="text-gray-400 shrink-0" />
-                      <span>{new Date(`${order.expected_delivery_date}T00:00:00`).toLocaleDateString('en-IN')}</span>
+                      <span>{safeDeliveryDate(order.expected_delivery_date)}</span>
                     </div>
                   </td>
                   <td className="px-4 py-3.5 align-middle whitespace-nowrap">
@@ -571,7 +581,7 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
                 ['Total', formatCurrency(selected.total_amount)],
                 ['Deposit Paid', formatCurrency(selected.deposit_amount)],
                 ['Remaining Balance', formatCurrency(selected.remaining_balance)],
-                ['Delivery Date', new Date(`${selected.expected_delivery_date}T00:00:00`).toLocaleDateString('en-IN')],
+                ['Delivery Date', safeDeliveryDate(selected.expected_delivery_date)],
                 ['Created Date', new Date(selected.created_at).toLocaleDateString('en-IN')],
                 ['Created Time', new Date(selected.created_at).toLocaleTimeString('en-IN')],
                 ['Created By', selected.created_by_name || '-'],
