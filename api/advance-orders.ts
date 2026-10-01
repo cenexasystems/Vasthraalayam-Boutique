@@ -14,6 +14,27 @@ type AdvanceStatus =
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function normalizeOrder(row: Record<string, unknown>) {
+  let deliveryDate = ''
+  if (row.expected_delivery_date instanceof Date) {
+    deliveryDate = row.expected_delivery_date.toISOString().split('T')[0]
+  } else if (row.expected_delivery_date) {
+    deliveryDate = String(row.expected_delivery_date).split('T')[0]
+  }
+
+  let createdAt = new Date().toISOString()
+  if (row.created_at instanceof Date) {
+    createdAt = row.created_at.toISOString()
+  } else if (row.created_at) {
+    createdAt = String(row.created_at)
+  }
+
+  let updatedAt = createdAt
+  if (row.updated_at instanceof Date) {
+    updatedAt = row.updated_at.toISOString()
+  } else if (row.updated_at) {
+    updatedAt = String(row.updated_at)
+  }
+
   return {
     ...row,
     id: String(row.id || ''),
@@ -28,14 +49,14 @@ function normalizeOrder(row: Record<string, unknown>) {
     total_amount: Number(row.total_amount || 0),
     deposit_amount: Number(row.deposit_amount || 0),
     remaining_balance: Number(row.remaining_balance ?? (Number(row.total_amount || 0) - Number(row.deposit_amount || 0))),
-    expected_delivery_date: String(row.expected_delivery_date || ''),
+    expected_delivery_date: deliveryDate,
     status: String(row.status || 'pending_deposit') as AdvanceStatus,
     remarks: String(row.remarks || ''),
     reference_number: String(row.reference_number || ''),
     created_by_name: String(row.created_by_name || ''),
-    created_at: String(row.created_at || new Date().toISOString()),
-    updated_at: String(row.updated_at || new Date().toISOString()),
-    completed_at: row.completed_at ? String(row.completed_at) : null,
+    created_at: createdAt,
+    updated_at: updatedAt,
+    completed_at: row.completed_at ? (row.completed_at instanceof Date ? row.completed_at.toISOString() : String(row.completed_at)) : null,
     completed_order_id: row.completed_order_id ? String(row.completed_order_id) : null,
     invoice_number: row.invoice_number ? String(row.invoice_number) : null,
     final_payment_method: row.final_payment_method ? String(row.final_payment_method) : null,
@@ -118,7 +139,7 @@ async function create(req: VercelRequest, res: VercelResponse) {
 
   try {
     const rows = await sql`
-      SELECT public.create_advance_order(
+      SELECT * FROM public.create_advance_order(
         p_customer_name       => ${customerName},
         p_phone               => ${phone},
         p_address             => ${String(body.p_address || body.address || '').trim()},
@@ -133,10 +154,10 @@ async function create(req: VercelRequest, res: VercelResponse) {
         p_created_by_name     => ${String(body.p_created_by_name || body.created_by_name || session.portalId || '').trim()},
         p_products            => ${sql.json(products as unknown as JSONValue)},
         p_created_by          => ${session.portalId}
-      ) AS result
+      )
     `
-    const order = rows[0]?.result as Record<string, unknown>
-    if (!order) throw new Error('create_advance_order returned no result')
+    const order = rows[0] as Record<string, unknown>
+    if (!order || !order.id) throw new Error('create_advance_order returned no result')
 
     // Patch reference_number if provided (not in RPC signature)
     const refNum = String(body.reference_number || '').trim()

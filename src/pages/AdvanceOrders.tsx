@@ -142,16 +142,18 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
     try { const history = await getAdvanceOrderHistory(order.id); setTimeline(history.timeline); setPayments(history.payments) } catch (err) { setError(err instanceof Error ? err.message : 'Unable to load order details') }
   }
 
-  const analytics = useMemo(() => ({
-    total: orders.length,
-    pending: orders.filter(o => o.status === 'pending_deposit' || o.status === 'waiting_final_payment').length,
-    deposits: orders.filter(o => o.status !== 'cancelled').reduce((sum, o) => sum + o.deposit_amount, 0),
-    outstanding: orders.filter(o => !['completed', 'cancelled'].includes(o.status)).reduce((sum, o) => sum + o.remaining_balance, 0),
-    ready: orders.filter(o => o.status === 'ready_for_delivery').length,
-    completed: orders.filter(o => o.status === 'completed').length,
-  }), [orders])
+  const validOrders = useMemo(() => orders.filter(o => o.id && o.deposit_id && Number(o.total_amount) > 0), [orders])
 
-  const filtered = useMemo(() => orders.filter(order => {
+  const analytics = useMemo(() => ({
+    total: validOrders.length,
+    pending: validOrders.filter(o => o.status === 'pending_deposit' || o.status === 'waiting_final_payment').length,
+    deposits: validOrders.filter(o => o.status !== 'cancelled').reduce((sum, o) => sum + o.deposit_amount, 0),
+    outstanding: validOrders.filter(o => !['completed', 'cancelled'].includes(o.status)).reduce((sum, o) => sum + o.remaining_balance, 0),
+    ready: validOrders.filter(o => o.status === 'ready_for_delivery').length,
+    completed: validOrders.filter(o => o.status === 'completed').length,
+  }), [validOrders])
+
+  const filtered = useMemo(() => validOrders.filter(order => {
     const query = search.trim().toLowerCase()
     const searchable = [order.deposit_id, order.customer_name, order.phone, order.product_name, STATUS_LABELS[order.status]].join(' ').toLowerCase()
     if (query && !searchable.includes(query)) return false

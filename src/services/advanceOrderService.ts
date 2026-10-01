@@ -59,11 +59,30 @@ const STORAGE_ORDERS_KEY = 'vasthraalayam_boutique_advance_orders_v1'
 const STORAGE_TIMELINE_KEY = 'vasthraalayam_boutique_advance_timeline_v1'
 const STORAGE_PAYMENTS_KEY = 'vasthraalayam_boutique_advance_payments_v1'
 
+export const isValidOrder = (o: unknown): o is AdvanceOrder => {
+  if (!o || typeof o !== 'object') return false
+  const order = o as AdvanceOrder
+  return Boolean(
+    order.id &&
+    String(order.id).trim() !== '' &&
+    order.deposit_id &&
+    String(order.deposit_id).trim() !== '' &&
+    Number(order.total_amount) > 0
+  )
+}
+
 const loadLocalOrders = (): AdvanceOrder[] => {
-  try { return JSON.parse(localStorage.getItem(STORAGE_ORDERS_KEY) || '[]') as AdvanceOrder[] } catch { return [] }
+  try {
+    const raw = JSON.parse(localStorage.getItem(STORAGE_ORDERS_KEY) || '[]')
+    if (!Array.isArray(raw)) return []
+    return raw.filter(isValidOrder)
+  } catch { return [] }
 }
 const saveLocalOrders = (orders: AdvanceOrder[]) => {
-  try { localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders)) } catch { /* ignore */ }
+  try {
+    const valid = orders.filter(isValidOrder)
+    localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(valid))
+  } catch { /* ignore */ }
 }
 const loadLocalTimeline = (): AdvanceTimeline[] => {
   try { return JSON.parse(localStorage.getItem(STORAGE_TIMELINE_KEY) || '[]') as AdvanceTimeline[] } catch { return [] }
@@ -103,10 +122,10 @@ export async function listAdvanceOrders(): Promise<AdvanceOrder[]> {
     console.warn('[listAdvanceOrders] Neon error, falling back to local cache:', result.error?.message)
     return loadLocalOrders()
   }
-  const remote = result.data
-  // Merge: remote is authoritative; keep any purely local orders not yet synced
+  const remote = (result.data || []).filter(isValidOrder)
+  // Merge: remote is authoritative; keep any purely local valid orders not yet synced
   const remoteIds = new Set(remote.map(r => r.id))
-  const localOnly = loadLocalOrders().filter(l => !remoteIds.has(l.id))
+  const localOnly = loadLocalOrders().filter(l => isValidOrder(l) && !remoteIds.has(l.id))
   const merged = [...remote, ...localOnly].sort((a, b) =>
     new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   )
@@ -163,8 +182,10 @@ export async function createAdvanceOrder(input: {
     'createAdvanceOrder'
   )
   // Update local cache
-  const local = loadLocalOrders()
-  saveLocalOrders([order, ...local.filter(o => o.id !== order.id)])
+  if (isValidOrder(order)) {
+    const local = loadLocalOrders()
+    saveLocalOrders([order, ...local.filter(o => o.id !== order.id)])
+  }
   return order
 }
 
