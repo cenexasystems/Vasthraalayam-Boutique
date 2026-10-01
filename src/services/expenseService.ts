@@ -71,7 +71,7 @@ const saveLocalExpenses = (records: ExpenseRecord[]) => {
 
 const loadLocalCategories = (): ExpenseCategory[] => {
   try {
-    const raw = localStorage.getItem(STORAGE_CATEGORIES_KEY) || localStorage.getItem(LEGACY_STORAGE_CATEGORIES_KEY)
+    const raw = localStorage.getItem(STORAGE_CATEGORIES_KEY)
     if (raw) return JSON.parse(raw) as ExpenseCategory[]
   } catch {
     // fallback

@@ -68,7 +68,7 @@ export function saveStoredBarcodeSettings(settings: BarcodeSettings): void {
 
 export function getStoredCustomSizes(): LabelSizeConfig[] {
   try {
-    const raw = localStorage.getItem(CUSTOM_SIZES_KEY) || localStorage.getItem(LEGACY_CUSTOM_SIZES_KEY)
+    const raw = localStorage.getItem(CUSTOM_SIZES_KEY)
     if (raw) return JSON.parse(raw)
   } catch (e) {
     console.error('Failed to parse custom label sizes:', e)
