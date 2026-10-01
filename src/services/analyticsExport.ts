@@ -35,6 +35,7 @@ export interface AnalyticsExportData {
   averageProductRevenue?: number
   averageServiceRevenue?: number
   bestService?: string
+  advanceReceivedPending?: number
   topProducts: Array<{ name: string; variant?: string; category?: string; sku?: string; qty: number; revenue: number; billCount: number; avgPrice?: number; share?: number }>
   topServices?: Array<{ name: string; variant?: string; category?: string; sku?: string; qty: number; revenue: number; billCount: number; avgPrice?: number; share?: number }>
   topCategories: Array<{ name: string; qty: number; revenue: number }>
@@ -85,6 +86,9 @@ export function exportAnalyticsToCSV({ data, activeTab, datePreset, dateFrom, da
     rows.push(['--- REVENUE & PROFIT SUMMARY ---'])
     rows.push(['Metric', 'Value'])
     rows.push(['Total Revenue (INR)', data.totalCompletedRevenue.toFixed(2)])
+    rows.push(['Product Revenue (INR)', (data.productRevenue || 0).toFixed(2)])
+    rows.push(['Service Revenue (INR)', (data.serviceRevenue || 0).toFixed(2)])
+    rows.push(['Advance Received Pending (INR)', (data.advanceReceivedPending || 0).toFixed(2)])
     rows.push(['Total Expenses (INR)', data.totalExpenses.toFixed(2)])
     rows.push(['Net Profit / Loss (INR)', data.netProfit.toFixed(2)])
     rows.push(['Completed Bills Count', String(data.completedOrders)])
@@ -92,9 +96,11 @@ export function exportAnalyticsToCSV({ data, activeTab, datePreset, dateFrom, da
     rows.push(['Offline Bills Count', String(data.offlineOrderCount)])
     rows.push(['Online Revenue (INR)', data.onlinePosRevenue.toFixed(2)])
     rows.push(['Online Bills Count', String(data.onlineBillCount)])
-    rows.push(['Total Items Sold', String(Math.round(data.totalProductsSold))])
+    rows.push(['Total Products Sold', String(Math.round(data.totalProductsSold))])
+    rows.push(['Total Services Sold', String(Math.round(data.totalServicesSold || 0))])
     rows.push(['Average Revenue Per Bill (INR)', data.averageRevenuePerBill.toFixed(2)])
     rows.push(['Top Performing Product', data.bestProduct])
+    rows.push(['Top Performing Service', data.bestService || 'No sales yet'])
     rows.push([])
 
     rows.push(['--- WEEKLY REVENUE TREND ---'])

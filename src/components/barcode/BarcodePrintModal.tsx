@@ -3,7 +3,14 @@ import { createPortal } from 'react-dom'
 import { X, Printer, Copy, Check } from 'lucide-react'
 import { BarcodeLabel } from './BarcodeLabel'
 import { BRAND_EN } from '../../lib/brand'
-import { getAllLabelSizes, generateBarcodeSvgString, getStoredBarcodeSettings, saveStoredBarcodeSettings } from '../../lib/barcode'
+import {
+  getAllLabelSizes,
+  generateBarcodeSvgString,
+  getStoredBarcodeSettings,
+  saveStoredBarcodeSettings,
+  saveLastUsedSizeId,
+  getLabelRenderMetrics,
+} from '../../lib/barcode'
 
 export interface BarcodePrintModalProps {
   isOpen: boolean
@@ -17,6 +24,7 @@ export interface BarcodePrintModalProps {
 }
 
 type LabelSizePreset = {
+  id: string
   name: string
   widthMm: number
   heightMm: number
@@ -27,11 +35,12 @@ type LabelSizePreset = {
 const getAvailablePresets = (): LabelSizePreset[] => {
   const sizes = getAllLabelSizes()
   return sizes.map((s) => ({
-    name: `${s.name} (${s.widthMm}mm × ${s.heightMm}mm${s.labelsPerRow > 1 ? ` × ${s.labelsPerRow} across` : ''})`,
-    widthMm: s.widthMm,
-    heightMm: s.heightMm,
-    labelsPerRow: s.labelsPerRow || 1,
-    horizontalGapMm: s.horizontalGapMm || 0,
+    id: s.id,
+    name: `${s.label || s.name} (${s.width_mm}mm × ${s.height_mm}mm${s.columns > 1 ? ` × ${s.columns} across` : ''})`,
+    widthMm: s.width_mm,
+    heightMm: s.height_mm,
+    labelsPerRow: s.columns || 1,
+    horizontalGapMm: s.gap_mm || 0,
   }))
 }
 
@@ -47,16 +56,26 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
 }) => {
   const presets = getAvailablePresets()
   const [quantity, setQuantity] = useState<string>(String(defaultQuantity || 1))
-  const [selectedPreset, setSelectedPreset] = useState<LabelSizePreset>(presets[0] || { name: 'Thermal Standard', widthMm: 50, heightMm: 25, labelsPerRow: 1, horizontalGapMm: 0 })
+  const [selectedPreset, setSelectedPreset] = useState<LabelSizePreset>(() => {
+    const defaultId = getStoredBarcodeSettings().selectedSizeId || '2_38x25'
+    return presets.find((p) => p.id === defaultId) || presets[0] || { id: '2_38x25', name: '38 × 25 mm (Tag / Jewelry)', widthMm: 38, heightMm: 25, labelsPerRow: 1, horizontalGapMm: 0 }
+  })
   const [copied, setCopied] = useState(false)
-  const [printerType, setPrinterType] = useState<'label' | 'regular'>(() => {
+  const [printerType, setPrinterType] = useState<string>(() => {
     return getStoredBarcodeSettings().printerType || 'label'
   })
 
-  const handlePrinterTypeChange = (type: 'label' | 'regular') => {
+  const handlePresetChange = (preset: LabelSizePreset) => {
+    setSelectedPreset(preset)
+    const current = getStoredBarcodeSettings()
+    saveStoredBarcodeSettings({ ...current, selectedSizeId: preset.id })
+    saveLastUsedSizeId(preset.id)
+  }
+
+  const handlePrinterTypeChange = (type: string) => {
     setPrinterType(type)
     const current = getStoredBarcodeSettings()
-    saveStoredBarcodeSettings({ ...current, printerType: type })
+    saveStoredBarcodeSettings({ ...current, printerType: type as any })
   }
 
   // Close on Escape key & lock body scrolling when open
@@ -103,37 +122,35 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
 
       const fullTitle = `${productName}${variantName ? ` (${variantName})` : ''}`
       const isThermal = printerType === 'label'
-      const isSmall = selectedPreset.heightMm <= 25
-      const isLarge = selectedPreset.heightMm >= 40
-
-      // Proportional barcode sizing preventing detail overlaps
-      // Barcode bars take ~32% of height, leaving balanced space for text, header, and footer
-      const barcodeHeightPx = Math.max(16, Math.round(selectedPreset.heightMm * 0.32 * 3.7795))
-      const printableWidthPx = Math.max(30, (selectedPreset.widthMm - 4) * 3.7795)
-      const barcodeBarWidth = Math.max(0.80, Math.min(1.70, Math.round((printableWidthPx / 120) * 100) / 100))
-      const barcodeFontSize = Math.max(6, Math.min(9.5, Math.round(selectedPreset.heightMm * 0.20 * 10) / 10))
+      const metrics = getLabelRenderMetrics(selectedPreset.widthMm, selectedPreset.heightMm)
 
       // Direct SVG generation without CDN script dependencies
       const svgMarkup = generateBarcodeSvgString(barcodeValue, {
-        width: barcodeBarWidth,
-        height: barcodeHeightPx,
-        fontSize: barcodeFontSize,
+        width: metrics.barcodeBarWidth,
+        height: metrics.barcodeHeightPx,
+        fontSize: metrics.barcodeFontSize,
         font: 'Arial, sans-serif',
-        margin: 0,
+        margin: metrics.barcodeMargin,
         textMargin: 1.5,
         displayValue: true,
       })
 
-      const headerFontSize = isSmall ? '7pt' : isLarge ? '10.5pt' : '8.5pt'
-      const titleFontSize = isSmall ? '6pt' : isLarge ? '9pt' : '7.5pt'
-      const tagFontSize = isSmall ? '5.5pt' : isLarge ? '8.5pt' : '7pt'
-      const priceFontSize = isSmall ? '8pt' : isLarge ? '12pt' : '9.5pt'
-      const stickerPadding = isSmall ? '0.6mm 1.2mm' : '1.0mm 1.6mm'
-
     // Build standalone HTML for the printed stickers with strict thermal proportions
     const parsedQty = parseInt(quantity.trim(), 10)
     const validQuantity = !isNaN(parsedQty) && parsedQty > 0 ? parsedQty : 1
-    const singleStickerHtml = `
+    const singleStickerHtml = metrics.isVerySmall
+      ? `
+      <div class="sticker sticker-very-small">
+        <div class="barcode-box">
+          ${svgMarkup}
+        </div>
+        <div class="footer">
+          <span class="retail-tag">${barcodeValue.slice(-8)}</span>
+          <span class="price">₹${price}</span>
+        </div>
+      </div>
+      `
+      : `
       <div class="sticker">
         <div class="header">
           <div class="brand">${BRAND_EN}</div>
@@ -151,13 +168,19 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
 
     const columns = isThermal ? Math.max(1, selectedPreset.labelsPerRow || 1) : 1
     const gapMm = selectedPreset.horizontalGapMm || 0
+    const totalRollWidthMm = (selectedPreset.widthMm * columns + (columns > 1 ? gapMm * (columns - 1) : 0)).toFixed(2)
 
     const totalStickers = Math.max(1, validQuantity)
     const rows: string[] = []
     for (let i = 0; i < totalStickers; i += columns) {
       const rowCount = Math.min(columns, totalStickers - i)
-      const rowHtml = Array.from({ length: rowCount }).map(() => singleStickerHtml).join('')
-      
+      const filledStickers = Array.from({ length: rowCount }).map(() => singleStickerHtml)
+      // On multi-up rolls, if an odd quantity leaves the last row incomplete, pad with empty invisible cell
+      while (filledStickers.length < columns) {
+        filledStickers.push('<div class="sticker" style="visibility:hidden;border:none;background:transparent;"></div>')
+      }
+      const rowHtml = filledStickers.join('')
+
       if (isThermal) {
         // Wrap each row in a discrete page container to force hardware gap sensor alignment
         rows.push(`<div class="page-wrapper"><div class="sticker-row">${rowHtml}</div></div>`)
@@ -180,7 +203,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
             @page {
               ${
                 isThermal
-                  ? `size: ${(selectedPreset.widthMm * columns + gapMm * (columns - 1)).toFixed(2)}mm ${selectedPreset.heightMm}mm; margin: 0;`
+                  ? `size: ${totalRollWidthMm}mm ${selectedPreset.heightMm}mm; margin: 0;`
                   : `size: A4 portrait; margin: 10mm;`
               }
             }
@@ -191,13 +214,19 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                   html, body {
                     margin: 0 !important;
                     padding: 0 !important;
+                    width: ${totalRollWidthMm}mm !important;
                   }
                   .page-wrapper {
-                    width: ${(selectedPreset.widthMm * columns + gapMm * (columns - 1)).toFixed(2)}mm !important;
+                    width: ${totalRollWidthMm}mm !important;
                     height: ${selectedPreset.heightMm}mm !important;
+                    max-height: ${selectedPreset.heightMm}mm !important;
                     overflow: hidden !important;
                     page-break-after: always !important;
                     break-after: page !important;
+                  }
+                  .page-wrapper:last-child {
+                    page-break-after: avoid !important;
+                    break-after: avoid !important;
                   }
                   `
                   : ''
@@ -231,7 +260,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
               align-items: center;
               justify-content: ${isThermal ? 'space-between' : 'flex-start'};
               gap: ${isThermal ? '0' : gapMm + 'mm'};
-              width: ${(selectedPreset.widthMm * columns + gapMm * (columns - 1)).toFixed(2)}mm;
+              width: ${totalRollWidthMm}mm;
               height: ${isThermal ? selectedPreset.heightMm + 'mm' : 'auto'};
               break-inside: avoid !important;
               page-break-inside: avoid !important;
@@ -241,8 +270,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
               height: ${selectedPreset.heightMm}mm;
               max-width: ${selectedPreset.widthMm}mm;
               max-height: ${selectedPreset.heightMm}mm;
-              /* Increased horizontal padding to protect text from physical printer misalignment */
-              padding: ${isSmall ? '0.8mm 2mm' : '1.2mm 2.5mm'};
+              padding: ${metrics.padding};
               display: flex;
               flex-direction: column;
               justify-content: space-between;
@@ -259,28 +287,29 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
               display: flex;
               flex-direction: column;
               align-items: center;
-              justify-content: flex-start;
               line-height: 1.1;
               flex-shrink: 0;
             }
             .brand {
-              font-size: ${headerFontSize};
+              font-size: ${metrics.headerFontSize};
               font-weight: 900;
-              letter-spacing: 0.3px;
-              text-transform: uppercase;
+              letter-spacing: 0.5px;
               color: #000;
-              line-height: 1.1;
+              text-transform: uppercase;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              max-width: 100%;
             }
             .prod-title {
-              font-size: ${titleFontSize};
+              font-size: ${metrics.titleFontSize};
               font-weight: 700;
+              color: #111;
               white-space: nowrap;
               overflow: hidden;
               text-overflow: ellipsis;
               max-width: 98%;
-              margin-top: 0.3mm;
-              color: #111;
-              line-height: 1.1;
+              margin-top: 0.2mm;
             }
             .barcode-box {
               width: 100%;
@@ -289,7 +318,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
               display: flex;
               justify-content: center;
               align-items: center;
-              margin: 0.4mm 0;
+              margin: 0.2mm 0;
               overflow: hidden;
             }
             .barcode-box svg {
@@ -305,24 +334,23 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
               display: flex;
               justify-content: space-between;
               align-items: center;
-              border-top: 0.6pt solid #000;
-              padding-top: 0.5mm;
+              border-top: 0.5pt solid #000;
+              padding-top: 0.3mm;
               line-height: 1;
               flex-shrink: 0;
             }
-            .retail-tag {
-              font-size: ${tagFontSize};
-              font-weight: 800;
-              color: #444;
-            }
             .mrp {
-              text-decoration: line-through;
+              font-size: ${metrics.tagFontSize};
               color: #555;
-              font-size: ${tagFontSize};
-              font-weight: 600;
+              text-decoration: line-through;
+            }
+            .retail-tag {
+              font-size: ${metrics.tagFontSize};
+              font-weight: 700;
+              color: #333;
             }
             .price {
-              font-size: ${priceFontSize};
+              font-size: ${metrics.priceFontSize};
               font-weight: 900;
               color: #000;
             }
@@ -469,15 +497,15 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                   Label Sizing Preset
                 </label>
                 <select
-                  value={selectedPreset.name}
+                  value={selectedPreset.id}
                   onChange={(e) => {
-                    const preset = presets.find((p) => p.name === e.target.value)
-                    if (preset) setSelectedPreset(preset)
+                    const preset = presets.find((p) => p.id === e.target.value)
+                    if (preset) handlePresetChange(preset)
                   }}
                   className="w-full py-2.5 px-3 rounded-xl border-2 border-[#ead7b7] bg-white font-bold text-xs sm:text-sm text-gray-900 outline-none focus:border-brand-black shadow-sm cursor-pointer"
                 >
                   {presets.map((p) => (
-                    <option key={p.name} value={p.name}>
+                    <option key={p.id} value={p.id}>
                       {p.name}
                     </option>
                   ))}

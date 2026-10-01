@@ -1,27 +1,71 @@
 import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Info } from 'lucide-react'
-import { type LabelSizeConfig, saveStoredCustomSize } from '../../lib/barcode'
+import { X, Info, Loader2 } from 'lucide-react'
+import {
+  type LabelSizeConfig,
+  createCustomSizeInDb,
+  updateCustomSizeInDb,
+  getCurrentBusinessId,
+  createLabelConfig,
+} from '../../lib/barcode'
 
 interface CreateCustomSizeModalProps {
   isOpen: boolean
   onClose: () => void
-  onCreated: (newSize: LabelSizeConfig) => void
+  onSaved?: (newSize: LabelSizeConfig) => void
+  onCreated?: (newSize: LabelSizeConfig) => void
+  initialSize?: LabelSizeConfig | null
+  businessId?: string
 }
 
 export const CreateCustomSizeModal: React.FC<CreateCustomSizeModalProps> = ({
   isOpen,
   onClose,
+  onSaved,
   onCreated,
+  initialSize = null,
+  businessId,
 }) => {
+  const isEditing = Boolean(initialSize)
+  const activeBizId = businessId || getCurrentBusinessId()
+
   const [name, setName] = useState('')
-  const [labelsPerRow, setLabelsPerRow] = useState<number>(1)
+  const [columns, setColumns] = useState<number>(1)
+  const [rows, setRows] = useState<number>(1)
   const [widthMm, setWidthMm] = useState<string>('50')
   const [heightMm, setHeightMm] = useState<string>('38')
-  const [horizontalGapMm, setHorizontalGapMm] = useState<string>('2')
+  const [gapXMm, setGapXMm] = useState<string>('2')
+  const [gapYMm, setGapYMm] = useState<string>('0')
+  const [marginTopMm, setMarginTopMm] = useState<string>('0')
+  const [marginLeftMm, setMarginLeftMm] = useState<string>('0')
   const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
 
-  // Close on Escape key & lock body scrolling when open
+  useEffect(() => {
+    if (initialSize) {
+      setName(initialSize.label || initialSize.name || '')
+      setColumns(initialSize.columns || initialSize.labelsPerRow || 1)
+      setRows(initialSize.rows || 1)
+      setWidthMm(String(initialSize.width_mm || initialSize.widthMm || 50))
+      setHeightMm(String(initialSize.height_mm || initialSize.heightMm || 38))
+      setGapXMm(String(initialSize.gap_mm ?? initialSize.horizontalGapMm ?? 2))
+      setGapYMm(String(initialSize.gap_y_mm || 0))
+      setMarginTopMm(String(initialSize.margin_top_mm || 0))
+      setMarginLeftMm(String(initialSize.margin_left_mm || 0))
+    } else {
+      setName('')
+      setColumns(1)
+      setRows(1)
+      setWidthMm('50')
+      setHeightMm('38')
+      setGapXMm('2')
+      setGapYMm('0')
+      setMarginTopMm('0')
+      setMarginLeftMm('0')
+    }
+    setError('')
+  }, [initialSize, isOpen])
+
   useEffect(() => {
     if (!isOpen) return
     const originalOverflow = document.body.style.overflow
@@ -39,7 +83,7 @@ export const CreateCustomSizeModal: React.FC<CreateCustomSizeModalProps> = ({
 
   if (!isOpen) return null
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
 
@@ -51,39 +95,111 @@ export const CreateCustomSizeModal: React.FC<CreateCustomSizeModalProps> = ({
 
     const w = parseFloat(widthMm)
     const h = parseFloat(heightMm)
-    const g = parseFloat(horizontalGapMm) || 0
+    const gx = parseFloat(gapXMm) || 0
+    const gy = parseFloat(gapYMm) || 0
+    const mTop = parseFloat(marginTopMm) || 0
+    const mLeft = parseFloat(marginLeftMm) || 0
 
-    if (isNaN(w) || w <= 0 || isNaN(h) || h <= 0) {
-      setError('Please enter valid width and height dimensions in mm')
+    if (isNaN(w) || w < 10 || w > 210) {
+      setError('Label width must be between 10 mm and 210 mm')
+      return
+    }
+    if (isNaN(h) || h < 10 || h > 210) {
+      setError('Label height must be between 10 mm and 210 mm')
+      return
+    }
+    if (isNaN(columns) || columns < 1 || columns > 10) {
+      setError('Columns must be between 1 and 10')
+      return
+    }
+    if (isNaN(rows) || rows < 1 || rows > 25) {
+      setError('Rows must be between 1 and 25')
+      return
+    }
+    if (isNaN(gx) || gx < 0 || gx > 50 || isNaN(gy) || gy < 0 || gy > 50) {
+      setError('Gaps must be between 0 mm and 50 mm')
       return
     }
 
-    const newSizeConfig: LabelSizeConfig = {
-      id: `custom_${Date.now()}`,
-      name: trimmedName,
-      labelsPerRow,
-      widthMm: w,
-      heightMm: h,
-      horizontalGapMm: g,
-      isCustom: true,
-    }
+    setSaving(true)
+    try {
+      let savedConfig: LabelSizeConfig
+      if (isEditing && initialSize) {
+        const updatedConfig = createLabelConfig({
+          id: initialSize.id,
+          width_mm: w,
+          height_mm: h,
+          columns,
+          rows,
+          gap_mm: gx,
+          gap_y_mm: gy,
+          margin_top_mm: mTop,
+          margin_left_mm: mLeft,
+          label: trimmedName,
+          use_case: 'Custom Size',
+          category: 'Custom Sizes',
+          business_id: activeBizId,
+          isCustom: true,
+          isSheet: rows > 1 || columns > 3,
+        })
+        savedConfig = await updateCustomSizeInDb(updatedConfig, activeBizId)
+      } else {
+        savedConfig = await createCustomSizeInDb(
+          {
+            name: trimmedName,
+            width_mm: w,
+            height_mm: h,
+            columns,
+            rows,
+            gap_mm: gx,
+            gap_y_mm: gy,
+            margin_top_mm: mTop,
+            margin_left_mm: mLeft,
+          },
+          activeBizId
+        )
+      }
 
-    saveStoredCustomSize(newSizeConfig)
-    onCreated(newSizeConfig)
-    onClose()
+      if (onSaved) onSaved(savedConfig)
+      if (onCreated) onCreated(savedConfig)
+      onClose()
+    } catch (err) {
+      console.error('[CreateCustomSizeModal] Save error:', err)
+      setError(err instanceof Error ? err.message : 'Failed to save custom size to database')
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const numWidth = parseFloat(widthMm) || 50
-  const numHeight = parseFloat(heightMm) || 25
-  const numGap = parseFloat(horizontalGapMm) || 2
+  const numWidth = Math.max(10, Math.min(210, parseFloat(widthMm) || 50))
+  const numHeight = Math.max(10, Math.min(210, parseFloat(heightMm) || 38))
+  const numGapX = Math.max(0, Math.min(50, parseFloat(gapXMm) || 0))
+  const numGapY = Math.max(0, Math.min(50, parseFloat(gapYMm) || 0))
+
+  // Scaled aspect ratio preview calculations
+  const totalW = numWidth * columns + (columns > 1 ? numGapX * (columns - 1) : 0)
+  const totalH = numHeight * rows + (rows > 1 ? numGapY * (rows - 1) : 0)
+  const totalAspectRatio = totalW / totalH
+  const containerMaxW = 260
+  const containerMaxH = 150
+  let renderedW = containerMaxW
+  let renderedH = containerMaxW / totalAspectRatio
+  if (renderedH > containerMaxH) {
+    renderedH = containerMaxH
+    renderedW = containerMaxH * totalAspectRatio
+  }
+  const singleLabelPreviewWidth = Math.max(20, (renderedW - (columns > 1 ? numGapX * (columns - 1) : 0)) / columns)
+  const singleLabelPreviewHeight = Math.max(16, (renderedH - (rows > 1 ? numGapY * (rows - 1) : 0)) / rows)
 
   return createPortal(
-    <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-screen h-screen h-[100dvh] z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
+    <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-screen h-screen h-[100dvh] z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-xs p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
       <div className="absolute inset-0" onClick={onClose} />
       <div className="relative z-10 bg-white rounded-none sm:rounded-2xl max-w-2xl w-full h-screen h-[100dvh] sm:h-auto sm:max-h-[90vh] border-0 sm:border border-[#E5E7EB] shadow-2xl overflow-hidden flex flex-col">
-        {/* Header - fixed top */}
+        {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-3.5 border-b border-gray-200 bg-brand-black text-white shrink-0">
-          <h3 className="text-base font-black tracking-wide text-white">Create Custom Size</h3>
+          <h3 className="text-base font-black tracking-wide text-white">
+            {isEditing ? 'Edit Custom Size' : 'Create Custom Size'}
+          </h3>
           <button
             type="button"
             onClick={onClose}
@@ -94,12 +210,12 @@ export const CreateCustomSizeModal: React.FC<CreateCustomSizeModalProps> = ({
         </div>
 
         <form onSubmit={handleSave} className="flex-1 min-h-0 flex flex-col overflow-hidden">
-          {/* Scrollable form body */}
           <div className="flex-1 min-h-0 overflow-y-auto p-5 sm:p-6">
-            {/* Info banner */}
             <div className="mb-3.5 flex items-start gap-2.5 rounded-xl bg-blue-50/80 border border-blue-200 px-3.5 py-2 text-xs text-blue-900 font-semibold">
               <Info size={15} className="text-blue-600 shrink-0 mt-0.5" />
-              <span>For best results in generic flow, configure labels in Printer Settings as well</span>
+              <span>
+                Saved to your business database (Neon) and available on every device. Valid size limits: 10 mm to 210 mm.
+              </span>
             </div>
 
             {error && (
@@ -110,137 +226,189 @@ export const CreateCustomSizeModal: React.FC<CreateCustomSizeModalProps> = ({
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
               {/* Left Column: Form inputs */}
-              <div className="space-y-2.5">
+              <div className="space-y-3">
                 <div>
                   <label className="block text-[11px] font-black uppercase tracking-wider text-gray-700 mb-1">
-                    Custom Size Name
+                    Custom Size Name <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
                     required
                     autoFocus
-                    placeholder="e.g. custom 50x38"
+                    placeholder="e.g. 50 × 38 mm Special"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white"
                   />
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-black uppercase tracking-wider text-gray-700 mb-1">
-                    Labels Per Row
-                  </label>
-                  <select
-                    value={labelsPerRow}
-                    onChange={(e) => setLabelsPerRow(Number(e.target.value))}
-                    className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white"
-                  >
-                    <option value={1}>1</option>
-                    <option value={2}>2</option>
-                    <option value={3}>3</option>
-                  </select>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-black uppercase tracking-wider text-gray-700 mb-1">
+                      Label Width (mm)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="10"
+                      max="210"
+                      required
+                      value={widthMm}
+                      onChange={(e) => setWidthMm(e.target.value)}
+                      className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-black uppercase tracking-wider text-gray-700 mb-1">
+                      Label Height (mm)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="10"
+                      max="210"
+                      required
+                      value={heightMm}
+                      onChange={(e) => setHeightMm(e.target.value)}
+                      className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white"
+                    />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-black uppercase tracking-wider text-gray-700 mb-1">
-                    Label Width (mm)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    required
-                    placeholder="50"
-                    value={widthMm}
-                    onChange={(e) => setWidthMm(e.target.value)}
-                    className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white"
-                  />
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-black uppercase tracking-wider text-gray-700 mb-1">
+                      Columns (Across)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      required
+                      value={columns}
+                      onChange={(e) => setColumns(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                      className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-black uppercase tracking-wider text-gray-700 mb-1">
+                      Rows (Down / Sheet)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="25"
+                      required
+                      value={rows}
+                      onChange={(e) => setRows(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                      className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white"
+                    />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-black uppercase tracking-wider text-gray-700 mb-1">
-                    Label Height (mm)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    required
-                    placeholder="38"
-                    value={heightMm}
-                    onChange={(e) => setHeightMm(e.target.value)}
-                    className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white"
-                  />
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-black uppercase tracking-wider text-gray-700 mb-1">
+                      Horizontal Gap (mm)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="50"
+                      value={gapXMm}
+                      onChange={(e) => setGapXMm(e.target.value)}
+                      className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-black uppercase tracking-wider text-gray-700 mb-1">
+                      Vertical Gap (mm)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="50"
+                      value={gapYMm}
+                      onChange={(e) => setGapYMm(e.target.value)}
+                      className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white"
+                    />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-black uppercase tracking-wider text-gray-700 mb-1">
-                    Horizontal Gap (mm)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    placeholder="2"
-                    value={horizontalGapMm}
-                    onChange={(e) => setHorizontalGapMm(e.target.value)}
-                    className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white"
-                  />
-                  <p className="mt-1 text-[10px] text-gray-500 font-medium">
-                    ℹ Use 0 when label size is configured in printer settings
-                  </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-black uppercase tracking-wider text-gray-700 mb-1">
+                      Top Margin (mm)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="50"
+                      value={marginTopMm}
+                      onChange={(e) => setMarginTopMm(e.target.value)}
+                      className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-black uppercase tracking-wider text-gray-700 mb-1">
+                      Left Margin (mm)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="50"
+                      value={marginLeftMm}
+                      onChange={(e) => setMarginLeftMm(e.target.value)}
+                      className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-[#FBFAF6] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white"
+                    />
+                  </div>
                 </div>
               </div>
 
-              {/* Right Column: Visual Interactive Preview matching screenshot */}
-              <div className="flex flex-col items-center justify-center h-full">
+              {/* Right Column: Visual Interactive Preview scaled to real aspect ratio */}
+              <div className="flex flex-col items-center justify-center">
                 <span className="text-[11px] font-black uppercase tracking-wider text-gray-600 mb-2">
-                  Preview ({labelsPerRow})
+                  Layout Preview ({numWidth} × {numHeight} mm · {columns}×{rows})
                 </span>
-                <div className="w-full min-h-[190px] rounded-2xl bg-[#FFF9E6] border border-[#ead7b7] p-4 flex items-center justify-center relative shadow-inner overflow-hidden">
-                  {/* Labels Layout */}
-                  <div className="flex items-center justify-center gap-3">
-                    {Array.from({ length: labelsPerRow }).map((_, idx) => (
+                <div className="w-full min-h-[220px] rounded-2xl bg-[#FFF9E6] border border-[#ead7b7] p-4 flex flex-col items-center justify-center relative shadow-inner overflow-hidden">
+                  <div
+                    className="grid gap-1 max-w-full"
+                    style={{
+                      width: `${Math.round(renderedW)}px`,
+                      height: `${Math.round(renderedH)}px`,
+                      gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                      gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+                    }}
+                  >
+                    {Array.from({ length: Math.min(colsAndRowsCap(columns, rows), 30) }).map((_, idx) => (
                       <div
                         key={idx}
-                        className="bg-white rounded-xl border border-gray-300 p-2.5 shadow-md flex flex-col items-center justify-center text-center relative"
+                        className="bg-white rounded border border-gray-300 p-1 shadow-2xs flex flex-col items-center justify-between text-center overflow-hidden"
                         style={{
-                          width: labelsPerRow === 1 ? '150px' : labelsPerRow === 2 ? '105px' : '80px',
-                          height: '120px',
+                          width: `${Math.round(singleLabelPreviewWidth)}px`,
+                          height: `${Math.round(singleLabelPreviewHeight)}px`,
                         }}
                       >
-                        {/* Dimension Indicators on first label */}
                         {idx === 0 && (
-                          <>
-                            <span className="absolute -left-2 top-1/2 -translate-y-1/2 -rotate-90 bg-gray-600 text-white text-[8px] font-bold px-1 rounded shadow">
-                              {numHeight}mm
-                            </span>
-                            <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 bg-gray-600 text-white text-[8px] font-bold px-1 rounded shadow">
-                              {numWidth}mm
-                            </span>
-                          </>
+                          <span className="text-[7px] font-black text-gray-800 tracking-wider truncate max-w-full">
+                            {name || 'VASTHRAALAYAM'}
+                          </span>
                         )}
-                        <span className="text-[9px] font-black text-gray-700 tracking-wider">Header</span>
-                        {/* Mini Barcode lines */}
-                        <div className="my-1 flex items-center gap-[1.5px] h-6 px-1">
-                          <div className="w-[1.5px] h-full bg-black" />
-                          <div className="w-[1px] h-full bg-black" />
-                          <div className="w-[2.5px] h-full bg-black" />
-                          <div className="w-[1px] h-full bg-black" />
-                          <div className="w-[2px] h-full bg-black" />
-                          <div className="w-[1px] h-full bg-black" />
-                          <div className="w-[3px] h-full bg-black" />
-                          <div className="w-[1px] h-full bg-black" />
-                          <div className="w-[2px] h-full bg-black" />
-                          <div className="w-[1px] h-full bg-black" />
+                        <div className="w-full h-2.5 bg-gray-200 rounded flex items-center justify-center">
+                          <span className="text-[5.5px] font-mono text-gray-700">||||||||</span>
                         </div>
-                        <span className="text-[8px] font-mono font-bold text-gray-600">Item Code</span>
-                        <span className="text-[8px] text-gray-500 font-medium">Line 1</span>
-                        <span className="text-[8px] text-gray-500 font-medium">Line 2</span>
+                        <span className="text-[6px] font-bold text-gray-700">₹999</span>
                       </div>
                     ))}
                   </div>
 
-                  {labelsPerRow > 1 && numGap > 0 && (
-                    <span className="absolute top-3 right-3 bg-red-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded shadow">
-                      Gap: {numGap}mm
+                  {columns > 1 && numGapX > 0 && (
+                    <span className="absolute top-2.5 right-2.5 bg-brand-black text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-xs">
+                      Gap X: {numGapX}mm
                     </span>
                   )}
                 </div>
@@ -248,20 +416,23 @@ export const CreateCustomSizeModal: React.FC<CreateCustomSizeModalProps> = ({
             </div>
           </div>
 
-          {/* Footer Action - fixed at bottom of modal */}
+          {/* Footer Action */}
           <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-4 py-3 sm:px-6 sm:py-3.5 bg-gray-50/80 shrink-0 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
             <button
               type="button"
               onClick={onClose}
+              disabled={saving}
               className="px-4 py-2 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-5 sm:px-6 py-2 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] transition-all shadow-md cursor-pointer"
+              disabled={saving}
+              className="px-5 sm:px-6 py-2 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] transition-all shadow-md cursor-pointer flex items-center gap-1.5"
             >
-              Save Custom Size
+              {saving && <Loader2 size={13} className="animate-spin" />}
+              {isEditing ? 'Update Custom Size' : 'Save Custom Size'}
             </button>
           </div>
         </form>
@@ -271,3 +442,6 @@ export const CreateCustomSizeModal: React.FC<CreateCustomSizeModalProps> = ({
   )
 }
 
+function colsAndRowsCap(cols: number, rws: number): number {
+  return cols * rws
+}

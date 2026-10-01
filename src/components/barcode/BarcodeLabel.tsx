@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react'
-import { renderBarcodeSvg } from '../../lib/barcode'
+import { renderBarcodeSvg, getLabelRenderMetrics } from '../../lib/barcode'
 import { BRAND_EN } from '../../lib/brand'
 import { formatCurrency } from '../../lib/retail'
 
@@ -25,28 +25,21 @@ export const BarcodeLabel: React.FC<BarcodeLabelProps> = ({
   heightMm = 30,
 }) => {
   const svgRef = useRef<SVGSVGElement>(null)
-  const isSmall = heightMm <= 25
-  const isLarge = heightMm >= 40
-
-  // Dynamic calculation for barcode dimensions and typography (balanced proportions to prevent overlapping)
-  const barcodeHeightPx = Math.max(16, Math.round(heightMm * 0.32 * 3.7795))
-  const printableWidthPx = Math.max(30, (widthMm - 4) * 3.7795)
-  const barcodeBarWidth = Math.max(0.80, Math.min(1.70, Math.round((printableWidthPx / 120) * 100) / 100))
-  const barcodeFontSize = Math.max(6, Math.min(9.5, Math.round(heightMm * 0.20 * 10) / 10))
+  const metrics = getLabelRenderMetrics(widthMm, heightMm)
 
   useEffect(() => {
     if (svgRef.current && barcodeValue) {
       renderBarcodeSvg(svgRef.current, barcodeValue, {
-        width: barcodeBarWidth,
-        height: barcodeHeightPx,
-        fontSize: barcodeFontSize,
+        width: metrics.barcodeBarWidth,
+        height: metrics.barcodeHeightPx,
+        fontSize: metrics.barcodeFontSize,
         font: 'Arial, sans-serif',
-        margin: 0,
+        margin: metrics.barcodeMargin,
         textMargin: 1.5,
         displayValue: true,
       })
     }
-  }, [barcodeValue, widthMm, heightMm, barcodeHeightPx, barcodeBarWidth, barcodeFontSize])
+  }, [barcodeValue, widthMm, heightMm, metrics])
 
   const fullTitle = `${productName}${variantName ? ` (${variantName})` : ''}`
 
@@ -58,36 +51,38 @@ export const BarcodeLabel: React.FC<BarcodeLabelProps> = ({
         height: `${heightMm}mm`,
         maxWidth: `${widthMm}mm`,
         maxHeight: `${heightMm}mm`,
-        padding: isSmall ? '0.6mm 1.2mm' : isLarge ? '1.5mm 2.2mm' : '1.0mm 1.6mm',
+        padding: metrics.padding,
         boxSizing: 'border-box',
         overflow: 'hidden',
         pageBreakInside: 'avoid',
         fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
       }}
     >
-      {/* Brand & Product Header */}
-      <div className="w-full flex flex-col items-center leading-none shrink-0">
-        <div
-          className="font-black tracking-wider text-brand-black uppercase truncate max-w-full"
-          style={{ fontSize: isSmall ? '7.5px' : isLarge ? '11px' : '9px' }}
-        >
-          {storeName}
+      {/* Brand & Product Header (hidden on very small sizes) */}
+      {!metrics.isVerySmall && (
+        <div className="w-full flex flex-col items-center leading-none shrink-0">
+          <div
+            className="font-black tracking-wider text-brand-black uppercase truncate max-w-full"
+            style={{ fontSize: metrics.isSmall ? '7.5px' : metrics.isLarge ? '11px' : '9px' }}
+          >
+            {storeName}
+          </div>
+          <div
+            className="font-bold text-gray-900 truncate max-w-full leading-tight"
+            style={{
+              fontSize: metrics.isSmall ? '6.5px' : metrics.isLarge ? '9.5px' : '8px',
+              marginTop: '0.3mm',
+            }}
+          >
+            {fullTitle}
+          </div>
         </div>
-        <div
-          className="font-bold text-gray-900 truncate max-w-full leading-tight"
-          style={{
-            fontSize: isSmall ? '6.5px' : isLarge ? '9.5px' : '8px',
-            marginTop: '0.3mm',
-          }}
-        >
-          {fullTitle}
-        </div>
-      </div>
+      )}
 
       {/* Barcode Graphic Box */}
       <div
         className="w-full flex-1 flex justify-center items-center overflow-hidden"
-        style={{ margin: '0.4mm 0', minHeight: 0 }}
+        style={{ margin: '0.2mm 0', minHeight: 0 }}
       >
         <svg ref={svgRef} className="max-w-[98%] max-h-full h-auto" />
       </div>
@@ -96,21 +91,25 @@ export const BarcodeLabel: React.FC<BarcodeLabelProps> = ({
       <div
         className="w-full flex items-center justify-between px-0.5 border-t border-black leading-none shrink-0"
         style={{
-          paddingTop: isSmall ? '0.4mm' : '0.6mm',
+          paddingTop: '0.3mm',
         }}
       >
-        {mrp && mrp > price ? (
-          <span className="text-gray-500 line-through" style={{ fontSize: isSmall ? '6px' : isLarge ? '8.5px' : '7.5px' }}>
+        {metrics.isVerySmall ? (
+          <span className="text-gray-600 font-bold font-mono" style={{ fontSize: '6.5px' }}>
+            {barcodeValue.slice(-8)}
+          </span>
+        ) : mrp && mrp > price ? (
+          <span className="text-gray-500 line-through" style={{ fontSize: metrics.isSmall ? '6px' : metrics.isLarge ? '8.5px' : '7.5px' }}>
             MRP {formatCurrency(mrp)}
           </span>
         ) : (
-          <span className="text-gray-600 font-bold" style={{ fontSize: isSmall ? '6px' : isLarge ? '8.5px' : '7px' }}>
-            VASTHRAALAYAM RETAIL
+          <span className="text-gray-600 font-bold" style={{ fontSize: metrics.isSmall ? '6px' : metrics.isLarge ? '8.5px' : '7px' }}>
+            VASTHRAALAYAM
           </span>
         )}
         <span
           className="font-black text-black"
-          style={{ fontSize: isSmall ? '8.5px' : isLarge ? '12px' : '10px' }}
+          style={{ fontSize: metrics.isVerySmall ? '7.5px' : metrics.isSmall ? '8.5px' : metrics.isLarge ? '12px' : '10px' }}
         >
           {formatCurrency(price)}
         </span>

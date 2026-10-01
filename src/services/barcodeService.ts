@@ -18,6 +18,7 @@ export interface BarcodeRegistryRecord {
     offer_price?: number
     image_url?: string
     category?: string
+    item_type?: 'product' | 'service'
   }
   variant?: {
     id: string

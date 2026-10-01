@@ -23,6 +23,8 @@ export type StructuredOrderItem = {
   is_manual?: boolean
   category?: string | null
   note?: string | null
+  /** Classification must come from the catalog record, never from keywords. */
+  item_type: 'product' | 'service'
 }
 
 type UnitFactors = Record<string, number>
@@ -411,6 +413,8 @@ export const buildStructuredOrderItem = (input: {
   is_manual?: boolean
   category?: string | null
   note?: string | null
+  /** Must be forwarded from the catalog product record. Never derived from keywords. */
+  itemType?: 'product' | 'service'
 }): StructuredOrderItem => {
   const safeQuantity = normalizeSelectedQuantity(
     input.quantity,
@@ -440,6 +444,8 @@ export const buildStructuredOrderItem = (input: {
     is_manual: isManual,
     category: input.category || null,
     note: input.note ? String(input.note) : null,
+    // Classification comes from the catalog record. Fall back to 'product' only if truly absent.
+    item_type: input.itemType === 'service' ? 'service' : 'product',
   }
 }
 
@@ -486,5 +492,6 @@ export const normalizeStructuredOrderItem = (raw: Record<string, unknown>): Stru
     image_url: raw.image_url ? String(raw.image_url) : (raw.image ? String(raw.image) : null),
     source: raw.source === 'manual' || raw.is_manual === true ? 'manual' : 'catalogue',
     note: raw.note ? String(raw.note) : (raw.manual_note ? String(raw.manual_note) : null),
+    item_type: raw.item_type === 'service' || raw.itemType === 'service' ? 'service' : 'product',
   }
 }

@@ -9,6 +9,7 @@ import {
   Boxes,
   ArrowLeft,
   Edit2,
+  Scissors,
 } from 'lucide-react'
 import { neonApi } from '../../lib/neonApi'
 import { useProductStore, useSettingsStore, type Product } from '../../store/store'
@@ -40,6 +41,7 @@ export const AddEditProductView: React.FC<{
   const defaultLowStockAlert = useSettingsStore((state) => state.settings?.lowStockThreshold ?? 5)
   const [categories, setCategories] = useState<CategoryRecord[]>([])
   const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState<'all' | 'product' | 'service'>('all')
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null)
   const [mobileView, setMobileView] = useState<'list' | 'form'>('list')
   const [sizePartition, setSizePartition] = useState<SizePartition>('alpha')
@@ -276,23 +278,24 @@ export const AddEditProductView: React.FC<{
     e.preventDefault()
     setStatusMessage(null)
 
+    const isService = itemType === 'service'
     const trimmedName = name.trim()
     if (!trimmedName) {
-      setStatusMessage({ type: 'error', text: 'Product Name is required' })
+      setStatusMessage({ type: 'error', text: `${isService ? 'Service' : 'Product'} Name is required` })
       return
     }
 
-    const validVariants = variantRows.filter((v) => v.variantName.trim() !== '')
+    const validVariants = (!isService && hasVariants) ? variantRows.filter((v) => v.variantName.trim() !== '') : []
     const firstVariant = validVariants[0]
-    const priceNum = hasVariants && firstVariant ? (Number(firstVariant.price) || 0) : (parseFloat(price) || 0)
-    const costNum = hasVariants && firstVariant ? (Number(firstVariant.costPrice) || 0) : (parseFloat(purchasePrice) || 0)
+    const priceNum = (!isService && hasVariants && firstVariant) ? (Number(firstVariant.price) || 0) : (parseFloat(price) || 0)
+    const costNum = (!isService && hasVariants && firstVariant) ? (Number(firstVariant.costPrice) || 0) : (parseFloat(purchasePrice) || 0)
 
-    if (!hasVariants && priceNum <= 0) {
-      setStatusMessage({ type: 'error', text: 'Price must be greater than 0' })
+    if ((isService || !hasVariants) && priceNum <= 0) {
+      setStatusMessage({ type: 'error', text: `${isService ? 'Service Charge' : 'Price'} must be greater than 0` })
       return
     }
 
-    if (hasVariants && validVariants.length === 0) {
+    if (!isService && hasVariants && validVariants.length === 0) {
       setStatusMessage({ type: 'error', text: 'Please add at least one variant SKU (e.g. Size S, 32, or custom variant)' })
       return
     }
@@ -626,6 +629,8 @@ export const AddEditProductView: React.FC<{
 
   // Only active products in the authoring catalog
   const activeProducts = products.filter((p) => p.isActive !== false)
+  const productCount = activeProducts.filter((p) => p.itemType !== 'service').length
+  const serviceCount = activeProducts.filter((p) => p.itemType === 'service').length
 
   useEffect(() => {
     if (selectedProductId && !activeProducts.some((p) => Number(p.id) === selectedProductId)) {
@@ -633,11 +638,16 @@ export const AddEditProductView: React.FC<{
     }
   }, [activeProducts, selectedProductId])
 
-  const filteredProducts = activeProducts.filter((p) =>
-    p.name.toLowerCase().includes(search.toLowerCase()) ||
-    (p.category && p.category.toLowerCase().includes(search.toLowerCase())) ||
-    (p.barcode && p.barcode.toLowerCase().includes(search.toLowerCase()))
-  )
+  const filteredProducts = activeProducts.filter((p) => {
+    if (typeFilter === 'product' && p.itemType === 'service') return false
+    if (typeFilter === 'service' && p.itemType !== 'service') return false
+    const q = search.toLowerCase()
+    return (
+      p.name.toLowerCase().includes(q) ||
+      (p.category && p.category.toLowerCase().includes(q)) ||
+      (p.barcode && p.barcode.toLowerCase().includes(q))
+    )
+  })
 
   return (
     <div className="flex flex-col gap-3">
@@ -668,7 +678,7 @@ export const AddEditProductView: React.FC<{
               : 'text-gray-600 hover:text-black'
           }`}
         >
-          <Plus size={15} /> {selectedProductId ? 'Edit Product' : 'Add New Product'}
+          <Plus size={15} /> {selectedProductId ? (itemType === 'service' ? 'Edit Service' : 'Edit Product') : 'Add Item'}
         </button>
       </div>
 
@@ -680,11 +690,47 @@ export const AddEditProductView: React.FC<{
           <div className="p-3.5 border-b border-gray-200 bg-[#FAFAFA] shrink-0">
             <h4 className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
               <Package size={14} className="text-[#7daa8f]" />
-              Product Catalog ({activeProducts.length})
+              Catalog ({activeProducts.length})
             </h4>
             <p className="text-[10px] text-gray-500 font-medium mt-0.5">
-              Select any item to view or edit product details
+              Select any item to view or edit details
             </p>
+            {/* Filter chips: All, Products, Services */}
+            <div className="flex items-center gap-1.5 mt-2.5">
+              <button
+                type="button"
+                onClick={() => setTypeFilter('all')}
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                  typeFilter === 'all'
+                    ? 'bg-brand-black text-brand-onDark shadow-xs'
+                    : 'bg-white border border-gray-200 text-gray-600 hover:text-black hover:border-gray-300'
+                }`}
+              >
+                All ({activeProducts.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setTypeFilter('product')}
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                  typeFilter === 'product'
+                    ? 'bg-brand-black text-brand-onDark shadow-xs'
+                    : 'bg-white border border-gray-200 text-gray-600 hover:text-black hover:border-gray-300'
+                }`}
+              >
+                Products ({productCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setTypeFilter('service')}
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                  typeFilter === 'service'
+                    ? 'bg-brand-black text-brand-onDark shadow-xs'
+                    : 'bg-white border border-gray-200 text-gray-600 hover:text-black hover:border-gray-300'
+                }`}
+              >
+                Services ({serviceCount})
+              </button>
+            </div>
           </div>
 
           <div className="p-3 border-b border-gray-100 bg-[#FBFAF6] shrink-0">
@@ -692,7 +738,7 @@ export const AddEditProductView: React.FC<{
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search products, SKUs, barcode..."
+                placeholder="Search catalog, SKUs, barcode..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
@@ -703,11 +749,12 @@ export const AddEditProductView: React.FC<{
           <div className="flex-1 overflow-y-auto divide-y divide-gray-100 min-h-0 hide-scrollbar">
             {filteredProducts.length === 0 ? (
               <div className="p-8 text-center text-xs text-gray-400 font-bold">
-                No products found.
+                No items found.
               </div>
             ) : (
               filteredProducts.map((p) => {
                 const isSelected = selectedProductId !== null && String(selectedProductId) === String(p.id)
+                const isService = p.itemType === 'service'
                 return (
                   <div
                     key={p.id}
@@ -729,17 +776,24 @@ export const AddEditProductView: React.FC<{
                           </span>
                         )}
                       </div>
-                      <div className="text-[10px] text-gray-500 font-medium truncate mt-0.5">
-                        {p.category || 'General'} {p.hasVariants ? '• Multi-variant' : ''}
+                      <div className="text-[10px] text-gray-500 font-medium truncate mt-0.5 flex items-center gap-1">
+                        <span>{p.category || 'General'}</span>
+                        {p.hasVariants && <span>• Multi-variant</span>}
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
                       <div className="text-right">
                         <span className="font-black text-xs text-gray-900 tabular-nums">₹{p.price}</span>
-                        <span className="block text-[10px] text-emerald-700 font-bold tabular-nums">
-                          Stock: {p.stockQuantity ?? p.stock ?? 0}
-                        </span>
+                        {isService ? (
+                          <span className="block mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-purple-100 text-purple-800 border border-purple-200">
+                            Service
+                          </span>
+                        ) : (
+                          <span className="block text-[10px] text-emerald-700 font-bold tabular-nums">
+                            Stock: {p.stockQuantity ?? p.stock ?? 0}
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-1">
@@ -797,8 +851,16 @@ export const AddEditProductView: React.FC<{
               </button>
               <div className="min-w-0">
                 <h3 className="text-sm font-bold text-black flex items-center gap-2 truncate">
-                  <Package size={16} className="text-[#7daa8f] shrink-0" />
-                  <span className="truncate">{selectedProductId ? 'Edit Product & Stock Details' : 'Add New Product to Catalog'}</span>
+                  {itemType === 'service' ? (
+                    <Scissors size={16} className="text-purple-600 shrink-0" />
+                  ) : (
+                    <Package size={16} className="text-[#7daa8f] shrink-0" />
+                  )}
+                  <span className="truncate">
+                    {selectedProductId
+                      ? (itemType === 'service' ? 'Edit Service Details' : 'Edit Product & Stock Details')
+                      : (itemType === 'service' ? 'Add New Service to Catalog' : 'Add New Product to Catalog')}
+                  </span>
                   {selectedProductId && (
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-300 shrink-0">
                       Editing
@@ -807,8 +869,12 @@ export const AddEditProductView: React.FC<{
                 </h3>
                 <p className="text-[11px] text-gray-500 font-semibold truncate hidden sm:block">
                   {selectedProductId
-                    ? `Modifying "${name || 'product'}" — update pricing, barcode, threshold or variants`
-                    : 'Receive stock, configure pricing & categories (Barcode is optional)'}
+                    ? (itemType === 'service'
+                        ? `Modifying "${name || 'service'}" — update service charge, category, or notes`
+                        : `Modifying "${name || 'product'}" — update pricing, barcode, threshold or variants`)
+                    : (itemType === 'service'
+                        ? 'Configure service charge & category (no inventory or stock tracking needed)'
+                        : 'Receive stock, configure pricing & categories (Barcode is optional)')}
                 </p>
               </div>
             </div>
@@ -862,16 +928,58 @@ export const AddEditProductView: React.FC<{
               </div>
             )}
 
+            {/* Item Classification: Product vs Service */}
+            <div className="bg-white p-3 rounded-2xl border border-gray-200 shadow-xs">
+              <label className="block text-[11px] font-black uppercase tracking-wider text-gray-600 mb-2">
+                Item Classification
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setItemType('product')}
+                  className={`h-10 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                    itemType === 'product'
+                      ? 'bg-brand-black text-brand-onDark shadow-sm ring-2 ring-[#7daa8f]/50'
+                      : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100 hover:text-black'
+                  }`}
+                >
+                  <Package size={15} /> Product (Goods / Stock)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setItemType('service')
+                    setHasVariants(false)
+                    setBarcode('')
+                    setStockQuantity('0')
+                    setPurchasePrice('')
+                  }}
+                  className={`h-10 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                    itemType === 'service'
+                      ? 'bg-brand-black text-brand-onDark shadow-sm ring-2 ring-purple-400/50'
+                      : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100 hover:text-black'
+                  }`}
+                >
+                  <Scissors size={15} /> Service (Tailoring / Stitching)
+                </button>
+              </div>
+              <p className="mt-2 text-[10px] text-gray-500 font-medium">
+                {itemType === 'service'
+                  ? 'Services (e.g. Tailoring, Aari Work, Stitching, Alterations) only require a Service Charge. Stock, barcodes, cost prices, and variants are hidden.'
+                  : 'Products are physical retail items with inventory tracking, cost price, and optional barcodes/variants.'}
+              </p>
+            </div>
+
             {/* Name Fields */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-[11px] font-bold text-gray-700 mb-1.5 h-4 flex items-center">
-                  Product Name (English) <span className="text-red-500 ml-0.5">*</span>
+                  {itemType === 'service' ? 'Service Name (English)' : 'Product Name (English)'} <span className="text-red-500 ml-0.5">*</span>
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Linen Cotton Shirt"
+                  placeholder={itemType === 'service' ? 'e.g. Blouse Stitching / Aari Work' : 'e.g. Linen Cotton Shirt'}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
@@ -884,7 +992,7 @@ export const AddEditProductView: React.FC<{
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. காட்டன் சட்டை"
+                  placeholder={itemType === 'service' ? 'e.g. ரவிக்கை தையல்' : 'e.g. காட்டன் சட்டை'}
                   value={nameTa}
                   onChange={(e) => setNameTa(e.target.value)}
                   className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
@@ -892,9 +1000,9 @@ export const AddEditProductView: React.FC<{
               </div>
             </div>
 
-            {/* Category, Barcode, and (Products only) Low Stock Alert */}
-            <div className={`grid grid-cols-1 gap-3 ${itemType === 'product' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
-              <div>
+            {/* Category, Barcode, and Low Stock Alert (Conditional for Product vs Service) */}
+            {itemType === 'service' ? (
+              <div className="bg-white p-3.5 border border-gray-200 rounded-xl">
                 <label className="block text-[11px] font-bold text-gray-700 mb-1.5 h-4 flex items-center">
                   Category
                 </label>
@@ -911,22 +1019,40 @@ export const AddEditProductView: React.FC<{
                   ))}
                 </select>
               </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 mb-1.5 h-4 flex items-center">
+                    Category
+                  </label>
+                  <select
+                    value={categoryId}
+                    onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : '')}
+                    className="w-full h-10 px-3 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
+                  >
+                    <option value="">-- Select Category --</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name_en}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-              <div>
-                <label className="block text-[11px] font-bold text-gray-700 mb-1.5 h-4 flex items-center">
-                  Barcode <span className="text-gray-400 font-normal ml-1">(Optional)</span>
-                </label>
-                <input
-                  type="text"
-                  disabled={hasVariants}
-                  placeholder={hasVariants ? 'Defined at variant level' : 'e.g. 8901234567'}
-                  value={barcode}
-                  onChange={(e) => setBarcode(e.target.value)}
-                  className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black disabled:bg-gray-100 disabled:text-gray-400"
-                />
-              </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 mb-1.5 h-4 flex items-center">
+                    Barcode <span className="text-gray-400 font-normal ml-1">(Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    disabled={hasVariants}
+                    placeholder={hasVariants ? 'Defined at variant level' : 'e.g. 8901234567'}
+                    value={barcode}
+                    onChange={(e) => setBarcode(e.target.value)}
+                    className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black disabled:bg-gray-100 disabled:text-gray-400"
+                  />
+                </div>
 
-              {itemType === 'product' && (
                 <div>
                   <label className="block text-[11px] font-bold text-gray-700 mb-1.5 h-4 flex items-center">
                     Low Stock Alert Threshold
@@ -940,44 +1066,60 @@ export const AddEditProductView: React.FC<{
                     className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
                   />
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
-            {/* Base Pricing & (Products only) Received Stock (only if no variants) */}
-            {!hasVariants && (
-              <div className={`grid grid-cols-1 gap-3 p-3.5 bg-white border border-gray-200 rounded-xl items-start ${itemType === 'product' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
-                <div>
-                  <label className="block text-[11px] font-bold text-gray-700 mb-1.5 h-4 flex items-center">
-                    Selling Price (₹) <span className="text-red-500 ml-0.5">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    required={!hasVariants}
-                    placeholder="0.00"
-                    value={price}
-                    onChange={(e) => setPrice(e.target.value)}
-                    className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
-                  />
-                </div>
+            {/* Pricing Section */}
+            {itemType === 'service' ? (
+              <div className="p-3.5 bg-white border border-gray-200 rounded-xl">
+                <label className="block text-[11px] font-bold text-gray-700 mb-1.5 h-4 flex items-center">
+                  Service Charge (₹) <span className="text-red-500 ml-0.5">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  required
+                  placeholder="0.00"
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value)}
+                  className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
+                />
+              </div>
+            ) : (
+              !hasVariants && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 bg-white border border-gray-200 rounded-xl items-start">
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-700 mb-1.5 h-4 flex items-center">
+                      Selling Price (₹) <span className="text-red-500 ml-0.5">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      required={!hasVariants}
+                      placeholder="0.00"
+                      value={price}
+                      onChange={(e) => setPrice(e.target.value)}
+                      className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
+                    />
+                  </div>
 
-                <div>
-                  <label className="block text-[11px] font-bold text-gray-700 mb-1.5 h-4 flex items-center">
-                    Purchase / Cost Price (₹)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={purchasePrice}
-                    onChange={(e) => setPurchasePrice(e.target.value)}
-                    className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
-                  />
-                </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-700 mb-1.5 h-4 flex items-center">
+                      Purchase / Cost Price (₹)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={purchasePrice}
+                      onChange={(e) => setPurchasePrice(e.target.value)}
+                      className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
+                    />
+                  </div>
 
-                {itemType === 'product' && (
                   <div>
                     <label className="block text-[11px] font-bold text-emerald-800 mb-1.5 h-4 flex items-center gap-1">
                       <Boxes size={13} className="text-emerald-600 shrink-0" />
@@ -992,8 +1134,8 @@ export const AddEditProductView: React.FC<{
                       className="w-full h-10 px-3.5 rounded-xl border border-emerald-300 bg-emerald-50/50 text-xs font-bold text-emerald-950 outline-none focus:border-emerald-600 focus:bg-white"
                     />
                   </div>
-                )}
-              </div>
+                </div>
+              )
             )}
 
             {/* Description */}
@@ -1003,56 +1145,16 @@ export const AddEditProductView: React.FC<{
               </label>
               <textarea
                 rows={2}
-                placeholder="Product material, care instructions, or rack location notes..."
+                placeholder={itemType === 'service' ? 'Service details, turnaround time, customization notes...' : 'Product material, care instructions, or rack location notes...'}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 className="w-full p-3 rounded-xl border border-gray-300 bg-white text-xs font-medium text-gray-900 outline-none focus:border-brand-black resize-none"
               />
             </div>
 
-            {/* Type: Product vs Service */}
-            <div>
-              <label className="block text-[11px] font-bold text-gray-700 mb-1.5 h-4 flex items-center">
-                Type
-              </label>
-              <div className="flex rounded-xl border border-gray-300 bg-white p-1 gap-1">
-                <button
-                  type="button"
-                  onClick={() => setItemType('product')}
-                  className={`flex-1 h-9 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-                    itemType === 'product'
-                      ? 'bg-brand-black text-white'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  <Package size={13} /> Product
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setItemType('service')
-                    // Services carry no stock — clear any values entered
-                    // while this was a Product so stale stock data can't
-                    // leak into the save payload.
-                    setStockQuantity('0')
-                    setLowStockAlert(String(defaultLowStockAlert))
-                  }}
-                  className={`flex-1 h-9 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-                    itemType === 'service'
-                      ? 'bg-brand-black text-white'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  <Tag size={13} /> Service
-                </button>
-              </div>
-              <p className="mt-1 text-[10px] text-gray-400 font-medium">
-                Products = physical items sold. Services = tailoring, stitching, alterations.
-              </p>
-            </div>
-
-            {/* Variant Switch & Matrix */}
-            <div className="border border-gray-200 rounded-2xl p-4 bg-white space-y-4">
+            {/* Variant Switch & Matrix (Products only) */}
+            {itemType === 'product' && (
+              <div className="border border-gray-200 rounded-2xl p-4 bg-white space-y-4">
               <div className="flex items-center justify-between">
                 <div>
                   <span className="text-xs font-black text-black flex items-center gap-1.5">
@@ -1322,6 +1424,7 @@ export const AddEditProductView: React.FC<{
                 </div>
               )}
             </div>
+            )}
           </div>
 
           {/* Pinned Bottom Actions */}
@@ -1341,11 +1444,14 @@ export const AddEditProductView: React.FC<{
               {loading ? (
                 <>
                   <span className="w-3.5 h-3.5 border-2 border-[#7daa8f]/30 border-t-[#7daa8f] rounded-full animate-spin inline-block" />
-                  Saving Product...
+                  {itemType === 'service' ? 'Saving Service...' : 'Saving Product...'}
                 </>
               ) : (
                 <>
-                  <Check size={14} /> {selectedProductId ? 'Update Product' : 'Save & Add Product'}
+                  <Check size={14} />{' '}
+                  {selectedProductId
+                    ? (itemType === 'service' ? 'Update Service' : 'Update Product')
+                    : (itemType === 'service' ? 'Save & Add Service' : 'Save & Add Product')}
                 </>
               )}
             </button>

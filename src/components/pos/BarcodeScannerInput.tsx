@@ -18,6 +18,8 @@ export interface ScannedItemPayload {
   unit?: string
   image_url?: string
   category?: string
+  /** Classification must come from the catalog record, never from keywords. */
+  item_type?: 'product' | 'service'
 }
 
 export interface BarcodeScannerInputProps {
@@ -156,6 +158,8 @@ export const BarcodeScannerInput: React.FC<BarcodeScannerInputProps> = ({
         barcode: clean,
         image_url: prod.image_url,
         category: prod.category,
+        // Forward the catalog-recorded type — never derived from name/keyword
+        item_type: prod.item_type === 'service' ? 'service' : 'product',
       }
 
       playBeep(true)

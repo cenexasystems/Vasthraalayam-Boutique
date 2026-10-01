@@ -42,6 +42,17 @@ function applyVercelRewrites(pathname: string): { rewrittenPath: string; extraPa
     extraParams.action = 'password'
     return { rewrittenPath: '/settings', extraParams }
   }
+  if (pathname === '/printer-profiles' || pathname === '/api/printer-profiles') {
+    extraParams.resource = 'profiles'
+    return { rewrittenPath: '/custom-label-sizes', extraParams }
+  }
+
+  const profileMatch = pathname.match(/^\/(?:api\/)?printer-profiles\/([^/]+)$/)
+  if (profileMatch) {
+    extraParams.resource = 'profiles'
+    extraParams.id = decodeURIComponent(profileMatch[1])
+    return { rewrittenPath: '/custom-label-sizes', extraParams }
+  }
 
   const advanceMatch = pathname.match(/^\/advance-orders\/([^/]+)$/)
   if (advanceMatch) {

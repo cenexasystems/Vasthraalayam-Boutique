@@ -6,6 +6,7 @@ import {
   Plus,
   Trash2,
   Printer,
+  Download,
   Sparkles,
   Info,
   CheckCircle,
@@ -16,10 +17,17 @@ import {
   type BarcodeQueueItem,
   type BarcodeSettings,
   type LabelSizeConfig,
+  type PrinterProfile,
+  DEFAULT_PRINTER_PROFILE,
   getStoredBarcodeSettings,
   getAllLabelSizes,
   renderBarcodeSvg,
   generateBarcodeSvgString,
+  getLabelRenderMetrics,
+  isVerySmallLabelSize,
+  executeTestPrint,
+  downloadTestLabelPdf,
+  downloadLabelsPdf,
 } from '../../lib/barcode'
 import { BRAND_EN } from '../../lib/brand'
 import { barcodeService } from '../../services/barcodeService'
@@ -119,6 +127,8 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
   const currentSizeConfig: LabelSizeConfig =
     allSizes.find((s) => s.id === settings.selectedSizeId) || allSizes[0]
 
+  const activeProfile: PrinterProfile = settings.profile || DEFAULT_PRINTER_PROFILE
+
   const isSmall = currentSizeConfig.heightMm <= 25
   const isLarge = currentSizeConfig.heightMm >= 40
 
@@ -197,10 +207,11 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
     if (previewSvgRef.current) {
       renderBarcodeSvg(previewSvgRef.current, codeToRender, {
         width: previewBarcodeWidth,
-        height: previewBarcodeHeight,
-        fontSize: Math.max(7, Math.round(previewHeight * 0.08)),
-        displayValue: false,
+        height: Math.max(16, Math.round(previewBarcodeHeight * (activeProfile.barcode_height_scale || 1.0))),
+        fontSize: Math.max(7, Math.round(previewHeight * 0.08 * (activeProfile.font_scale || 1.0))),
+        displayValue: activeProfile.barcode_type !== 'QR',
         margin: 0,
+        barcodeType: activeProfile.barcode_type,
       })
     }
   }, [
@@ -213,6 +224,9 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
     currentSizeConfig.id,
     currentSizeConfig.widthMm,
     currentSizeConfig.heightMm,
+    activeProfile.barcode_type,
+    activeProfile.font_scale,
+    activeProfile.barcode_height_scale,
   ])
 
   // Determine if currently selected item / variant already has a barcode assigned
@@ -369,8 +383,27 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
     const selectedItems = queue.filter((it) => it.selected)
     if (selectedItems.length === 0) return
 
+    // If printer type is 'pdf', trigger direct vector PDF download
+    if (activeProfile.printer_type === 'pdf') {
+      void downloadLabelsPdf(
+        selectedItems.map((item) => ({
+          barcodeValue: item.barcodeValue,
+          productName: item.productName,
+          variantName: item.variantName,
+          price: item.price,
+          mrp: null,
+          header: item.header,
+          line2: item.line2,
+          quantity: item.noOfLabels,
+        })),
+        currentSizeConfig,
+        activeProfile
+      )
+      return
+    }
+
     try {
-      // Build printable HTML sheet for thermal / regular printer
+      // Build printable HTML sheet for thermal / regular / sheet printer
       const iframe = document.createElement('iframe')
       iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;'
       iframe.setAttribute('aria-hidden', 'true')
@@ -387,236 +420,336 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
         return
       }
 
-    const isThermal = settings.printerType === 'label'
-    const isSmall = currentSizeConfig.heightMm <= 25
-    const isLarge = currentSizeConfig.heightMm >= 40
+      const isSheet = activeProfile.printer_type === 'sheet' || currentSizeConfig.isSheet
+      const metrics = getLabelRenderMetrics(
+        currentSizeConfig.width_mm,
+        currentSizeConfig.height_mm,
+        activeProfile.font_scale,
+        activeProfile.barcode_height_scale
+      )
 
-    // Proportional barcode sizing preventing detail overlaps
-    const barcodeHeightPx = Math.max(16, Math.round(currentSizeConfig.heightMm * 0.32 * 3.7795))
-    const printableWidthPx = Math.max(30, (currentSizeConfig.widthMm - 4) * 3.7795)
-    const barcodeBarWidth = Math.max(0.80, Math.min(1.70, Math.round((printableWidthPx / 120) * 100) / 100))
-    const barcodeFontSize = Math.max(6, Math.min(9.5, Math.round(currentSizeConfig.heightMm * 0.20 * 10) / 10))
-
-    const headerFontSize = isSmall ? '7pt' : isLarge ? '10.5pt' : '8.5pt'
-    const titleFontSize = isSmall ? '6pt' : isLarge ? '9pt' : '7.5pt'
-    const tagFontSize = isSmall ? '5.5pt' : isLarge ? '8.5pt' : '7pt'
-    const priceFontSize = isSmall ? '8pt' : isLarge ? '12pt' : '9.5pt'
-    const stickerPadding = isSmall ? '0.6mm 1.2mm' : '1.0mm 1.6mm'
-
-    // Generate individual sticker cards HTML with pre-rendered SVGs
-    const allStickers: string[] = []
-    selectedItems.forEach((item) => {
-      const count = Math.max(1, item.noOfLabels)
-      const fullTitle = `${item.productName}${item.variantName ? ` (${item.variantName})` : ''}`
-      const svgMarkup = generateBarcodeSvgString(item.barcodeValue, {
-        width: barcodeBarWidth,
-        height: barcodeHeightPx,
-        fontSize: barcodeFontSize,
-        font: 'Arial, sans-serif',
-        margin: 0,
-        textMargin: 1.5,
-        displayValue: true,
+      const currentDateStr = new Date().toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
       })
-      for (let i = 0; i < count; i++) {
-        allStickers.push(`
+
+      // Generate individual sticker cards HTML with pre-rendered SVGs
+      const renderStickerHtml = (item: BarcodeQueueItem) => {
+        const fullTitle = `${item.productName}${item.variantName ? ` (${item.variantName})` : ''}`
+        const svgMarkup = generateBarcodeSvgString(item.barcodeValue, {
+          width: metrics.barcodeBarWidth,
+          height: metrics.barcodeHeightPx,
+          fontSize: metrics.barcodeFontSize,
+          font: 'Arial, sans-serif',
+          margin: metrics.barcodeMargin,
+          textMargin: 1.5,
+          displayValue: activeProfile.barcode_type !== 'QR',
+          barcodeType: activeProfile.barcode_type,
+        })
+
+        if (metrics.isVerySmall) {
+          // For tiny sizes (25×15, 30×20): barcode, short code, and price only
+          return `
+            <div class="label-sticker label-sticker-very-small">
+              <div class="barcode-box">
+                ${svgMarkup}
+              </div>
+              <div class="footer">
+                <span class="tag">${item.barcodeValue.slice(-8)}</span>
+                ${activeProfile.show_price ? `<span class="price">₹${item.price}</span>` : ''}
+              </div>
+            </div>
+          `
+        }
+
+        return `
           <div class="label-sticker">
-            ${settings.showCompanyName ? `<div class="header">${item.header || BRAND_EN}</div>` : ''}
-            ${settings.showItemName ? `<div class="prod-title">${fullTitle}</div>` : ''}
+            ${activeProfile.show_business_name ? `<div class="header">${item.header || BRAND_EN}</div>` : ''}
+            ${activeProfile.show_product_name ? `<div class="prod-title">${fullTitle}</div>` : ''}
             <div class="barcode-box">
               ${svgMarkup}
             </div>
             <div class="footer">
-              <span>${item.line2 ? `<span class="tag">${item.line2}</span>` : '<span class="tag">VASTHRAALAYAM RETAIL</span>'}</span>
-              ${settings.showSalePrice ? `<span class="price">₹${item.price}</span>` : ''}
+              <div class="tag-group">
+                ${activeProfile.show_variant && item.line2 ? `<span class="tag">${item.line2}</span>` : '<span class="tag">VASTHRAALAYAM</span>'}
+                ${activeProfile.show_date ? `<span class="date-tag">${currentDateStr}</span>` : ''}
+              </div>
+              <div class="price-group">
+                ${activeProfile.show_mrp && item.line3 ? `<span class="mrp-tag">${item.line3}</span>` : ''}
+                ${activeProfile.show_price ? `<span class="price">₹${item.price}</span>` : ''}
+              </div>
             </div>
           </div>
-        `)
+        `
       }
-    })
 
-    let bodyContent = ''
-    // How many labels sit side-by-side across the physical roll/sheet width.
-    // A roll printer fed with a "2-up" / "3-up" die-cut roll MUST receive a page
-    // that is the full physical width (all columns), not a single label's width —
-    // otherwise the printer anchors the narrow page to one side of the roll and
-    // the other column(s) print blank.
-    const columns = isThermal ? Math.max(1, currentSizeConfig.labelsPerRow || 1) : 1
-    const gapMm = currentSizeConfig.horizontalGapMm || 0
+      const allStickers: string[] = []
+      selectedItems.forEach((item) => {
+        const count = Math.max(1, item.noOfLabels)
+        for (let i = 0; i < count; i++) {
+          allStickers.push(renderStickerHtml(item))
+        }
+      })
 
-    if (isThermal) {
-      const rows: string[] = []
-      for (let i = 0; i < allStickers.length; i += columns) {
-        const rowStickers = allStickers.slice(i, i + columns)
-        rows.push(`<div class="sticker-row">${rowStickers.join('')}</div>`)
+      let bodyContent = ''
+      let pageCss = ''
+
+      if (isSheet) {
+        // A4 sticker sheet layout with start position offset (skip already used labels)
+        const cols = currentSizeConfig.columns || 3
+        const rows = currentSizeConfig.rows || 8
+        const labelsPerPage = cols * rows
+        const startPosition = Math.max(1, activeProfile.sheet_start_position || 1)
+        const skipSlots = startPosition - 1
+
+        const emptySlotHtml = '<div class="label-sticker empty-slot" style="visibility:hidden;border:none;background:transparent;"></div>'
+        const paddedStickers: string[] = Array(skipSlots).fill(emptySlotHtml).concat(allStickers)
+
+        const pages: string[] = []
+        for (let p = 0; p < paddedStickers.length; p += labelsPerPage) {
+          const pageBatch = paddedStickers.slice(p, p + labelsPerPage)
+          while (pageBatch.length < labelsPerPage) {
+            pageBatch.push(emptySlotHtml)
+          }
+          pages.push(`
+            <div class="sheet-page">
+              <div class="sheet-grid">
+                ${pageBatch.join('')}
+              </div>
+            </div>
+          `)
+        }
+        bodyContent = pages.join('')
+
+        const pageWidth = activeProfile.orientation === 'landscape' ? '297mm' : '210mm'
+        const pageHeight = activeProfile.orientation === 'landscape' ? '210mm' : '297mm'
+
+        pageCss = `
+          @page {
+            size: ${activeProfile.orientation === 'landscape' ? 'A4 landscape' : 'A4 portrait'};
+            margin: 0 !important;
+          }
+          .sheet-page {
+            width: ${pageWidth} !important;
+            height: ${pageHeight} !important;
+            page-break-after: always !important;
+            break-after: page !important;
+            padding-top: ${currentSizeConfig.margin_top_mm || 10}mm !important;
+            padding-bottom: ${currentSizeConfig.margin_bottom_mm || 10}mm !important;
+            padding-left: ${currentSizeConfig.margin_left_mm || 5}mm !important;
+            padding-right: ${currentSizeConfig.margin_right_mm || 5}mm !important;
+            box-sizing: border-box !important;
+            transform: translate(${activeProfile.offset_x_mm}mm, ${activeProfile.offset_y_mm}mm);
+          }
+          .sheet-page:last-child {
+            page-break-after: avoid !important;
+            break-after: avoid !important;
+          }
+          .sheet-grid {
+            display: grid !important;
+            grid-template-columns: repeat(${cols}, ${currentSizeConfig.width_mm}mm) !important;
+            grid-auto-rows: ${currentSizeConfig.height_mm}mm !important;
+            column-gap: ${currentSizeConfig.gap_mm || 0}mm !important;
+            row-gap: ${currentSizeConfig.gap_y_mm || 0}mm !important;
+            justify-content: center !important;
+          }
+        `
+      } else {
+        // Thermal roll or single label
+        const cols = Math.max(1, currentSizeConfig.columns || currentSizeConfig.labelsPerRow || 1)
+        const gapMm = currentSizeConfig.gap_mm ?? currentSizeConfig.horizontalGapMm ?? 0
+        const totalRollWidthMm = (currentSizeConfig.width_mm * cols + (cols > 1 ? gapMm * (cols - 1) : 0)).toFixed(2)
+
+        const rows: string[] = []
+        for (let i = 0; i < allStickers.length; i += cols) {
+          const rowStickers = allStickers.slice(i, i + cols)
+          // Odd quantity on multi-up roll leaves the last cell empty
+          while (rowStickers.length < cols) {
+            rowStickers.push('<div class="label-sticker" style="visibility:hidden;border:none;background:transparent;"></div>')
+          }
+          rows.push(`<div class="page-wrapper"><div class="sticker-row">${rowStickers.join('')}</div></div>`)
+        }
+        bodyContent = rows.join('')
+
+        pageCss = `
+          @page {
+            size: ${totalRollWidthMm}mm ${currentSizeConfig.height_mm}mm;
+            margin: 0 !important;
+            marks: none !important;
+          }
+          html, body {
+            width: ${totalRollWidthMm}mm !important;
+          }
+          .page-wrapper {
+            width: ${totalRollWidthMm}mm !important;
+            height: ${currentSizeConfig.height_mm}mm !important;
+            max-height: ${currentSizeConfig.height_mm}mm !important;
+            overflow: hidden !important;
+            page-break-after: always !important;
+            break-after: page !important;
+            transform: translate(${activeProfile.offset_x_mm}mm, ${activeProfile.offset_y_mm}mm) rotate(${activeProfile.rotation}deg);
+            transform-origin: center center;
+          }
+          .page-wrapper:last-child {
+            page-break-after: avoid !important;
+            break-after: avoid !important;
+          }
+          .sticker-row {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            justify-content: space-between;
+            gap: ${gapMm}mm;
+            width: 100%;
+            height: 100%;
+          }
+        `
       }
-      bodyContent = rows.join('')
-    } else {
-      // Regular A4 printer container
-      bodyContent = `
-        <div class="a4-container">
-          ${allStickers.join('')}
-        </div>
-      `
-    }
 
-    doc.open()
-    doc.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>VASTHRAALAYAM Barcode Labels</title>
-          <style>
-            @page {
-              ${
-                isThermal
-                  ? `size: ${(currentSizeConfig.widthMm * columns + gapMm * (columns - 1)).toFixed(2)}mm ${currentSizeConfig.heightMm}mm; margin: 0mm !important; marks: none !important;`
-                  : `size: A4 portrait; margin: 10mm !important;`
+      doc.open()
+      doc.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>VASTHRAALAYAM Barcode Labels</title>
+            <style>
+              * { box-sizing: border-box; margin: 0; padding: 0; }
+              html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+                background: #fff !important;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
               }
-            }
-            * {
-              box-sizing: border-box;
-              margin: 0;
-              padding: 0;
-            }
-            html, body {
-              margin: 0 !important;
-              padding: 0 !important;
-              background: #fff !important;
-              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-              -webkit-print-color-adjust: exact;
-              print-color-adjust: exact;
-            }
-            .a4-container {
-              display: flex;
-              flex-wrap: wrap;
-              align-content: flex-start;
-              gap: 3mm 4mm;
-            }
-            .sticker-row {
-              display: flex;
-              flex-direction: row;
-              align-items: flex-start;
-              gap: ${gapMm}mm;
-              width: ${(currentSizeConfig.widthMm * columns + gapMm * (columns - 1)).toFixed(2)}mm;
-              break-inside: avoid !important;
-              page-break-inside: avoid !important;
-            }
-            .sticker-row + .sticker-row {
-              ${isThermal ? 'break-before: page !important; page-break-before: always !important;' : ''}
-            }
-            .label-sticker {
-              width: ${currentSizeConfig.widthMm}mm !important;
-              height: ${currentSizeConfig.heightMm}mm !important;
-              max-width: ${currentSizeConfig.widthMm}mm !important;
-              max-height: ${currentSizeConfig.heightMm}mm !important;
-              box-sizing: border-box;
-              padding: ${stickerPadding};
-              display: flex;
-              flex-direction: column;
-              justify-content: space-between;
-              align-items: center;
-              text-align: center;
-              overflow: hidden;
-              flex-shrink: 0;
-              break-inside: avoid !important;
-              page-break-inside: avoid !important;
-              background: #fff;
-              ${!isThermal ? 'border: 0.2mm dashed #bbb;' : ''}
-            }
-            .header {
-              font-size: ${headerFontSize};
-              font-weight: 900;
-              letter-spacing: 0.3px;
-              text-transform: uppercase;
-              line-height: 1.1;
-              color: #000;
-              flex-shrink: 0;
-            }
-            .prod-title {
-              font-size: ${titleFontSize};
-              font-weight: 700;
-              white-space: nowrap;
-              overflow: hidden;
-              text-overflow: ellipsis;
-              max-width: 98%;
-              margin-top: 0.3mm;
-              color: #111;
-              line-height: 1.1;
-            }
-            .barcode-box {
-              width: 100%;
-              flex: 1;
-              min-height: 0;
-              display: flex;
-              justify-content: center;
-              align-items: center;
-              margin: 0.4mm 0;
-              overflow: hidden;
-            }
-            .barcode-box svg {
-              display: block;
-              margin: 0 auto;
-              max-width: 98%;
-              max-height: 100%;
-              width: auto;
-              height: auto;
-            }
-            .footer {
-              width: 100%;
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              border-top: 0.6pt solid #000;
-              padding-top: 0.5mm;
-              line-height: 1;
-              flex-shrink: 0;
-            }
-            .tag {
-              font-size: ${tagFontSize};
-              font-weight: 700;
-              color: #444;
-            }
-            .price {
-              font-size: ${priceFontSize};
-              font-weight: 900;
-              color: #000;
-            }
-          </style>
-        </head>
-        <body data-gramm="false">
-          ${bodyContent}
-        </body>
-      </html>
-    `)
-    doc.close()
+              ${pageCss}
+              .label-sticker {
+                width: ${currentSizeConfig.width_mm}mm !important;
+                height: ${currentSizeConfig.height_mm}mm !important;
+                max-width: ${currentSizeConfig.width_mm}mm !important;
+                max-height: ${currentSizeConfig.height_mm}mm !important;
+                box-sizing: border-box;
+                padding: ${metrics.padding};
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+                align-items: center;
+                text-align: center;
+                overflow: hidden;
+                flex-shrink: 0;
+                break-inside: avoid !important;
+                page-break-inside: avoid !important;
+                background: #fff;
+              }
+              .header {
+                font-size: ${metrics.headerFontSize};
+                font-weight: 900;
+                letter-spacing: 0.3px;
+                text-transform: uppercase;
+                line-height: 1.1;
+                color: #000;
+                flex-shrink: 0;
+              }
+              .prod-title {
+                font-size: ${metrics.titleFontSize};
+                font-weight: 700;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                max-width: 98%;
+                margin-top: 0.3mm;
+                color: #111;
+                line-height: 1.1;
+              }
+              .barcode-box {
+                width: 100%;
+                flex: 1;
+                min-height: 0;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                margin: 0.2mm 0;
+                overflow: hidden;
+              }
+              .barcode-box svg {
+                display: block;
+                margin: 0 auto;
+                max-width: 98%;
+                max-height: 100%;
+                width: auto;
+                height: auto;
+              }
+              .footer {
+                width: 100%;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                border-top: 0.5pt solid #000;
+                padding-top: 0.3mm;
+                line-height: 1;
+                flex-shrink: 0;
+              }
+              .tag-group, .price-group {
+                display: flex;
+                align-items: center;
+                gap: 1.5mm;
+              }
+              .tag {
+                font-size: ${metrics.tagFontSize};
+                font-weight: 700;
+                color: #444;
+              }
+              .date-tag {
+                font-size: ${metrics.tagFontSize};
+                font-weight: 600;
+                color: #666;
+              }
+              .mrp-tag {
+                font-size: ${metrics.tagFontSize};
+                font-weight: 600;
+                color: #666;
+                text-decoration: line-through;
+              }
+              .price {
+                font-size: ${metrics.priceFontSize};
+                font-weight: 900;
+                color: #000;
+              }
+            </style>
+          </head>
+          <body data-gramm="false">
+            ${bodyContent}
+          </body>
+        </html>
+      `)
+      doc.close()
 
-    const cleanup = () => {
-      try {
-        if (iframe.parentNode) {
-          iframe.parentNode.removeChild(iframe)
-        }
-      } catch {}
-    }
-
-    setTimeout(() => {
-      try {
-        if (iframe.contentWindow) {
-          iframe.contentWindow.onbeforeunload = null
-          iframe.contentWindow.onunload = null
-          iframe.contentWindow.onafterprint = cleanup
-          iframe.contentWindow.focus()
-          iframe.contentWindow.print()
-        }
-      } catch (err) {
-        console.warn('[CreateBarcodeModal] Print error:', err)
-      } finally {
-        setTimeout(cleanup, 2500)
+      const cleanup = () => {
+        try {
+          if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
+        } catch {}
       }
-    }, 200)
-  } catch (err) {
-    console.warn('[CreateBarcodeModal] Failed to execute print:', err)
+
+      setTimeout(() => {
+        try {
+          if (iframe.contentWindow) {
+            iframe.contentWindow.onbeforeunload = null
+            iframe.contentWindow.onunload = null
+            iframe.contentWindow.onafterprint = cleanup
+            iframe.contentWindow.focus()
+            iframe.contentWindow.print()
+          }
+        } catch (err) {
+          console.warn('[CreateBarcodeModal] Print error:', err)
+        } finally {
+          setTimeout(cleanup, 2500)
+        }
+      }, 200)
+    } catch (err) {
+      console.warn('[CreateBarcodeModal] Failed to execute print:', err)
+    }
   }
-}
 
   if (!isOpen) return null
 
@@ -638,11 +771,15 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
             <div className="flex items-center gap-3">
               <div className="hidden sm:flex items-center gap-2 text-xs font-bold text-gray-300">
                 <span>
-                  Printer <strong className="text-white">{settings.printerType === 'label' ? 'Label Printer' : 'Regular Printer'}</strong>
+                  Profile: <strong className="text-white">{activeProfile.name}</strong>
                 </span>
                 <span className="text-gray-500">|</span>
                 <span>
-                  Size <strong className="text-[#7daa8f]">{currentSizeConfig.name}</strong>
+                  Printer: <strong className="text-white capitalize">{activeProfile.printer_type}</strong>
+                </span>
+                <span className="text-gray-500">|</span>
+                <span>
+                  Size: <strong className="text-[#7daa8f]">{currentSizeConfig.label || currentSizeConfig.name}</strong>
                 </span>
               </div>
               <button
@@ -1004,10 +1141,18 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
                   {/* Canvas backing representing paper roll / sheet */}
                   <div className="w-full rounded-2xl bg-[#F4F5F7] border border-gray-300 p-3.5 shadow-inner flex flex-col items-center justify-center relative min-h-[220px] overflow-hidden">
                     {(() => {
-                      const previewScale = Math.min(230 / currentSizeConfig.widthMm, 150 / currentSizeConfig.heightMm)
-                      const previewWidthPx = Math.max(140, Math.round(currentSizeConfig.widthMm * previewScale))
-                      const previewHeightPx = Math.max(90, Math.round(currentSizeConfig.heightMm * previewScale))
-                      const previewBarcodeHeightPx = Math.max(26, Math.round(previewHeightPx * 0.46))
+                      const metrics = getLabelRenderMetrics(
+                        currentSizeConfig.width_mm,
+                        currentSizeConfig.height_mm,
+                        activeProfile.font_scale,
+                        activeProfile.barcode_height_scale
+                      )
+                      const previewScale = Math.min(230 / currentSizeConfig.width_mm, 150 / currentSizeConfig.height_mm)
+                      const previewWidthPx = Math.max(130, Math.round(currentSizeConfig.width_mm * previewScale))
+                      const previewHeightPx = Math.max(80, Math.round(currentSizeConfig.height_mm * previewScale))
+                      const previewBarcodeHeightPx = Math.max(20, Math.round(previewHeightPx * (metrics.isVerySmall ? 0.50 : 0.42)))
+
+                      const hasDriftCalibration = activeProfile.offset_x_mm !== 0 || activeProfile.offset_y_mm !== 0 || activeProfile.rotation !== 0
 
                       return (
                         <div
@@ -1016,19 +1161,20 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
                             width: `${previewWidthPx}px`,
                             height: `${previewHeightPx}px`,
                             boxSizing: 'border-box',
+                            transform: `translate(${activeProfile.offset_x_mm * 1.5}px, ${activeProfile.offset_y_mm * 1.5}px) rotate(${activeProfile.rotation}deg)`,
                           }}
                         >
-                          {/* Company / Brand */}
-                          {settings.showCompanyName && (
+                          {/* Company / Brand (hidden on very small sizes) */}
+                          {!metrics.isVerySmall && activeProfile.show_business_name && (
                             <span
                               className="font-black uppercase tracking-wider text-gray-900 leading-none truncate max-w-[78%]"
-                              style={{ fontSize: `${Math.max(8, Math.round(previewHeightPx * 0.085))}px` }}
+                              style={{ fontSize: `${Math.max(8, Math.round(previewHeightPx * 0.085 * (activeProfile.font_scale || 1.0)))}px` }}
                             >
                               {header || BRAND_EN}
                             </span>
                           )}
 
-                          {/* Barcode Graphic Box (takes ~46% height) */}
+                          {/* Barcode Graphic Box */}
                           <div
                             className="w-full flex items-center justify-center overflow-hidden my-0.5"
                             style={{ height: `${previewBarcodeHeightPx}px` }}
@@ -1037,45 +1183,66 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
                           </div>
 
                           {/* Barcode number text */}
-                          <span
-                            className="font-mono font-bold text-gray-800 tracking-wider leading-none"
-                            style={{ fontSize: `${Math.max(7.5, Math.round(previewHeightPx * 0.075))}px` }}
-                          >
-                            {itemCode || 'VASTHRAALAYAM0000000'}
-                          </span>
+                          {activeProfile.show_sku && (
+                            <span
+                              className="font-mono font-bold text-gray-800 tracking-wider leading-none"
+                              style={{ fontSize: `${Math.max(7, Math.round(previewHeightPx * (metrics.isVerySmall ? 0.09 : 0.075) * (activeProfile.font_scale || 1.0)))}px` }}
+                            >
+                              {metrics.isVerySmall ? (itemCode || 'V000000').slice(-8) : itemCode || 'VASTHRAALAYAM0000000'}
+                            </span>
+                          )}
 
-                          {/* Product Title */}
-                          {settings.showItemName && (
+                          {/* Product Title (hidden on very small sizes) */}
+                          {!metrics.isVerySmall && activeProfile.show_product_name && (
                             <span
                               className="font-bold text-gray-800 truncate max-w-full leading-tight"
-                              style={{ fontSize: `${Math.max(7.5, Math.round(previewHeightPx * 0.075))}px` }}
+                              style={{ fontSize: `${Math.max(7.5, Math.round(previewHeightPx * 0.075 * (activeProfile.font_scale || 1.0)))}px` }}
                             >
                               {line1 || selectedProduct?.name || 'Item Name'}
                             </span>
                           )}
 
-                          {/* Variant / Category */}
-                          {line2 && (
+                          {/* Variant / Category (hidden on very small sizes) */}
+                          {!metrics.isVerySmall && activeProfile.show_variant && line2 && (
                             <span
                               className="font-semibold text-gray-600 truncate max-w-full leading-tight"
-                              style={{ fontSize: `${Math.max(7, Math.round(previewHeightPx * 0.07))}px` }}
+                              style={{ fontSize: `${Math.max(7, Math.round(previewHeightPx * 0.07 * (activeProfile.font_scale || 1.0)))}px` }}
                             >
                               {line2}
                             </span>
                           )}
 
-                          {/* Price */}
-                          {settings.showSalePrice && (
+                          {/* Price & MRP */}
+                          <div className="flex items-center gap-1.5 justify-center leading-none">
+                            {activeProfile.show_mrp && (
+                              <span
+                                className="font-semibold text-gray-500 line-through truncate max-w-full leading-none"
+                                style={{ fontSize: `${Math.max(7, Math.round(previewHeightPx * 0.07 * (activeProfile.font_scale || 1.0)))}px` }}
+                              >
+                                {line3 || (settings.showDiscount ? 'MRP: ₹1299' : '')}
+                              </span>
+                            )}
+                            {activeProfile.show_price && (
+                              <span
+                                className="font-black text-black truncate max-w-full leading-none"
+                                style={{ fontSize: `${Math.max(8, Math.round(previewHeightPx * (metrics.isVerySmall ? 0.11 : 0.095) * (activeProfile.font_scale || 1.0)))}px` }}
+                              >
+                                {selectedProduct ? `₹${selectedProduct.price}` : '₹999'}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Print Date (if enabled) */}
+                          {!metrics.isVerySmall && activeProfile.show_date && (
                             <span
-                              className="font-black text-black truncate max-w-full leading-none"
-                              style={{ fontSize: `${Math.max(8.5, Math.round(previewHeightPx * 0.095))}px` }}
+                              className="text-gray-400 text-[6.5px] font-mono leading-none"
                             >
-                              {line3 || (settings.showDiscount ? 'Discount: 0%' : 'Price: ₹0')}
+                              {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                             </span>
                           )}
 
                           {/* Extra line */}
-                          {line4 && (
+                          {!metrics.isVerySmall && line4 && (
                             <span
                               className="text-gray-500 truncate max-w-full leading-none"
                               style={{ fontSize: `${Math.max(6.5, Math.round(previewHeightPx * 0.065))}px` }}
@@ -1087,10 +1254,21 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
                       )
                     })()}
 
-                    <div className="mt-2.5 text-[10px] font-bold text-gray-500 text-center">
-                      {settings.printerType === 'label'
-                        ? `Thermal Roll • ${(currentSizeConfig.labelsPerRow || 1) > 1 ? `${currentSizeConfig.labelsPerRow} barcodes per page` : '1 barcode per page'} (${currentSizeConfig.name})`
-                        : 'Regular Printer (A4 Sheet Layout)'}
+                    <div className="mt-2.5 text-[10px] font-bold text-gray-500 text-center flex flex-col items-center gap-0.5">
+                      <span>
+                        {activeProfile.printer_type === 'label'
+                          ? `Thermal Roll • ${(currentSizeConfig.columns || currentSizeConfig.labelsPerRow || 1) > 1 ? `${currentSizeConfig.columns || currentSizeConfig.labelsPerRow} barcodes per page` : '1 barcode per page'}`
+                          : activeProfile.printer_type === 'sheet'
+                          ? `A4 Sticker Sheet (${currentSizeConfig.columns || 3}×${currentSizeConfig.rows || 8} • Start Pos: ${activeProfile.sheet_start_position || 1})`
+                          : activeProfile.printer_type === 'receipt'
+                          ? 'Thermal Receipt Roll (58/80 mm)'
+                          : 'Save as PDF Export'}
+                      </span>
+                      {(activeProfile.offset_x_mm !== 0 || activeProfile.offset_y_mm !== 0 || activeProfile.rotation !== 0) && (
+                        <span className="font-mono text-[9px] text-amber-700 font-bold bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
+                          Calibrated (Offset X:{activeProfile.offset_x_mm}mm Y:{activeProfile.offset_y_mm}mm • {activeProfile.rotation}°)
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -1106,6 +1284,45 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
                   >
                     <Plus size={14} /> {isBarcodeAlreadyAssigned ? 'Barcode Already Exists' : 'Add for Barcode'}
                   </button>
+
+                  {/* Test Print & Download PDF Quick Actions */}
+                  <div className="w-full grid grid-cols-2 gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => executeTestPrint(currentSizeConfig, activeProfile)}
+                      title="Print 1 alignment test label"
+                      className="py-2 px-2 rounded-xl border border-gray-300 bg-white hover:bg-gray-100 text-gray-800 text-[11px] font-black uppercase tracking-wider transition-colors flex items-center justify-center gap-1 cursor-pointer shadow-2xs"
+                    >
+                      <Printer size={12} /> Test Print
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (queue.filter((i) => i.selected).length > 0) {
+                          void downloadLabelsPdf(
+                            queue.filter((i) => i.selected).map((i) => ({
+                              barcodeValue: i.barcodeValue,
+                              productName: i.productName,
+                              variantName: i.variantName,
+                              price: i.price,
+                              mrp: null,
+                              header: i.header,
+                              line2: i.line2,
+                              quantity: i.noOfLabels,
+                            })),
+                            currentSizeConfig,
+                            activeProfile
+                          )
+                        } else {
+                          downloadTestLabelPdf(currentSizeConfig, activeProfile)
+                        }
+                      }}
+                      title="Download PDF"
+                      className="py-2 px-2 rounded-xl border border-gray-300 bg-white hover:bg-gray-100 text-gray-800 text-[11px] font-black uppercase tracking-wider transition-colors flex items-center justify-center gap-1 cursor-pointer shadow-2xs"
+                    >
+                      <Download size={12} /> Download PDF
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1273,60 +1490,104 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
             </div>
           </div>
 
-          {/* MODAL FOOTER matching Screenshot 195637 */}
-          <div className="px-3 py-2.5 sm:px-6 sm:py-4 border-t border-gray-200 bg-white flex items-center justify-between shrink-0 gap-2 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3.5 py-2 sm:px-5 sm:py-2.5 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer shrink-0"
-            >
-              Close
-            </button>
-
-            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-              <label className="flex items-center gap-1.5 mr-2 cursor-pointer" title="Check this to automatically increase stock by the number of labels printed.">
-                <input
-                  type="checkbox"
-                  checked={updateStock}
-                  onChange={(e) => setUpdateStock(e.target.checked)}
-                  className="w-3.5 h-3.5 rounded border-gray-300 text-brand-black focus:ring-brand-black cursor-pointer"
-                />
-                <span className="text-[11px] font-bold text-gray-700 select-none hidden sm:inline">
-                  Update Stock
-                </span>
-                <span className="text-[11px] font-bold text-gray-700 select-none sm:hidden">
-                  Stock+
-                </span>
-              </label>
-
-              {queue.length > 0 && (
+          {/* MODAL FOOTER */}
+          <div className="flex flex-col border-t border-gray-200 bg-white shrink-0 pb-[calc(env(safe-area-inset-bottom)+0.5rem)]">
+            <div className="px-3 py-2.5 sm:px-6 sm:py-3.5 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowSheetPreviewModal(true)}
-                  className="px-3 py-2 sm:px-5 sm:py-2.5 rounded-xl border-2 border-brand-black bg-white text-brand-black text-[11px] sm:text-xs font-black uppercase tracking-wider hover:bg-gray-100 transition-all cursor-pointer shrink-0"
+                  onClick={onClose}
+                  className="px-3.5 py-2 sm:px-5 sm:py-2.5 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer shrink-0"
                 >
-                  Preview
+                  Close
                 </button>
-              )}
+                <span className="text-[10px] text-gray-400 font-medium hidden xl:inline">
+                  Tip: In print dialog, select label printer, paper size match, Margins "None", Scale 100%.
+                </span>
+              </div>
 
-              <button
-                type="button"
-                onClick={handleGenerateAndCommitStock}
-                disabled={generating || queue.filter((it) => it.selected).length === 0}
-                className="px-3 py-2 sm:px-6 sm:py-2.5 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-[11px] sm:text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] transition-all shadow-md flex items-center gap-1.5 sm:gap-2 cursor-pointer disabled:opacity-50 text-center justify-center shrink-0"
-              >
-                {generating ? (
-                  <>
-                    <span className="w-3.5 h-3.5 border-2 border-[#7daa8f]/30 border-t-[#7daa8f] rounded-full animate-spin inline-block" />
-                    <span className="hidden sm:inline">Generating...</span>
-                    <span className="sm:hidden">Gen...</span>
-                  </>
-                ) : (
-                  <>
-                    <Printer size={15} /> <span>Generate &amp; Print ({totalLabelsNeeded})</span>
-                  </>
+              <div className="flex items-center gap-2 sm:gap-2.5 shrink-0 flex-wrap justify-end">
+                <label className="flex items-center gap-1.5 mr-1 cursor-pointer" title="Check this to automatically increase stock by the number of labels printed.">
+                  <input
+                    type="checkbox"
+                    checked={updateStock}
+                    onChange={(e) => setUpdateStock(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded border-gray-300 text-brand-black focus:ring-brand-black cursor-pointer"
+                  />
+                  <span className="text-[11px] font-bold text-gray-700 select-none hidden sm:inline">
+                    Update Stock
+                  </span>
+                  <span className="text-[11px] font-bold text-gray-700 select-none sm:hidden">
+                    Stock+
+                  </span>
+                </label>
+
+                {/* Download PDF Button (Mobile fallback & remote printing) */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const selected = queue.filter((it) => it.selected)
+                    if (selected.length > 0) {
+                      void downloadLabelsPdf(
+                        selected.map((item) => ({
+                          barcodeValue: item.barcodeValue,
+                          productName: item.productName,
+                          variantName: item.variantName,
+                          price: item.price,
+                          mrp: null,
+                          header: item.header,
+                          line2: item.line2,
+                          quantity: item.noOfLabels,
+                        })),
+                        currentSizeConfig,
+                        activeProfile
+                      )
+                    } else {
+                      downloadTestLabelPdf(currentSizeConfig, activeProfile)
+                    }
+                  }}
+                  title="Download labels as exact vector PDF"
+                  className="px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl border border-gray-300 bg-white text-gray-700 text-[11px] sm:text-xs font-bold hover:bg-gray-50 transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+                >
+                  <Download size={13} />
+                  <span className="hidden sm:inline">Download PDF</span>
+                  <span className="sm:hidden">PDF</span>
+                </button>
+
+                {queue.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowSheetPreviewModal(true)}
+                    className="px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl border border-brand-black bg-white text-brand-black text-[11px] sm:text-xs font-black uppercase tracking-wider hover:bg-gray-100 transition-all cursor-pointer shrink-0"
+                  >
+                    Preview
+                  </button>
                 )}
-              </button>
+
+                <button
+                  type="button"
+                  onClick={handleGenerateAndCommitStock}
+                  disabled={generating || queue.filter((it) => it.selected).length === 0}
+                  className="px-3 py-2 sm:px-6 sm:py-2.5 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-[11px] sm:text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] transition-all shadow-md flex items-center gap-1.5 sm:gap-2 cursor-pointer disabled:opacity-50 text-center justify-center shrink-0"
+                >
+                  {generating ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-[#7daa8f]/30 border-t-[#7daa8f] rounded-full animate-spin inline-block" />
+                      <span className="hidden sm:inline">Generating...</span>
+                      <span className="sm:hidden">Gen...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Printer size={15} /> <span>Generate &amp; Print ({totalLabelsNeeded})</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Print hint below the action buttons */}
+            <div className="px-4 pb-2 text-[10px] text-gray-400 font-medium text-center border-t border-gray-100 pt-1.5">
+              💡 In the browser print dialog: select your label printer, set paper size to match ({currentSizeConfig.width_mm}×{currentSizeConfig.height_mm}mm), Margins: "None", Scale: 100%.
             </div>
           </div>
         </div>

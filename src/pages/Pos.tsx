@@ -485,6 +485,8 @@ export default function Pos(props: PosProps = {}) {
           image: scanned.image_url || '/product-placeholder.svg',
           imageUrl: scanned.image_url || '/product-placeholder.svg',
           barcode: scanned.barcode,
+          // Forward catalog-recorded type — never derived from name/keyword
+          itemType: scanned.item_type === 'service' ? 'service' : 'product',
         }, 1)
         item.variantId = scanned.variant_id || undefined
         item.variantName = scanned.variant_name || undefined
@@ -531,6 +533,8 @@ export default function Pos(props: PosProps = {}) {
         barcode: clean,
         image_url: prod.image_url,
         category: prod.category,
+        // Forward catalog-recorded type — never derived from name/keyword
+        item_type: prod.item_type === 'service' ? 'service' : 'product',
       }
       handleScannedItem(payload)
     } catch (err) {
@@ -834,6 +838,8 @@ export default function Pos(props: PosProps = {}) {
           description: item.note || '', quantity: item.qty, unit: item.selectedUnit, unit_type: item.unitType,
           base_quantity: item.baseQuantity, base_price: Number(item.basePrice) || 0, line_total: lineTotal,
           source: 'advance_order', note: item.note || null,
+          // Forward the catalog-recorded type — never derived from name/keyword
+          item_type: item.itemType === 'service' ? 'service' : 'product',
         }
       })
       const created = await createAdvanceOrder({
@@ -923,6 +929,8 @@ export default function Pos(props: PosProps = {}) {
           isManual: item.source === 'manual' || item.category === 'Unregistered',
           category: item.category || null,
           note: item.note || null,
+          // Forward the catalog-recorded type — never derived from name/keyword
+          itemType: item.itemType === 'service' ? 'service' : 'product',
         })),
         shipping: Number(shipping || 0),
         status: 'completed',

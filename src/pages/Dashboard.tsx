@@ -5,7 +5,7 @@ import {
   Package, Search, RefreshCw, ShieldCheck, ShieldOff, Trophy,
   MessageCircle, ChevronDown, Eye, FileText, Printer, MoreVertical, X, Layers, Receipt,
   SlidersHorizontal, Tag, Ticket, Percent, CheckCircle2, Info, Sparkles, Settings as SettingsIcon, Check,
-  Banknote, QrCode, CreditCard, Scissors,
+  Banknote, QrCode, CreditCard, Scissors, Clock,
 } from 'lucide-react'
 
 // Custom Malaysian Ringgit icon — replaces the generic dollar-sign icon
@@ -65,6 +65,8 @@ import { useNavigationStore } from '../store/navigationStore'
 import { useHardwareBarcodeScanner } from '../hooks/useHardwareBarcodeScanner'
 import { BarcodeRedirectDialog } from '../components/pos/BarcodeRedirectDialog'
 import { exportAnalyticsToCSV, exportAnalyticsToPDF } from '../services/analyticsExport'
+import { computeAnalytics, getISTDateRange, type AnalyticsOrder, type AnalyticsLineItem, type AnalyticsAdvanceOrder, type AnalyticsCoupon } from '../services/revenueAnalytics'
+import { getCurrentBusinessId } from '../lib/barcode'
 import { BRAND_EN, BRAND_LOGO, BRAND_ICON } from '../lib/brand'
 import {
   ResponsiveContainer,
@@ -94,8 +96,10 @@ type DashboardOrderItem = {
   category?: string
   quantity: number
   line_total: number
+  item_type?: 'product' | 'service'
   is_manual?: boolean | null
   source?: string
+  business_id?: string
 }
 type DashboardCoupon = {
   id: number
@@ -130,7 +134,7 @@ const parseOrderItems = (items: unknown): Record<string, unknown>[] => {
 }
 
 // When o.total is 0 (legacy orders saved with bug), compute it from the items JSON
-const getOrderTotal = (order: { total: unknown; items: unknown; shipping?: unknown; delivery_charge?: unknown; total_gst?: unknown; discount_amount?: unknown; manual_discount_amount?: unknown }): number => {
+const getOrderTotal = (order: { total?: unknown; items?: unknown; shipping?: unknown; delivery_charge?: unknown; total_gst?: unknown; discount_amount?: unknown; manual_discount_amount?: unknown }): number => {
   const stored = toNumber(order.total, 0)
   if (stored > 0) return stored
   const items = parseOrderItems(order.items)
@@ -505,6 +509,7 @@ export default function Dashboard() {
   const [cats, setCats]     = useState<Category[]>([])
   const [orders, setOrders] = useState<DashboardOrder[]>([])
   const [orderItems, setOrderItems] = useState<DashboardOrderItem[]>([])
+  const [advanceOrders, setAdvanceOrders] = useState<AdvanceOrder[]>([])
   const [editingProd, setEditingProd] = useState<Product | null>(null)
   const [prodForm, setProdForm] = useState(emptyForm)
   const [newCat, setNewCat] = useState({ name_en: '', name_ta: '' })
@@ -708,572 +713,43 @@ export default function Dashboard() {
     }
     setOrders(current => [completed, ...current.filter(order => order.id !== completed.id)])
     setSearchResults(current => [completed, ...current.filter(order => order.id !== completed.id)].slice(0, 100))
-    setOrderItems(current => [...completedItems.map(item => ({ order_id: completed.id, product_id: null, product_name: String(item.name || 'Product'), variant_name: '', category: String(item.category || advance.category || ''), quantity: Number(item.quantity || 1), line_total: Number(item.line_total || 0), is_manual: false, source: 'advance_order' })), ...current.filter(row => row.order_id !== completed.id)])
+    setAdvanceOrders(current => [advance, ...current.filter(o => o.id !== advance.id)])
+    setOrderItems(current => [
+      ...completedItems.map(item => {
+        const prodId = (item as Record<string, unknown>).product_id as string | number | null
+        const rawType = ((item as Record<string, unknown>).item_type as string) || ((item as Record<string, unknown>).itemType as string)
+        const itType: 'product' | 'service' = rawType === 'service' ? 'service' : 'product'
+        return {
+          order_id: completed.id,
+          product_id: prodId,
+          product_name: String(item.name || 'Product'),
+          variant_name: '',
+          category: String(item.category || advance.category || ''),
+          quantity: Number(item.quantity || 1),
+          line_total: Number(item.line_total || 0),
+          item_type: itType,
+          is_manual: false,
+          source: 'advance_order',
+        }
+      }),
+      ...current.filter(row => row.order_id !== completed.id)
+    ])
   }, [user?.id])
 
-  // Analytics (date-aware)
+  // Analytics (single shared engine - date & IST aware)
   const analytics = useMemo(() => {
-    // Apply global date filter
-    let dated = orders
-    if (analyticsDateFrom) dated = dated.filter(o => o.created_at >= `${analyticsDateFrom}T00:00:00`)
-    if (analyticsDateTo)   dated = dated.filter(o => o.created_at <= `${analyticsDateTo}T23:59:59`)
-
-    // Classify
-    const nonCancelled = dated.filter(o => normalizeStatus(o.status) !== 'cancelled')
-    const completedOrders = nonCancelled.filter(o => isCompletedStatus(o.status))
-    const pendingOrders   = nonCancelled.filter(o => normalizeStatus(o.status) === 'pending')
-
-    // WhatsApp = online_request type (all statuses, no revenue)
-    const waOrders = dated.filter(o => normalizeOrderType(o.order_type) === 'online_request')
-
-    // Billable = completed and NOT online_request
-    const billableCompleted = completedOrders.filter(o => normalizeOrderType(o.order_type) !== 'online_request')
-    // The trend charts are fixed calendar views. The period selector filters
-    // KPIs/tables, but must not change the year/week bars underneath them.
-    const allBillableCompleted = orders
-      .filter(o => normalizeStatus(o.status) !== 'cancelled')
-      .filter(o => isCompletedStatus(o.status))
-      .filter(o => normalizeOrderType(o.order_type) !== 'online_request')
-    // Channel is determined by order_mode. Older orders can use a different
-    // order_type, so requiring exactly `pos_sale` hides valid online bills.
-    const offlinePOS  = billableCompleted.filter(o => normalizeOrderMode(o.order_mode) === 'offline' && normalizeOrderType(o.order_type) !== 'manual_sale')
-    const onlinePOS   = billableCompleted.filter(o => normalizeOrderMode(o.order_mode) === 'online')
-    const manualSales = billableCompleted.filter(o => normalizeOrderType(o.order_type) === 'manual_sale')
-
-    // Revenue (WhatsApp never included)
-    const completedRevenue   = billableCompleted.reduce((s, o) => s + getOrderTotal(o), 0)
-    const averageRevenuePerBill = billableCompleted.length > 0 ? completedRevenue / billableCompleted.length : 0
-    const posRevenue         = offlinePOS.reduce((s, o) => s + getOrderTotal(o), 0)
-    const onlinePosRevenue   = onlinePOS.reduce((s, o) => s + getOrderTotal(o), 0)
-    const manualRevenue      = manualSales.reduce((s, o) => s + getOrderTotal(o), 0)
-
-    // Payment method breakdown (cash/QR/card — 'online' bills use a separate
-    // payment rail and are intentionally not part of this split).
-    // Aggregated from individual payments array (with legacy fallback to payment_mode).
-    let cashRevenue = 0
-    let qrRevenue = 0
-    let cardRevenue = 0
-
-    billableCompleted.forEach(o => {
-      if (Array.isArray(o.payments) && o.payments.length > 0) {
-        o.payments.forEach(p => {
-          const mode = normalizePaymentMode(p.mode)
-          const amt = Number(p.amount) || 0
-          if (mode === 'cash') {
-            const netCash = o.change_given ? Math.max(0, amt - Number(o.change_given)) : amt
-            cashRevenue += netCash
-          } else if (mode === 'qr') {
-            qrRevenue += amt
-          } else if (mode === 'card') {
-            cardRevenue += amt
-          }
-        })
-      } else {
-        const mode = normalizePaymentMode(o.payment_mode)
-        const total = getOrderTotal(o)
-        if (mode === 'cash') cashRevenue += total
-        else if (mode === 'qr') qrRevenue += total
-        else if (mode === 'card') cardRevenue += total
-      }
+    return computeAnalytics({
+      orders: orders as unknown as AnalyticsOrder[],
+      orderItems: orderItems as unknown as AnalyticsLineItem[],
+      advanceOrders: advanceOrders as unknown as AnalyticsAdvanceOrder[],
+      coupons: coupons as unknown as AnalyticsCoupon[],
+      expenses,
+      productsCatalog: products,
+      businessId: getCurrentBusinessId(),
+      dateFrom: analyticsDateFrom,
+      dateTo: analyticsDateTo,
     })
-
-    // Expenses (from the expense tracker). Net Profit is finalized further
-    // down, once item-level Product/Service revenue and COGS are known:
-    // Net Profit = Total Revenue (Product + Service) - COGS - Total Expenses
-    let datedExpenses = expenses
-    if (analyticsDateFrom) datedExpenses = datedExpenses.filter(e => e.expense_date >= analyticsDateFrom)
-    if (analyticsDateTo)   datedExpenses = datedExpenses.filter(e => e.expense_date <= analyticsDateTo)
-    const totalExpenses = datedExpenses.reduce((s, e) => s + (Number(e.amount) || 0), 0)
-
-    const toLocalDateKey = (value: string | Date) => {
-      const date = value instanceof Date ? value : new Date(value)
-      if (Number.isNaN(date.getTime())) return ''
-      const year = date.getFullYear()
-      const month = String(date.getMonth() + 1).padStart(2, '0')
-      const day = String(date.getDate()).padStart(2, '0')
-      return `${year}-${month}-${day}`
-    }
-    const toLocalMonthKey = (value: string | Date) => toLocalDateKey(value).slice(0, 7)
-
-    const todayKey  = toLocalDateKey(new Date())
-    const monthKey  = todayKey.slice(0, 7)
-    const todaySales = billableCompleted.filter(o => toLocalDateKey(o.created_at) === todayKey).reduce((s, o) => s + getOrderTotal(o), 0)
-
-    // Today-specific analytics (for TODAY'S SALES tab)
-    const todayOrders = billableCompleted.filter(o => toLocalDateKey(o.created_at) === todayKey)
-    const todayCompletedOrdersCount = todayOrders.length
-    const todayItemsSold = todayOrders.reduce((s, o) => {
-      const items = parseOrderItems(o.items)
-      return s + items.reduce((sum, item) => sum + toNumber(item.quantity ?? item.qty, 0), 0)
-    }, 0)
-    const todayAvgOrderValue = todayCompletedOrdersCount > 0 ? todaySales / todayCompletedOrdersCount : 0
-
-    // Hourly trend for today
-    const hourlyMap = new Map<string, number>()
-    todayOrders.forEach(o => {
-      const hour = String(new Date(o.created_at).getHours()).padStart(2, '0')
-      hourlyMap.set(hour, (hourlyMap.get(hour) || 0) + getOrderTotal(o))
-    })
-    const todayHourlyTrend = Array.from({ length: 24 }, (_, i) => {
-      const h = String(i).padStart(2, '0')
-      // Use 12-hour format
-      const ampm = i < 12 ? 'AM' : 'PM'
-      const h12 = i === 0 ? 12 : i > 12 ? i - 12 : i
-      return { hour: `${h12} ${ampm}`, key: h, revenue: hourlyMap.get(h) || 0 }
-    })
-
-    // Today's top products
-    const todayProductMap = new Map<string, { name: string; qty: number; revenue: number }>()
-    todayOrders.forEach(o => {
-      parseOrderItems(o.items).forEach(item => {
-        const name = String(item.product_name || item.name || 'Product').trim()
-        const qty = toNumber(item.quantity ?? item.qty, 0)
-        const rev = toNumber(item.line_total ?? item.lineTotal, 0)
-        const p = todayProductMap.get(name) || { name, qty: 0, revenue: 0 }
-        p.qty += qty; p.revenue += rev
-        todayProductMap.set(name, p)
-      })
-    })
-    const todayTopProducts = Array.from(todayProductMap.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 5)
-    const todayBills = todayOrders.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 10)
-
-    // Today's channel breakdown
-    const todayOffline = todayOrders.filter(o => normalizeOrderType(o.order_type) === 'pos_sale' && normalizeOrderMode(o.order_mode) !== 'online')
-    const todayOnline = todayOrders.filter(o => normalizeOrderType(o.order_type) === 'pos_sale' && normalizeOrderMode(o.order_mode) === 'online')
-    const todayManual = todayOrders.filter(o => normalizeOrderType(o.order_type) === 'manual_sale')
-    const todayOfflineRevenue = todayOffline.reduce((s, o) => s + getOrderTotal(o), 0)
-    const todayOnlineRevenue = todayOnline.reduce((s, o) => s + getOrderTotal(o), 0)
-    const todayManualRevenue = todayManual.reduce((s, o) => s + getOrderTotal(o), 0)
-
-    // Product hourly trend (products sold per hour today)
-    const productHourlyMap = new Map<string, number>()
-    todayOrders.forEach(o => {
-      const hour = String(new Date(o.created_at).getHours()).padStart(2, '0')
-      const totalQty = parseOrderItems(o.items).reduce((s, item) => s + toNumber(item.quantity ?? item.qty, 0), 0)
-      productHourlyMap.set(hour, (productHourlyMap.get(hour) || 0) + totalQty)
-    })
-    const todayProductHourlyTrend = Array.from({ length: 24 }, (_, i) => {
-      const h = String(i).padStart(2, '0')
-      const ampm = i < 12 ? 'AM' : 'PM'
-      const h12 = i === 0 ? 12 : i > 12 ? i - 12 : i
-      return { hour: `${h12} ${ampm}`, key: h, qty: productHourlyMap.get(h) || 0 }
-    })
-
-    const monthlyRevenue = billableCompleted.filter(o => toLocalMonthKey(o.created_at) === monthKey).reduce((s, o) => s + getOrderTotal(o), 0)
-
-    // Item-level analytics
-    const completedIds = new Set(billableCompleted.map(o => o.id))
-    const billableOrderMap = new Map(billableCompleted.map(o => [o.id, o]))
-
-    const rawCompletedItems: DashboardOrderItem[] = orderItems.length > 0
-      ? orderItems.filter(item => completedIds.has(item.order_id))
-      : billableCompleted.flatMap(order => parseOrderItems(order.items).map(row => ({
-          order_id: order.id,
-          product_id: (row as Record<string,unknown>).product_id as string | number | null | undefined,
-          product_name: String((row as Record<string,unknown>).product_name || (row as Record<string,unknown>).name || 'Product'),
-          variant_name: String((row as Record<string,unknown>).variant_name || ''),
-          category: String((row as Record<string,unknown>).category || ''),
-          quantity: toNumber((row as Record<string,unknown>).quantity ?? (row as Record<string,unknown>).qty, 0),
-          line_total: toNumber((row as Record<string,unknown>).line_total ?? (row as Record<string,unknown>).lineTotal, 0),
-          is_manual: (row as Record<string,unknown>).is_manual === true || (row as Record<string,unknown>).source === 'manual',
-          source: String((row as Record<string,unknown>).source || ''),
-        })))
-
-    // Group items by order to compute gross line total sums and split discounts proportionally
-    const orderItemsGrouped = new Map<string, DashboardOrderItem[]>()
-    rawCompletedItems.forEach(item => {
-      const list = orderItemsGrouped.get(item.order_id) || []
-      list.push(item)
-      orderItemsGrouped.set(item.order_id, list)
-    })
-
-    const prodCatLookup  = new Map(products.map(p => [String(p.name || '').trim().toLowerCase(), p.category || 'Uncategorized']))
-    const prodSkuById    = new Map(products.map(p => [String(p.id), p.sku || '']))
-    const prodSkuByName  = new Map(products.map(p => [String(p.name || '').trim().toLowerCase(), p.sku || '']))
-    const prodTypeById   = new Map(products.map(p => [String(p.id), p.itemType === 'service' ? 'service' as const : 'product' as const]))
-    const prodTypeByName = new Map(products.map(p => [String(p.name || '').trim().toLowerCase(), p.itemType === 'service' ? 'service' as const : 'product' as const]))
-    const prodCostById   = new Map(products.map(p => [String(p.id), toNumber(p.purchasePrice, 0)]))
-
-    type EnrichedItem = {
-      order_id: string
-      product_id: string | number | null | undefined
-      rawKey: string
-      mainName: string
-      variantName: string
-      categoryName: string
-      sku: string
-      qty: number
-      netRevenue: number
-      grossRevenue: number
-      is_manual: boolean
-      resolvedType: 'product' | 'service'
-    }
-
-    const enrichedItems: EnrichedItem[] = []
-    let totalManualRevenue = 0
-    let cogs = 0
-
-    orderItemsGrouped.forEach((items, orderId) => {
-      const order = billableOrderMap.get(orderId)
-      const orderDiscount = order ? toNumber(order.discount_amount, 0) + toNumber(order.manual_discount_amount, 0) : 0
-      const orderGrossSubtotal = items.reduce((sum, it) => sum + toNumber(it.line_total, 0), 0)
-
-      items.forEach(it => {
-        const qty = toNumber(it.quantity, 0)
-        const grossRev = toNumber(it.line_total, 0)
-        // Proportional split of bill-level discounts
-        const discountShare = (orderGrossSubtotal > 0 && orderDiscount > 0)
-          ? (grossRev / orderGrossSubtotal) * Math.min(orderDiscount, orderGrossSubtotal)
-          : 0
-        const netRev = Math.max(0, grossRev - discountShare)
-
-        const rawKey = String(it.product_name || 'Product').trim() || 'Product'
-        const dashIdx = rawKey.indexOf(' - ')
-        const mainName = dashIdx > 0 ? rawKey.slice(0, dashIdx).trim() : rawKey
-        const variantFromKey = dashIdx > 0 ? rawKey.slice(dashIdx + 3).trim() : ''
-        const variantName = it.variant_name || variantFromKey
-
-        const idKey = it.product_id != null ? String(it.product_id) : ''
-        const sku = (idKey && prodSkuById.get(idKey)) || prodSkuByName.get(mainName.toLowerCase()) || ''
-        const catName = it.category || prodCatLookup.get(mainName.toLowerCase()) || 'Uncategorized'
-
-        // Catalog classification: strictly 'service' or 'product'
-        const isService =
-          (idKey && prodTypeById.get(idKey) === 'service') ||
-          prodTypeByName.get(mainName.toLowerCase()) === 'service' ||
-          (it.source === 'advance_order') ||
-          (order && order.order_type === 'advance_order') ||
-          /service|tailor|stitch/i.test(catName)
-
-        const resolvedType: 'product' | 'service' = isService ? 'service' : 'product'
-
-        if (it.is_manual) totalManualRevenue += netRev
-        if (resolvedType === 'product') {
-          cogs += (idKey ? (prodCostById.get(idKey) || 0) : 0) * qty
-        }
-
-        enrichedItems.push({
-          order_id: orderId,
-          product_id: it.product_id,
-          rawKey,
-          mainName,
-          variantName,
-          categoryName: catName,
-          sku,
-          qty,
-          netRevenue: netRev,
-          grossRevenue: grossRev,
-          is_manual: Boolean(it.is_manual),
-          resolvedType,
-        })
-      })
-    })
-
-    // Compute catalog analytics for a given type ('product' | 'service')
-    function computeCatalogMetrics(targetType: 'product' | 'service') {
-      const itemsOfType = enrichedItems.filter(it => it.resolvedType === targetType)
-      const itemMap = new Map<string, {
-        name: string
-        variant: string
-        category: string
-        sku: string
-        qty: number
-        revenue: number
-        orderSet: Set<string>
-      }>()
-
-      let totalRevenue = 0
-      let totalSold = 0
-
-      itemsOfType.forEach(it => {
-        totalRevenue += it.netRevenue
-        totalSold += it.qty
-
-        const existing = itemMap.get(it.rawKey) || {
-          name: it.mainName,
-          variant: it.variantName,
-          category: it.categoryName,
-          sku: it.sku,
-          qty: 0,
-          revenue: 0,
-          orderSet: new Set<string>(),
-        }
-        existing.qty += it.qty
-        existing.revenue += it.netRevenue
-        if (!existing.sku && it.sku) existing.sku = it.sku
-        if ((!existing.category || existing.category === 'Uncategorized') && it.categoryName) {
-          existing.category = it.categoryName
-        }
-        existing.orderSet.add(it.order_id)
-        itemMap.set(it.rawKey, existing)
-      })
-
-      // Sort by revenue descending by default; ties broken by quantity
-      const sortedItems: CatalogItemData[] = Array.from(itemMap.values())
-        .map(it => ({
-          name: it.name,
-          variant: it.variant,
-          category: it.category,
-          sku: it.sku,
-          qty: it.qty,
-          revenue: it.revenue,
-          billCount: it.orderSet.size,
-          avgPrice: it.qty > 0 ? it.revenue / it.qty : 0,
-          share: totalRevenue > 0 ? (it.revenue / totalRevenue) * 100 : 0,
-        }))
-        .sort((a, b) => {
-          if (b.revenue !== a.revenue) return b.revenue - a.revenue
-          return b.qty - a.qty
-        })
-
-      const averageRevenue = totalSold > 0 ? totalRevenue / totalSold : 0
-      const bestItem = sortedItems[0]?.name || 'No sales yet'
-
-      return {
-        revenue: totalRevenue,
-        totalSold,
-        averageRevenue,
-        bestItem,
-        items: sortedItems,
-      }
-    }
-
-    const productAnalytics = computeCatalogMetrics('product')
-    const serviceAnalytics = computeCatalogMetrics('service')
-
-    const productRevenue = productAnalytics.revenue
-    const totalProductsSold = productAnalytics.totalSold
-    const averageProductRevenue = productAnalytics.averageRevenue
-    const bestProduct = productAnalytics.bestItem
-    const topProducts = productAnalytics.items
-
-    const serviceRevenue = serviceAnalytics.revenue
-    const totalServicesSold = serviceAnalytics.totalSold
-    const averageServiceRevenue = serviceAnalytics.averageRevenue
-    const bestService = serviceAnalytics.bestItem
-    const topServices = serviceAnalytics.items
-
-    const totalRevenue = productRevenue + serviceRevenue
-    const netProfit = totalRevenue - cogs - totalExpenses
-    const isProfitable = netProfit >= 0
-
-    // Category distribution from completed sales
-    const categoryMap = new Map<string, { name: string; qty: number; revenue: number }>()
-    enrichedItems.forEach(it => {
-      const cc = categoryMap.get(it.categoryName) || { name: it.categoryName, qty: 0, revenue: 0 }
-      cc.qty += it.qty
-      cc.revenue += it.netRevenue
-      categoryMap.set(it.categoryName, cc)
-    })
-    const topCategories = Array.from(categoryMap.values()).sort((a, b) => b.revenue - a.revenue)
-    const bestCategory  = topCategories[0]?.name || 'No sales yet'
-
-    // Average items per bill
-    const avgItemsPerBill = billableCompleted.length > 0
-      ? (totalProductsSold + totalServicesSold) / billableCompleted.length : 0
-
-    // Category distribution for chart
-    const categoryDist = Array.from(categoryMap.entries()).sort((a, b) => b[1].revenue - a[1].revenue).slice(0, 8)
-      .map(([name, data]) => ({ name, value: data.revenue }))
-
-    // Trend charts
-    const chartYear = new Date().getFullYear()
-    const monthlyRevenueMap = new Map<string, number>()
-    allBillableCompleted.forEach(o => {
-      const k = toLocalMonthKey(o.created_at)
-      monthlyRevenueMap.set(k, (monthlyRevenueMap.get(k) || 0) + getOrderTotal(o))
-    })
-    const monthlyTrend = Array.from({ length: 12 }, (_, i) => {
-      const d = new Date(chartYear, i, 1)
-      const k = toLocalMonthKey(d)
-      return { key: k, month: d.toLocaleDateString('en-IN', { month: 'short' }), revenue: monthlyRevenueMap.get(k) || 0 }
-    })
-
-    const weeklyRevenueMap = new Map<string, number>()
-    allBillableCompleted.forEach(o => {
-      const k = toLocalDateKey(o.created_at)
-      weeklyRevenueMap.set(k, (weeklyRevenueMap.get(k) || 0) + getOrderTotal(o))
-    })
-
-    const currentDayOfWeek = new Date().getDay() || 7 // 1: Mon, ..., 7: Sun
-    const mondayDate = new Date()
-    mondayDate.setDate(mondayDate.getDate() - currentDayOfWeek + 1)
-
-    const weeklySales = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(mondayDate)
-      d.setDate(d.getDate() + i)
-      const k = toLocalDateKey(d)
-      // Force short weekday names in English to match Mon, Tue, Wed, Thu, Fri, Sat, Sun exactly
-      const dayName = new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(d)
-      return { day: dayName, date: k, revenue: weeklyRevenueMap.get(k) || 0 }
-    })
-
-    const currentMonthDate = new Date()
-    const daysInCurrentMonth = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() + 1, 0).getDate()
-    const monthDailySales = Array.from({ length: daysInCurrentMonth }, (_, i) => {
-      const d = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth(), i + 1)
-      const k = toLocalDateKey(d)
-      return { day: `${i + 1}`, date: `${i + 1}/${currentMonthDate.getMonth() + 1}`, label: `Day ${i + 1}`, revenue: weeklyRevenueMap.get(k) || 0 }
-    })
-
-    const statusDistribution = [
-      { name: 'WA Requests', value: waOrders.length, color: '#3b82f6' },
-      { name: 'POS Pending', value: pendingOrders.filter(o => normalizeOrderType(o.order_type) !== 'online_request').length, color: '#f59e0b' },
-      { name: 'Completed',   value: billableCompleted.length, color: '#10b981' },
-    ]
-    const channelDistribution = [
-      { name: 'Offline Bills', value: posRevenue, color: '#f97316' },
-      { name: 'Online Bills',  value: onlinePosRevenue, color: '#3b82f6' },
-      { name: 'Manual Sales',  value: manualRevenue || totalManualRevenue, color: '#8b5cf6' },
-    ]
-
-    const couponMap = new Map<string, { code: string; usage: number; discounts: number; percentage?: number; is_active?: boolean }>()
-    coupons.forEach(c => {
-      const code = String(c.code || '').trim().toUpperCase()
-      if (!code) return
-      couponMap.set(code, {
-        code,
-        usage: 0,
-        discounts: 0,
-        percentage: c.percentage,
-        is_active: c.is_active,
-      })
-    })
-    billableCompleted.forEach(order => {
-      const rawCode = String((order as Record<string,unknown>).coupon_code || '').trim()
-      if (!rawCode) return
-      const code = rawCode.toUpperCase()
-      const u = couponMap.get(code) || { code, usage: 0, discounts: 0, is_active: false }
-      u.usage += 1
-      u.discounts += toNumber((order as Record<string,unknown>).discount_amount, 0)
-      couponMap.set(code, u)
-    })
-    const topCoupons = Array.from(couponMap.values()).sort((a, b) => {
-      if (b.usage !== a.usage) return b.usage - a.usage
-      return b.discounts - a.discounts
-    })
-    const totalCouponDiscounts = topCoupons.reduce((s, c) => s + c.discounts, 0)
-    const totalCouponOrders = topCoupons.reduce((s, c) => s + c.usage, 0)
-    const couponUsageRate = billableCompleted.length > 0
-      ? (totalCouponOrders / billableCompleted.length) * 100 : 0
-
-    // Coupon daily trend (last 7 days)
-    const couponDailyMap = new Map<string, { orders: number; discounts: number }>()
-    billableCompleted.forEach(order => {
-      const code = String((order as Record<string,unknown>).coupon_code || '').trim()
-      if (!code) return
-      const k = toLocalDateKey(order.created_at)
-      const d = couponDailyMap.get(k) || { orders: 0, discounts: 0 }
-      d.orders += 1
-      d.discounts += toNumber((order as Record<string,unknown>).discount_amount, 0)
-      couponDailyMap.set(k, d)
-    })
-    const couponDailyTrend = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date()
-      d.setDate(d.getDate() - (6 - i))
-      const k = toLocalDateKey(d)
-      const dayName = new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(d)
-      const data = couponDailyMap.get(k) || { orders: 0, discounts: 0 }
-      return { day: dayName, date: k, orders: data.orders, discounts: data.discounts }
-    })
-
-    // WhatsApp analytics (zero revenue - status changes never affect revenue)
-    const waRequests  = waOrders.length
-    const waPending   = waOrders.filter(o => normalizeStatus(o.status) === 'pending').length
-    const waContacted = waOrders.filter(o => normalizeStatus(o.status) === 'contacted').length
-    const waCompleted = waOrders.filter(o => isCompletedStatus(o.status)).length
-
-    const waProductMap = new Map<string, number>()
-    waOrders.forEach(order => {
-      parseOrderItems(order.items).forEach(item => {
-        const n = String((item as Record<string,unknown>).name || (item as Record<string,unknown>).product_name || '').trim()
-        if (n) waProductMap.set(n, (waProductMap.get(n) || 0) + 1)
-      })
-    })
-    const topWAProducts = Array.from(waProductMap.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8)
-      .map(([name, count]) => ({ name, count }))
-
-    const waCategoryMap = new Map<string, number>()
-    waOrders.forEach(order => {
-      parseOrderItems(order.items).forEach(item => {
-        const n = String((item as Record<string,unknown>).name || (item as Record<string,unknown>).product_name || '').trim()
-        if (n) {
-          const mainName = n.includes(' - ') ? n.split(' - ')[0] : n
-          const catName = prodCatLookup.get(mainName.toLowerCase()) || 'Uncategorized'
-          waCategoryMap.set(catName, (waCategoryMap.get(catName) || 0) + 1)
-        }
-      })
-    })
-    const topWACategories = Array.from(waCategoryMap.entries())
-      .sort((a, b) => b[1] - a[1]).slice(0, 8)
-      .map(([name, count]) => ({ name, count }))
-
-    return {
-      totalCompletedRevenue: totalRevenue,
-      productRevenue,
-      serviceRevenue,
-      totalServicesSold,
-      averageServiceRevenue,
-      bestService,
-      topServices,
-      cogs,
-      averageRevenuePerBill,
-      todaySales,
-      todayCompletedOrdersCount,
-      todayItemsSold,
-      todayAvgOrderValue,
-      todayHourlyTrend,
-      todayTopProducts,
-      todayBills,
-      todayOfflineRevenue,
-      todayOnlineRevenue,
-      todayManualRevenue,
-      todayProductHourlyTrend,
-      avgItemsPerBill,
-      averageProductRevenue,
-      categoryDist,
-      totalCouponDiscounts,
-      totalCouponOrders,
-      couponUsageRate,
-      couponDailyTrend,
-      pendingOrders: pendingOrders.length,
-      onlineRequests: waRequests,
-      onlineRequestOrders: waOrders,
-      completedOrders: billableCompleted.length,
-      posRevenue,
-      onlinePosRevenue,
-      cashRevenue,
-      qrRevenue,
-      cardRevenue,
-      // Keep the bill count separate from revenue so the TOTAL ONLINE BILLS
-      // card stays visible and always reflects the current completed orders.
-      onlineBillCount: onlinePOS.length,
-      monthDailySales,
-      offlineOrderCount: offlinePOS.length,
-      manualRevenue: manualRevenue || totalManualRevenue,
-      monthlyRevenue,
-      totalProductsSold,
-      bestCategory,
-      bestProduct,
-      monthlyTrend,
-      chartYear,
-      channelDistribution,
-      statusDistribution,
-      topCoupons,
-      topCategories,
-      weeklySales,
-      topProducts,
-      waRequests,
-      waPending,
-      waContacted,
-      waCompleted,
-      topWAProducts,
-      topWACategories,
-      totalExpenses,
-      netProfit,
-      isProfitable,
-    }
-  }, [orders, orderItems, products, coupons, expenses, analyticsDateFrom, analyticsDateTo])
+  }, [orders, orderItems, advanceOrders, coupons, expenses, products, analyticsDateFrom, analyticsDateTo])
 
   // Bill-type filtered results for Order Management table (client-side, instant)
   const filteredSearchResults = useMemo(() => {
@@ -1296,10 +772,11 @@ export default function Dashboard() {
     setLoading(true)
     try {
       const productsPromise = fetchProducts(true)
-      const [cRes, couponRes, oRes] = await Promise.all([
+      const [cRes, couponRes, oRes, advRes] = await Promise.all([
         neonApi.get<Category[]>('/categories'),
         neonApi.get<DashboardCoupon[]>('/coupons'),
         neonApi.get<unknown[]>('/orders?limit=1000'),
+        neonApi.get<AdvanceOrder[]>('/advance-orders?business_id=' + getCurrentBusinessId()),
       ])
       const expList = await expenseService.getExpenses()
       if (cRes.error) throw cRes.error
@@ -1309,6 +786,7 @@ export default function Dashboard() {
       setOrders(mappedOrders)
       setSearchResults(mappedOrders.filter(o => normalizeOrderType(o.order_type) !== 'online_request').slice(0, 100))
       setCoupons((couponRes.data || []) as DashboardCoupon[])
+      if (advRes.data) setAdvanceOrders(advRes.data as AdvanceOrder[])
       setExpenses(expList || [])
 
       const orderIds = mappedOrders.map(o => o.id).filter(Boolean)
@@ -1318,13 +796,15 @@ export default function Dashboard() {
         setOrderItems((oi || []).map(r => ({
           order_id: String((r as Record<string,unknown>).order_id || ''),
           product_id: (r as Record<string,unknown>).product_id as string | number | null,
-          product_name: String((r as Record<string,unknown>).product_name || 'Product'),
+          product_name: String((r as Record<string,unknown>).product_name || (r as Record<string,unknown>).name || 'Product'),
           variant_name: String((r as Record<string,unknown>).variant_name || ''),
           category: String((r as Record<string,unknown>).category || ''),
           quantity: toNumber((r as Record<string,unknown>).quantity, 0),
           line_total: toNumber((r as Record<string,unknown>).line_total, 0),
+          item_type: ((r as Record<string,unknown>).item_type as 'product' | 'service') || 'product',
           is_manual: Boolean((r as Record<string,unknown>).is_manual),
           source: String((r as Record<string,unknown>).source || ''),
+          business_id: String((r as Record<string,unknown>).business_id || '1'),
         })))
       }
 
@@ -1612,21 +1092,10 @@ export default function Dashboard() {
 
   const applyAnalyticsPreset = (preset: 'all' | 'today' | 'week' | 'month' | 'year' | 'custom') => {
     setAnalyticsDatePreset(preset)
-    if (preset === 'all')    { setAnalyticsDateFrom(''); setAnalyticsDateTo(''); return }
     if (preset === 'custom') return
-    const today = new Date()
-    const todayStr = today.toISOString().slice(0, 10)
-    if (preset === 'today') {
-      setAnalyticsDateFrom(todayStr); setAnalyticsDateTo(todayStr)
-    } else if (preset === 'week') {
-      const d = new Date(today); d.setDate(today.getDate() - 6)
-      setAnalyticsDateFrom(d.toISOString().slice(0, 10)); setAnalyticsDateTo(todayStr)
-    } else if (preset === 'month') {
-      setAnalyticsDateFrom(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`)
-      setAnalyticsDateTo(todayStr)
-    } else if (preset === 'year') {
-      setAnalyticsDateFrom(`${today.getFullYear()}-01-01`); setAnalyticsDateTo(todayStr)
-    }
+    const { from, to } = getISTDateRange(preset)
+    setAnalyticsDateFrom(from)
+    setAnalyticsDateTo(to)
   }
 
   const applyDatePreset = (preset: 'today' | 'week' | 'month' | 'custom') => {
@@ -2919,7 +2388,7 @@ export default function Dashboard() {
                     },
                     {
                       label: 'Product Revenue',
-                      helper: 'POS retail sales',
+                      helper: 'Retail & catalog products',
                       value: formatCurrency(analytics.productRevenue),
                       icon: <Package size={16} />,
                       color: 'text-emerald-500',
@@ -2927,11 +2396,19 @@ export default function Dashboard() {
                     },
                     {
                       label: 'Service Revenue',
-                      helper: 'Tailoring / advance orders',
+                      helper: 'Tailoring, stitching & alterations',
                       value: formatCurrency(analytics.serviceRevenue),
                       icon: <Tag size={16} />,
                       color: 'text-cyan-500',
                       bg: 'bg-cyan-50',
+                    },
+                    {
+                      label: 'Advance Received',
+                      helper: 'Uncompleted deposits (Liability)',
+                      value: formatCurrency(analytics.advanceReceivedPending),
+                      icon: <Receipt size={16} />,
+                      color: 'text-amber-500',
+                      bg: 'bg-amber-50',
                     },
                     {
                       label: 'Total Expenses',
@@ -2999,11 +2476,19 @@ export default function Dashboard() {
                     },
                     {
                       label: 'Top Product',
-                      helper: 'Most sold item',
+                      helper: 'Most sold product',
                       value: analytics.bestProduct || 'No sales yet',
                       icon: <Trophy size={16} />,
                       color: 'text-pink-500',
                       bg: 'bg-pink-50',
+                    },
+                    {
+                      label: 'Top Service',
+                      helper: 'Most booked service',
+                      value: analytics.bestService || 'No sales yet',
+                      icon: <Scissors size={16} />,
+                      color: 'text-purple-600',
+                      bg: 'bg-purple-50',
                     },
                   ].map((card, index) => (
                     <div key={index} className="bg-white rounded-card border border-borderLight p-5 sm:p-5 shadow-soft flex flex-col justify-between hover:shadow-md transition-shadow">
@@ -3235,7 +2720,7 @@ export default function Dashboard() {
                                 <td className="px-3 py-2.5 text-[#374151] whitespace-nowrap">{new Date(o.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</td>
                                 <td className="px-3 py-2.5"><span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${btClass}`}>{btLabel}</span></td>
                                 <td className="px-3 py-2.5">
-                                  <button onClick={() => void openOrderInvoice(o, 'view')} className="inline-flex items-center gap-1 rounded-lg border border-[#E5E7EB]/60 px-2 py-1.5 text-[11px] font-black text-[#111111] hover:bg-[#F9FAFB]" title="View Invoice">
+                                  <button onClick={() => void openOrderInvoice(o as unknown as DashboardOrder, 'view')} className="inline-flex items-center gap-1 rounded-lg border border-[#E5E7EB]/60 px-2 py-1.5 text-[11px] font-black text-[#111111] hover:bg-[#F9FAFB]" title="View Invoice">
                                     <Eye size={13} /> View Invoice
                                   </button>
                                 </td>

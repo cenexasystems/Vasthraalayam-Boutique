@@ -52,6 +52,14 @@
       "destination": "/api/orders?id=:id"
     },
     {
+      "source": "/api/printer-profiles",
+      "destination": "/api/custom-label-sizes?resource=profiles"
+    },
+    {
+      "source": "/api/printer-profiles/:id",
+      "destination": "/api/custom-label-sizes?resource=profiles&id=:id"
+    },
+    {
       "source": "/api/products/:id",
       "destination": "/api/products?id=:id"
     },

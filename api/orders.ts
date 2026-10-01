@@ -116,7 +116,7 @@ async function list(req: VercelRequest, res: VercelResponse) {
       order_mode, order_type, user_id, items, coupon_code, discount_amount,
       manual_discount_amount, delivery_charge, total_gst, gst_amount, payment_mode,
       payment_method, remarks, tailor_name, reference_number, invoice_pdf_url,
-      payments, change_given
+      payments, change_given, business_id
     FROM public.orders
     WHERE ${whereClause}
     ORDER BY created_at DESC
@@ -134,7 +134,7 @@ async function getById(req: VercelRequest, res: VercelResponse) {
       order_mode, order_type, user_id, items, coupon_code, discount_amount,
       manual_discount_amount, delivery_charge, total_gst, gst_amount, payment_mode,
       payment_method, remarks, tailor_name, reference_number, invoice_pdf_url,
-      payments, change_given
+      payments, change_given, business_id
     FROM public.orders
     WHERE id = ${id}
     LIMIT 1
@@ -157,7 +157,7 @@ async function listOrderItems(req: VercelRequest, res: VercelResponse) {
   }
 
   const rows = await sql`
-    SELECT order_id, product_id, product_name, variant_name, category, quantity, line_total, is_manual, source
+    SELECT order_id, product_id, product_name, variant_name, category, quantity, line_total, is_manual, source, item_type, business_id
     FROM public.order_items
     WHERE order_id IN ${sql(orderIds)}
   `

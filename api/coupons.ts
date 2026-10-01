@@ -9,18 +9,19 @@ import { methodRouter } from './_lib/handler.js'
 //   GET /api/coupons/:code    -> ?code=:code   (public lookup)
 //   PUT/DELETE /api/coupons/id/:id -> ?id=:id  (admin management)
 
-const COUPON_COLUMNS = 'id, code, percentage, is_active, expiry_date, usage_limit, usage_count, min_order_value, created_at'
-const WRITABLE_COLUMNS = new Set(['code', 'percentage', 'is_active', 'expiry_date', 'usage_limit', 'min_order_value'])
+const COUPON_COLUMNS = 'id, code, percentage, is_active, expiry_date, usage_limit, usage_count, min_order_value, created_at, COALESCE(business_id, \'1\') AS business_id'
+const WRITABLE_COLUMNS = new Set(['code', 'percentage', 'is_active', 'expiry_date', 'usage_limit', 'min_order_value', 'business_id'])
 
 async function list(req: VercelRequest, res: VercelResponse) {
   if (!requireAuth(req, res)) return
 
   const activeOnly = req.query.active === 'true'
   const limit = Math.min(Number(req.query.limit) || 100, 500)
+  const bizId = String(req.query.business_id || '').trim() || '1'
 
   const rows = activeOnly
-    ? await sql.unsafe(`SELECT ${COUPON_COLUMNS} FROM public.coupons WHERE is_active = true ORDER BY created_at DESC LIMIT $1`, [limit])
-    : await sql.unsafe(`SELECT ${COUPON_COLUMNS} FROM public.coupons ORDER BY created_at DESC LIMIT $1`, [limit])
+    ? await sql.unsafe(`SELECT ${COUPON_COLUMNS} FROM public.coupons WHERE is_active = true AND business_id = $2 ORDER BY created_at DESC LIMIT $1`, [limit, bizId])
+    : await sql.unsafe(`SELECT ${COUPON_COLUMNS} FROM public.coupons WHERE business_id = $2 ORDER BY created_at DESC LIMIT $1`, [limit, bizId])
 
   res.status(200).json({ data: rows })
 }

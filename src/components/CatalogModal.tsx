@@ -266,9 +266,16 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                       <div className="pt-2 border-t border-[#E5E7EB]/40 flex items-center justify-between gap-1.5">
                         <div className="flex flex-col min-w-0">
                           <span className="text-[14px] font-black text-[#111111] tabular-nums">₹{product.price}</span>
-                          <span className="text-[9px] font-bold text-[#374151] uppercase tracking-wider bg-[#F9FAFB] px-1.5 py-0.5 rounded border border-[#E5E7EB]/40 truncate max-w-[80px]">
-                            {product.category}
-                          </span>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <span className="text-[9px] font-bold text-[#374151] uppercase tracking-wider bg-[#F9FAFB] px-1.5 py-0.5 rounded border border-[#E5E7EB]/40 truncate max-w-[80px]">
+                              {product.category}
+                            </span>
+                            {product.itemType === 'service' && (
+                              <span className="text-[9px] font-black uppercase tracking-wider bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded border border-purple-200 shrink-0">
+                                Service
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                           <button

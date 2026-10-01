@@ -13,7 +13,7 @@
  * per-session token instead.
  */
 
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') || '/api'
+const BASE_URL = (import.meta?.env?.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') || '/api'
 
 let sessionToken: string | null = null
 

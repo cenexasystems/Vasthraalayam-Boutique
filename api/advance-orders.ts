@@ -60,6 +60,7 @@ function normalizeOrder(row: Record<string, unknown>) {
     completed_order_id: row.completed_order_id ? String(row.completed_order_id) : null,
     invoice_number: row.invoice_number ? String(row.invoice_number) : null,
     final_payment_method: row.final_payment_method ? String(row.final_payment_method) : null,
+    business_id: String(row.business_id || '1'),
   }
 }
 
@@ -67,6 +68,8 @@ function normalizeOrder(row: Record<string, unknown>) {
 async function list(req: VercelRequest, res: VercelResponse) {
   if (!requireAuth(req, res)) return
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+
+  const bizId = String(req.query.business_id || '').trim() || '1'
 
   try {
     const rows = await sql`
@@ -77,8 +80,10 @@ async function list(req: VercelRequest, res: VercelResponse) {
         expected_delivery_date, status, remarks,
         COALESCE(reference_number, '') AS reference_number,
         created_by, created_by_name, created_at, updated_at,
-        completed_at, completed_order_id, invoice_number, final_payment_method
+        completed_at, completed_order_id, invoice_number, final_payment_method,
+        COALESCE(business_id, '1') AS business_id
       FROM public.advance_orders
+      WHERE business_id = ${bizId}
       ORDER BY created_at DESC
       LIMIT 1000
     `
