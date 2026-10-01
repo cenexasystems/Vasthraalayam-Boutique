@@ -1,4 +1,5 @@
 import { neonApi } from '../lib/neonApi'
+import { getCurrentBusinessId } from '../lib/barcode'
 
 // Products/categories now live in Neon (Phase 1 + this Dashboard-CRUD pass) — see neon/README.md.
 
@@ -15,6 +16,7 @@ export async function updateItemPrice(params: {
   id: number | string
   newPrice: number
   newCostPrice?: number
+  businessId?: string
 }): Promise<void> {
   if (params.newPrice < 0) throw new Error('Price cannot be negative')
 
@@ -26,7 +28,10 @@ export async function updateItemPrice(params: {
     updatePayload.purchase_price = params.newCostPrice
   }
 
-  const path = params.entityType === 'variant' ? `/variants/${params.id}` : `/products/${params.id}`
+  const bizId = params.businessId || getCurrentBusinessId()
+  const path = params.entityType === 'variant'
+    ? `/variants/${params.id}`
+    : `/products/${params.id}?business_id=${encodeURIComponent(bizId)}`
   const { error } = await neonApi.put(path, updatePayload)
   if (error) throw error
 }

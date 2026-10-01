@@ -360,6 +360,7 @@ export function computeAnalytics({
         return parsed.map(row => {
           const r = row as Record<string, unknown>
           const rawItemType = (r.item_type as string) || (r.itemType as string)
+          const validItemType = rawItemType === 'service' || rawItemType === 'product' ? (rawItemType as LineItemType) : undefined
           return {
             order_id: order.id,
             product_id: r.product_id as string | number | null | undefined,
@@ -368,7 +369,7 @@ export function computeAnalytics({
             category: String(r.category || 'Uncategorized'),
             quantity: toNumber(r.quantity ?? r.qty, 1),
             line_total: toNumber(r.line_total ?? r.lineTotal, 0),
-            item_type: (rawItemType === 'service' ? 'service' : 'product') as LineItemType,
+            item_type: validItemType,
             is_manual: Boolean(r.is_manual),
             source: String(r.source || ''),
           } as AnalyticsLineItem
@@ -426,17 +427,26 @@ export function computeAnalytics({
       const catName = it.category || 'Uncategorized'
 
       // STRICT CLASSIFICATION:
-      // 1. Explicit line item_type from order_items
-      // 2. Catalog product item_type lookup by product_id
-      // 3. Catalog product item_type lookup by product name
-      // 4. Default to 'product'
+      // 1. Line item explicit item_type if valid ('service' | 'product')
+      // 2. Catalog product item_type lookup by id or name
+      // 3. Fallback to 'product'
+      // A service must never appear in the Products table or totals, and a product never in Services.
+      const catalogTypeById = idKey ? prodTypeById.get(idKey) : undefined
+      const catalogTypeByName = prodTypeByName.get(mainName.toLowerCase())
+      const catalogType = catalogTypeById || catalogTypeByName
+
       let resolvedType: LineItemType = 'product'
-      if (it.item_type === 'service' || it.item_type === 'product') {
-        resolvedType = it.item_type
-      } else if (idKey && prodTypeById.get(idKey)) {
-        resolvedType = prodTypeById.get(idKey)!
-      } else if (prodTypeByName.get(mainName.toLowerCase())) {
-        resolvedType = prodTypeByName.get(mainName.toLowerCase())!
+      if (it.item_type === 'service') {
+        resolvedType = 'service'
+      } else if (catalogType === 'service') {
+        // Catalog explicitly defines this as a service (e.g. "Test Tailoring Service")
+        resolvedType = 'service'
+      } else if (it.item_type === 'product') {
+        resolvedType = 'product'
+      } else if (catalogType === 'product') {
+        resolvedType = 'product'
+      } else {
+        resolvedType = 'product'
       }
 
       if (resolvedType === 'product') {

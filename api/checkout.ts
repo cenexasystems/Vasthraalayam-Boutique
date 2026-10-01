@@ -19,8 +19,24 @@ export interface PaymentItem {
 function sanitizeItems(items: IncomingItem[]): IncomingItem[] {
   return items.map((item) => {
     const isManual = Boolean(item.is_manual) || item.source === 'manual' || item.category === 'Unregistered'
-    if (!isManual) return item
-    return { ...item, product_id: null, variant_id: null }
+    const rawType = (item.item_type as string) || (item.itemType as string)
+    const itType = rawType === 'service' ? 'service' : (rawType === 'product' ? 'product' : undefined)
+    const normalized: IncomingItem = {
+      ...item,
+      product_id: item.product_id ?? item.productId ?? null,
+      variant_id: item.variant_id ?? item.variantId ?? null,
+      quantity: Number(item.quantity ?? item.qty ?? 1),
+      unit_price: Number(item.unit_price ?? item.base_price ?? item.basePrice ?? item.price ?? 0),
+      base_price: Number(item.base_price ?? item.basePrice ?? item.unit_price ?? item.price ?? 0),
+      product_name: String(item.product_name || item.name || 'Product'),
+      product_tamil_name: item.product_tamil_name ?? item.tamilName ?? item.nameTa ?? null,
+      item_type: itType,
+    }
+    if (isManual) {
+      normalized.product_id = null
+      normalized.variant_id = null
+    }
+    return normalized
   })
 }
 

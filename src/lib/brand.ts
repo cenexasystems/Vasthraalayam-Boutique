@@ -30,5 +30,5 @@ export const BRAND_WHATSAPP_LINK = `https://wa.me/${BRAND_PRIMARY_PHONE_E164}`
 export const BRAND_EMAIL = ''
 export const BRAND_ADDRESS = 'No. 465/10, Medavakkam Main Road, Ullagaram, Puzhudhivakkam, Chennai - 600091'
 export const BRAND_INSTAGRAM = 'vasthraalayamboutique'
-export const BRAND_INSTAGRAM_URL = 'https://www.instagram.com/vasthraalayamboutique?utm_source=qr&stkn=dmd4MW91YTRpZ2R2'
+export const BRAND_INSTAGRAM_URL = 'https://www.instagram.com/vasthraalayamboutique/'
 export const BRAND_LOCATION_LINK = 'https://www.google.com/maps/search/?api=1&query=No+465%2F10+Medavakkam+Main+Road+Ullagaram+Puzhudhivakkam+Chennai+600091'

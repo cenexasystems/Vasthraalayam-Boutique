@@ -139,7 +139,7 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-2 min-[360px]:p-3 sm:p-4">
       <div className="bg-white rounded-2xl sm:rounded-3xl w-full max-w-5xl flex min-h-0 flex-col shadow-2xl overflow-hidden border border-[#E5E7EB]/40 max-h-[calc(100dvh-1rem)] sm:max-h-[85vh]">
 
         {editingProduct ? (
@@ -212,16 +212,20 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                   placeholder="Search by product name, Tamil name, or category..."
                   className="w-full pl-10 pr-4 py-3 bg-[#FAFAFA] border border-[#E5E7EB]/60 rounded-xl focus:outline-none focus:border-[#7daa8f] text-[13px] font-bold text-[#111111]" />
               </div>
-              <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-                {categories.map(cat => (
-                  <button key={cat} onClick={() => setActiveCategory(cat)}
-                    className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-wider whitespace-nowrap transition-colors ${activeCategory === cat ? 'bg-[#7daa8f] text-white' : 'bg-[#FAFAFA] text-[#374151] hover:bg-[#F9FAFB] border border-[#E5E7EB]/60'}`}>
-                    {cat}
-                  </button>
-                ))}
+              <div className="relative">
+                <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar pr-8 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                  {categories.map(cat => (
+                    <button key={cat} onClick={() => setActiveCategory(cat)}
+                      className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-wider whitespace-nowrap shrink-0 transition-colors ${activeCategory === cat ? 'bg-[#7daa8f] text-white' : 'bg-[#FAFAFA] text-[#374151] hover:bg-[#F9FAFB] border border-[#E5E7EB]/60'}`}>
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+                {/* Visual fade on right edge indicating scrollability */}
+                <div className="pointer-events-none absolute right-0 top-0 bottom-1 w-8 bg-gradient-to-l from-white via-white/80 to-transparent" />
               </div>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4 bg-[#FAFAFA] relative">
+            <div className="min-h-0 flex-1 overflow-y-auto p-2.5 sm:p-4 bg-[#FAFAFA] relative">
               {loading ? (
                 <div className="flex min-h-48 flex-col items-center justify-center gap-3 text-[#374151]/70">
                   <span className="h-7 w-7 animate-spin rounded-full border-2 border-[#E5E7EB] border-t-[#7daa8f]" />
@@ -238,7 +242,7 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                   <p className="text-[14px] font-bold">No products found</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 min-[360px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                <div className="grid grid-cols-1 min-[360px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-3 items-stretch">
                   {filtered.map(product => (
                     <div
                       key={product.id}
@@ -251,19 +255,64 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                           handleCardClick(product)
                         }
                       }}
-                      className="bg-white border border-[#E5E7EB]/80 rounded-2xl p-3.5 flex flex-col justify-between gap-3 hover:border-[#7daa8f] hover:shadow-md active:scale-[0.98] transition-all cursor-pointer touch-manipulation select-none group min-h-[96px]"
+                      className="bg-white border border-[#E5E7EB]/80 rounded-2xl p-2.5 min-[390px]:p-3 sm:p-3.5 flex flex-col justify-between gap-2.5 sm:gap-3 hover:border-[#7daa8f] hover:shadow-md active:scale-[0.98] transition-all cursor-pointer touch-manipulation select-none group min-h-[96px] h-full"
                     >
+                      {/* Row 1: Item name (wraps to 2 lines if long, never overlapped) & secondary text */}
                       <div className="w-full">
-                        <h4 className="text-[13px] font-black text-[#111111] leading-snug group-hover:text-[#7daa8f] transition-colors break-words line-clamp-2">
+                        <h4 className="text-[13px] font-black text-[#111111] leading-snug group-hover:text-[#7daa8f] transition-colors break-words line-clamp-2" title={product.name}>
                           {product.name}
                         </h4>
                         {product.nameTa && (
-                          <p className="text-[10px] font-bold text-[#374151] mt-0.5 truncate">
+                          <p className="text-[10px] font-bold text-[#374151] mt-0.5 line-clamp-1 break-words">
                             {product.nameTa}
                           </p>
                         )}
                       </div>
-                      <div className="pt-2 border-t border-[#E5E7EB]/40 flex items-center justify-between gap-1.5">
+
+                      {/* MOBILE (screens under 640px): 3-Row Layout with Row 2 & Row 3 */}
+                      <div className="flex flex-col gap-2 pt-2 border-t border-[#E5E7EB]/40 sm:hidden">
+                        {/* Row 2: Price on left, edit & delete buttons on right */}
+                        <div className="flex items-center justify-between gap-2 min-w-0">
+                          <div className="min-w-0 flex-1">
+                            <span className="text-[13px] min-[390px]:text-[14px] font-black text-[#111111] tabular-nums block truncate">
+                              ₹{product.price}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); startEdit(product) }}
+                              title="Edit product"
+                              className="w-9 h-9 min-h-[36px] min-w-[36px] p-2 flex items-center justify-center rounded-xl bg-white border border-[#E5E7EB]/80 text-[#374151] hover:text-[#7daa8f] hover:border-[#7daa8f]/40 active:scale-95 shadow-xs transition-all cursor-pointer shrink-0"
+                            >
+                              <Edit2 size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); void handleDelete(product) }}
+                              title="Delete product"
+                              className="w-9 h-9 min-h-[36px] min-w-[36px] p-2 flex items-center justify-center rounded-xl bg-white border border-[#E5E7EB]/80 text-red-400 hover:text-red-600 hover:border-red-300 active:scale-95 shadow-xs transition-all cursor-pointer shrink-0"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Row 3: Badges full-width row with flex-wrap and small gap */}
+                        <div className="flex items-center gap-1.5 flex-wrap w-full">
+                          <span className="text-[10px] font-bold text-[#374151] uppercase tracking-wider bg-[#F9FAFB] px-2 py-0.5 rounded border border-[#E5E7EB]/40 whitespace-nowrap">
+                            {product.category}
+                          </span>
+                          {product.itemType === 'service' && (
+                            <span className="text-[10px] font-black uppercase tracking-wider bg-purple-100 text-purple-800 px-2 py-0.5 rounded border border-purple-200 whitespace-nowrap">
+                              Service
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* DESKTOP (screens >= 640px): Kept exactly as it was */}
+                      <div className="hidden sm:flex pt-2 border-t border-[#E5E7EB]/40 items-center justify-between gap-1.5">
                         <div className="flex flex-col min-w-0">
                           <span className="text-[14px] font-black text-[#111111] tabular-nums">₹{product.price}</span>
                           <div className="flex items-center gap-1 mt-0.5">

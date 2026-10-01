@@ -164,7 +164,106 @@ async function listOrderItems(req: VercelRequest, res: VercelResponse) {
   res.status(200).json({ data: rows })
 }
 
+async function getPublicInvoice(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+  const raw = String(req.query.id || req.query.invoice_no || '').trim()
+  if (!raw) {
+    res.status(400).json({ error: 'Invoice identifier is required' })
+    return
+  }
+
+  const isUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw)
+  const stripped = raw.replace(/^(INV|PB)[-_ ]*/i, '').trim()
+  const digits = raw.replace(/\D/g, '')
+  const unpadded = digits.replace(/^0+/, '')
+  const padded8 = digits ? digits.padStart(8, '0') : ''
+  const candidates = Array.from(new Set([stripped, raw, digits, unpadded, padded8, `INV${padded8}`, `INV-${padded8}`])).filter(Boolean)
+
+  let rows = isUuidPattern
+    ? await sql`
+        SELECT
+          id, invoice_no, customer_name, phone, address, created_at, total, status,
+          order_mode, order_type, user_id, items, coupon_code, discount_amount,
+          manual_discount_amount, delivery_charge, total_gst, gst_amount, payment_mode,
+          payment_method, remarks, tailor_name, reference_number, invoice_pdf_url,
+          payments, change_given, business_id
+        FROM public.orders
+        WHERE id = ${raw} OR invoice_no IN ${sql(candidates)}
+        LIMIT 1
+      `
+    : await sql`
+        SELECT
+          id, invoice_no, customer_name, phone, address, created_at, total, status,
+          order_mode, order_type, user_id, items, coupon_code, discount_amount,
+          manual_discount_amount, delivery_charge, total_gst, gst_amount, payment_mode,
+          payment_method, remarks, tailor_name, reference_number, invoice_pdf_url,
+          payments, change_given, business_id
+        FROM public.orders
+        WHERE invoice_no IN ${sql(candidates)}
+        LIMIT 1
+      `
+
+  if (rows.length > 0) {
+    res.status(200).json({ data: formatOrderRow(rows[0] as Record<string, unknown>) })
+    return
+  }
+
+  // Fallback to advance_orders table if not found in orders
+  const advRows = isUuidPattern
+    ? await sql`
+        SELECT *
+        FROM public.advance_orders
+        WHERE id = ${raw} OR invoice_number IN ${sql(candidates)} OR deposit_id IN ${sql(candidates)}
+        LIMIT 1
+      `
+    : await sql`
+        SELECT *
+        FROM public.advance_orders
+        WHERE invoice_number IN ${sql(candidates)} OR deposit_id IN ${sql(candidates)}
+        LIMIT 1
+      `
+
+  if (advRows.length > 0) {
+    const adv = advRows[0] as Record<string, unknown>
+    const advItems = Array.isArray(adv.products) && adv.products.length > 0
+      ? adv.products
+      : [{
+          name: adv.product_name || 'Advance Order Item',
+          quantity: 1,
+          unit: 'piece',
+          unit_type: 'unit',
+          base_price: Number(adv.total_amount || 0),
+          line_total: Number(adv.total_amount || 0),
+        }]
+    const mapped = {
+      id: adv.completed_order_id || adv.id,
+      invoice_no: adv.invoice_number || adv.deposit_id,
+      customer_name: adv.customer_name,
+      phone: adv.phone,
+      address: adv.address || '',
+      items: advItems,
+      total: Number(adv.total_amount || 0),
+      subtotal: Number(adv.total_amount || 0),
+      delivery_charge: 0,
+      discount_amount: 0,
+      manual_discount_amount: 0,
+      total_gst: 0,
+      gst_amount: 0,
+      status: adv.status,
+      payment_mode: adv.final_payment_method || 'Advance Payment',
+      payments: [{ mode: String(adv.final_payment_method || 'advance').toLowerCase(), amount: Number(adv.total_amount || 0) }],
+      change_given: 0,
+      created_at: adv.completed_at || adv.created_at,
+    }
+    res.status(200).json({ data: mapped })
+    return
+  }
+
+  res.status(404).json({ error: 'Invoice not found' })
+}
+
 async function get(req: VercelRequest, res: VercelResponse) {
+  if (req.query.action === 'public' || req.query.public === 'true') return getPublicInvoice(req, res)
   if (req.query.resource === 'items') return listOrderItems(req, res)
   if (req.query.id !== undefined) return getById(req, res)
   return list(req, res)

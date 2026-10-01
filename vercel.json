@@ -48,6 +48,10 @@
       "destination": "/api/orders?resource=items"
     },
     {
+      "source": "/api/orders/public/:id",
+      "destination": "/api/orders?action=public&id=:id"
+    },
+    {
       "source": "/api/orders/:id",
       "destination": "/api/orders?id=:id"
     },

@@ -9,8 +9,8 @@ import {
   Edit2, AlertCircle, Check,
   Banknote, QrCode, CreditCard, Split
 } from 'lucide-react'
-import { isSupabaseConfigured, supabase } from '../lib/supabase'
 import { neonApi } from '../lib/neonApi'
+import { getCurrentBusinessId } from '../lib/barcode'
 import { useProductStore, useVariantStore, useAdminAuthStore, useSettingsStore, type Product } from '../store/store'
 import { useNavigationStore } from '../store/navigationStore'
 import { barcodeService } from '../services/barcodeService'
@@ -36,7 +36,7 @@ import { useLangStore } from '../store/langStore'
 import { fetchVariantsByProduct, type ProductVariant } from '../services/variantService'
 import { BarcodeScannerInput, type ScannedItemPayload } from '../components/pos/BarcodeScannerInput'
 import { AddUnregisteredItemModal } from '../components/pos/AddUnregisteredItemModal'
-import { getOrCreateUnregisteredProduct } from '../services/productService'
+import { getOrCreateUnregisteredProduct, updateItemPrice } from '../services/productService'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 type PosItem = Product & {
@@ -685,28 +685,21 @@ export default function Pos(props: PosProps = {}) {
     if (updateInventory) {
       setPriceEditModal(prev => ({ ...prev, isSubmitting: true, error: '' }))
       try {
-        if (!isSupabaseConfigured) {
-          throw new Error('Database is not configured')
+        const entityType = item.variantId ? 'variant' : 'product'
+        const rawDbId = item.variantId || item.parentProductId || item.id
+        const entityId = toProductId(rawDbId)
+        if (!entityId) {
+          throw new Error('Item has no database identifier')
         }
 
-        // 1. If item has a variant ID, update product_variants table
-        if (item.variantId) {
-          const { error: variantErr } = await supabase
-            .from('product_variants')
-            .update({ price: parsedPrice })
-            .eq('id', item.variantId)
-          if (variantErr) throw variantErr
-        } else {
-          // 2. Otherwise update standard products table
-          const realDbId = toProductId(item.parentProductId || item.id)
-          if (realDbId) {
-            const { error: prodErr } = await supabase
-              .from('products')
-              .update({ price: parsedPrice })
-              .eq('id', realDbId)
-            if (prodErr) throw prodErr
-          }
-        }
+        const bizId = getCurrentBusinessId()
+
+        await updateItemPrice({
+          entityType,
+          id: entityId,
+          newPrice: parsedPrice,
+          businessId: bizId,
+        })
 
         // Refresh product stores so catalog reflects new price
         void fetchProducts(true)
@@ -716,7 +709,7 @@ export default function Pos(props: PosProps = {}) {
         setPriceEditModal(prev => ({
           ...prev,
           isSubmitting: false,
-          error: err instanceof Error ? err.message : 'Failed to update price in inventory'
+          error: 'Could not update price, try again'
         }))
         return
       }
@@ -885,7 +878,10 @@ export default function Pos(props: PosProps = {}) {
       }
     }
     // Validate online mode availability
-    if (ordermode === 'online' && !isSupabaseConfigured) { setError('Cannot place online orders while offline'); return }
+    if (ordermode === 'online' && typeof navigator !== 'undefined' && !navigator.onLine) {
+      setError('Cannot place online orders while offline')
+      return
+    }
     setSaving(true); setError('')
     try {
       const activeSplitPayments: Array<{ mode: 'cash' | 'qr' | 'card' | 'online'; amount: number }> = []
@@ -1090,7 +1086,9 @@ export default function Pos(props: PosProps = {}) {
       })
       // Upload PDF and save its URL — total fields already saved immediately after RPC
       const url = await uploadInvoicePdf(file, inv.invoiceNo)
-      await supabase.from('orders').update({ invoice_pdf_url: url }).eq('id', inv.id)
+      if (url) {
+        await neonApi.patch(`/orders/${inv.id}`, { invoice_pdf_url: url })
+      }
       setInvoice(current => current?.id === inv.id ? { ...current, invoicePdfUrl: url } : current)
     } catch (err) {
       console.warn('Invoice PDF could not be stored:', err)
@@ -2281,6 +2279,12 @@ export default function Pos(props: PosProps = {}) {
             </div>
           </div>
         </div>
+      )}
+
+      {!embeddedMode && (
+        <footer className="shrink-0 border-t border-gray-200/80 bg-white/95 backdrop-blur-sm py-2 px-3 text-center text-[11px] sm:text-[12px] font-semibold text-[#7A8A78] tracking-wide print:hidden pb-[max(0.5rem,env(safe-area-inset-bottom))] mt-auto">
+          Powered by Cenexa Systems © 2026
+        </footer>
       )}
     </div>
   )

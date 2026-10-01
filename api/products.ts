@@ -28,7 +28,7 @@ const WRITABLE_COLUMNS = new Set([
   'allow_decimal_quantity', 'predefined_options', 'description', 'description_ta',
   'benefits', 'benefits_ta', 'image', 'image_url', 'sku', 'barcode', 'brand',
   'supplier', 'size', 'color', 'rating', 'has_variants', 'is_active', 'sort_order',
-  'item_type',
+  'item_type', 'business_id',
 ])
 
 async function list(req: VercelRequest, res: VercelResponse) {
@@ -86,6 +86,10 @@ async function create(req: VercelRequest, res: VercelResponse) {
 async function put(req: VercelRequest, res: VercelResponse) {
   if (!requireAuth(req, res)) return
   const id = Number(req.query.id)
+  if (!id || isNaN(id)) {
+    res.status(400).json({ error: 'Invalid product id' })
+    return
+  }
   const body = (req.body ?? {}) as Record<string, unknown>
 
   const updates: Record<string, unknown> = {}
@@ -102,12 +106,20 @@ async function put(req: VercelRequest, res: VercelResponse) {
     updates.offer_price = updates.price
   }
 
-  const rows = await sql`
-    UPDATE public.products
-    SET ${sql(updates)}, updated_at = NOW()
-    WHERE id = ${id}
-    RETURNING id
-  `
+  const businessId = String(req.query.business_id || body.business_id || '').trim()
+  const rows = businessId
+    ? await sql`
+        UPDATE public.products
+        SET ${sql(updates)}, updated_at = NOW()
+        WHERE id = ${id} AND (business_id = ${businessId} OR business_id = '1')
+        RETURNING id
+      `
+    : await sql`
+        UPDATE public.products
+        SET ${sql(updates)}, updated_at = NOW()
+        WHERE id = ${id}
+        RETURNING id
+      `
   if (rows.length === 0) {
     res.status(404).json({ error: 'Product not found' })
     return

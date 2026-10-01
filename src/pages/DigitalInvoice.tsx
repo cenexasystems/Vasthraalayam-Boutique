@@ -1,43 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { supabase, isSupabaseConfigured } from '../lib/supabase'
+import { neonApi } from '../lib/neonApi'
 import { Invoice } from '../components/Invoice'
 import { Printer, ArrowLeft, MessageCircle } from 'lucide-react'
 import { printThermalReceipt } from '../lib/thermalPrint'
 import { invoicePdfFile, invoicePdfFileFromElement } from '../lib/invoicePdf'
 import { uploadInvoicePdf } from '../lib/storage'
-import { isUuid, normalizeStructuredOrderItem, formatInvoiceNo } from '../lib/retail'
+import { normalizeStructuredOrderItem } from '../lib/retail'
 import { buildProfessionalWhatsAppMessage } from '../lib/whatsappMessage'
 import { toWhatsAppUrl } from '../lib/phone'
-
-function buildLookupCandidates(id: string): string[] {
-  const raw = decodeURIComponent(id || '').trim()
-  if (!raw) return []
-
-  const candidates = new Set<string>()
-
-  // 1. Stripped prefix (e.g. "INV00000030" -> "00000030") - highest priority because DB stores 8 digits without prefix
-  const stripped = raw.replace(/^(INV|PB)[-_ ]*/i, '').trim()
-  if (stripped) candidates.add(stripped)
-
-  // 2. Numeric digits padded to 8 digits
-  const digits = raw.replace(/\D/g, '')
-  if (digits) {
-    candidates.add(digits.padStart(8, '0'))
-    candidates.add(digits)
-    const unpadded = digits.replace(/^0+/, '')
-    if (unpadded) candidates.add(unpadded)
-  }
-
-  // 3. Raw and uppercase
-  candidates.add(raw)
-  candidates.add(raw.toUpperCase())
-
-  // 4. Formatted with INV prefix
-  candidates.add(formatInvoiceNo(raw))
-
-  return Array.from(candidates).filter(Boolean)
-}
 
 export default function DigitalInvoice() {
   const { id } = useParams()
@@ -70,119 +41,20 @@ export default function DigitalInvoice() {
 
   useEffect(() => {
     async function loadInvoice() {
-      if (!isSupabaseConfigured) {
-        setError('Database connection not configured')
-        setLoading(false)
-        return
-      }
       try {
         const rawId = decodeURIComponent(id || '').trim()
         if (!rawId) {
           throw new Error('Invoice not found')
         }
 
-        const candidates = buildLookupCandidates(rawId)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let row: any = null
-
-        // 1. Try public RPC with candidates in priority order (00000030 tried first)
-        for (const candidate of candidates) {
-          try {
-            const { data, error: rpcErr } = await supabase.rpc('get_public_invoice_by_number', { p_invoice_no: candidate })
-            if (!rpcErr && data) {
-              const matched = Array.isArray(data) ? data[0] : data
-              if (matched && typeof matched === 'object' && ('id' in matched || 'invoice_no' in matched)) {
-                row = matched
-                break
-              }
-            }
-          } catch {
-            // continue
-          }
+        const { data, error: apiErr } = await neonApi.get<Record<string, unknown>>(
+          `/orders/public/${encodeURIComponent(rawId)}`
+        )
+        if (apiErr || !data) {
+          throw apiErr || new Error('Invoice not found')
         }
 
-        // 2. Direct table query fallback on orders table (supports unauthenticated anon query)
-        if (!row) {
-          try {
-            const { data: tableData } = await supabase
-              .from('orders')
-              .select('*')
-              .in('invoice_no', candidates)
-              .limit(1)
-
-            if (tableData && tableData[0]) {
-              row = tableData[0]
-            }
-          } catch {
-            // continue
-          }
-        }
-
-        // 3. Fallback to UUID lookup if rawId is a valid UUID (e.g. opened from dashboard)
-        if (!row && isUuid(rawId)) {
-          try {
-            const { data: idData } = await supabase
-              .from('orders')
-              .select('*')
-              .eq('id', rawId)
-              .maybeSingle()
-
-            if (idData) {
-              row = idData
-            }
-          } catch {
-            // continue
-          }
-        }
-
-        // 4. Fallback to advance_orders table if referenced by deposit_id or invoice_number
-        if (!row) {
-          try {
-            const { data: advData } = await supabase
-              .from('advance_orders')
-              .select('*')
-              .or(`invoice_number.in.(${candidates.map(c => `"${c}"`).join(',')}),deposit_id.in.(${candidates.map(c => `"${c}"`).join(',')})`)
-              .limit(1)
-
-            if (advData && advData[0]) {
-              const adv = advData[0]
-              const advItems = Array.isArray(adv.products) && adv.products.length > 0
-                ? adv.products
-                : [{
-                    name: adv.product_name || 'Advance Order Item',
-                    quantity: 1,
-                    unit: 'piece',
-                    unit_type: 'unit',
-                    base_price: adv.total_amount,
-                    line_total: adv.total_amount,
-                  }]
-              row = {
-                id: adv.completed_order_id || adv.id,
-                invoice_no: adv.invoice_number || adv.deposit_id,
-                customer_name: adv.customer_name,
-                phone: adv.phone,
-                address: adv.address || '',
-                items: advItems,
-                total: adv.total_amount,
-                subtotal: adv.total_amount,
-                delivery_charge: 0,
-                discount_amount: 0,
-                manual_discount_amount: 0,
-                total_gst: 0,
-                gst_amount: 0,
-                status: adv.status,
-                payment_mode: adv.final_payment_method || 'Advance Payment',
-                created_at: adv.completed_at || adv.created_at,
-              }
-            }
-          } catch {
-            // continue
-          }
-        }
-
-        if (!row) throw new Error('Invoice not found')
-
-        setInvoice(row)
+        setInvoice(data)
       } catch (err: unknown) {
         if (err instanceof Error) {
           setError(err.message)

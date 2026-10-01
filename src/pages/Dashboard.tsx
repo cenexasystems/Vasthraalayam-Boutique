@@ -243,16 +243,63 @@ const CatalogAnalyticsView: React.FC<CatalogAnalyticsViewProps> = ({
   const entityLabel = isProduct ? 'Product' : 'Service'
   const pluralLabel = isProduct ? 'products' : 'services'
 
-  const filteredItems = items.filter(it => {
-    if (!searchQuery.trim()) return true
-    const q = searchQuery.toLowerCase().trim()
-    return (
-      it.name.toLowerCase().includes(q) ||
-      (it.variant && it.variant.toLowerCase().includes(q)) ||
-      (it.sku && it.sku.toLowerCase().includes(q)) ||
-      (it.category && it.category.toLowerCase().includes(q))
-    )
-  })
+  type SortField = 'revenue' | 'qty' | 'bills' | 'avg' | 'name'
+  const [sortField, setSortField] = useState<SortField>('revenue')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')
+    } else {
+      setSortField(field)
+      setSortOrder('desc')
+    }
+  }
+
+  const filteredItems = useMemo(() => {
+    const list = items.filter(it => {
+      if (!searchQuery.trim()) return true
+      const q = searchQuery.toLowerCase().trim()
+      return (
+        it.name.toLowerCase().includes(q) ||
+        (it.variant && it.variant.toLowerCase().includes(q)) ||
+        (it.sku && it.sku.toLowerCase().includes(q)) ||
+        (it.category && it.category.toLowerCase().includes(q))
+      )
+    })
+
+    list.sort((a, b) => {
+      let valA: number | string = 0
+      let valB: number | string = 0
+      if (sortField === 'revenue') {
+        valA = a.revenue
+        valB = b.revenue
+      } else if (sortField === 'qty') {
+        valA = a.qty
+        valB = b.qty
+      } else if (sortField === 'bills') {
+        valA = a.billCount
+        valB = b.billCount
+      } else if (sortField === 'avg') {
+        valA = a.billCount > 0 ? a.revenue / a.billCount : a.revenue
+        valB = b.billCount > 0 ? b.revenue / b.billCount : b.revenue
+      } else if (sortField === 'name') {
+        valA = a.name.toLowerCase()
+        valB = b.name.toLowerCase()
+      }
+      if (typeof valA === 'string' && typeof valB === 'string') {
+        return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA)
+      }
+      return sortOrder === 'asc' ? (Number(valA) - Number(valB)) : (Number(valB) - Number(valA))
+    })
+
+    return list
+  }, [items, searchQuery, sortField, sortOrder])
+
+  const renderSortIndicator = (field: SortField) => {
+    if (sortField !== field) return null
+    return <span className="ml-1 text-[#7daa8f]">{sortOrder === 'desc' ? '↓' : '↑'}</span>
+  }
 
   return (
     <div className="space-y-6">
@@ -333,124 +380,100 @@ const CatalogAnalyticsView: React.FC<CatalogAnalyticsViewProps> = ({
         </div>
 
         {filteredItems.length > 0 ? (
-          <>
-            {/* Mobile-first card list */}
-            <div className="space-y-3 md:hidden">
-              {filteredItems.slice(0, 50).map((it, i) => (
-                <div
-                  key={`${it.name}-${it.variant || it.sku || i}`}
-                  className="rounded-2xl border border-[#E5E7EB]/30 bg-[#FBFAF6] p-4"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-[13px] font-black text-[#9BAB9A]">#{i + 1}</p>
-                      <p className="text-[16px] font-bold text-[#111111] break-words">
-                        {it.name}
-                      </p>
-                      <p className="text-[13px] text-[#374151]">
-                        {it.category || 'Uncategorized'}
-                        {it.variant && it.variant !== '-' ? ` • ${it.variant}` : ''}
-                        {it.sku ? ` • SKU: ${it.sku}` : ''}
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-[14px] font-black text-emerald-700">
-                        {formatCurrency(it.revenue)}
-                      </p>
-                      <p className="text-[11px] font-bold text-gray-400">
-                        {(it.share ?? 0).toFixed(1)}% share
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-3 grid grid-cols-3 gap-3 text-[13px]">
-                    <div className="flex flex-col justify-between">
-                      <p className="text-[#9BAB9A] uppercase text-[11px] font-black leading-tight">
-                        Qty Sold
-                      </p>
-                      <p className="font-bold text-[#111111] mt-1">{Math.round(it.qty)}</p>
-                    </div>
-                    <div className="flex flex-col justify-between">
-                      <p className="text-[#9BAB9A] uppercase text-[11px] font-black leading-tight">
-                        Avg Price
-                      </p>
-                      <p className="font-bold text-[#111111] mt-1">
-                        {formatCurrency(it.avgPrice ?? (it.qty > 0 ? it.revenue / it.qty : 0))}
-                      </p>
-                    </div>
-                    <div className="flex flex-col justify-between">
-                      <p className="text-[#9BAB9A] uppercase text-[11px] font-black leading-tight">
-                        Bills
-                      </p>
-                      <p className="font-bold text-[#111111] mt-1">{it.billCount}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
+          <div className="relative">
+            <div className="flex items-center justify-between text-[11px] font-bold text-[#6B7280] mb-2 sm:hidden px-1">
+              <span>{filteredItems.length} {pluralLabel}</span>
+              <span className="text-[#7daa8f] flex items-center gap-1 font-semibold">Swipe for more →</span>
             </div>
-
-            {/* Desktop responsive table */}
-            <div className="hidden md:block overflow-x-auto rounded-xl border border-[#E5E7EB]/30">
-              <table className="w-full min-w-[680px] text-left text-[12px]">
-                <thead className="bg-[#F9FAFB] text-[10px] uppercase tracking-wider text-[#374151]">
+            <div className="overflow-x-auto rounded-xl border border-[#E5E7EB]/40 [webkit-overflow-scrolling:touch]">
+              <table className="w-full min-w-[640px] text-left text-[12px] sm:text-[13px] border-collapse bg-white">
+                <thead className="bg-[#F9FAFB] text-[10px] sm:text-[11px] uppercase tracking-wider text-[#374151] select-none border-b border-[#E5E7EB]/30">
                   <tr>
-                    <th className="px-4 py-2.5 font-black">#</th>
-                    <th className="px-4 py-2.5 font-black min-w-[180px]">{entityLabel}</th>
-                    <th className="px-4 py-2.5 font-black">Category</th>
-                    <th className="px-4 py-2.5 font-black">SKU / Code</th>
-                    <th className="px-4 py-2.5 font-black text-right">Qty Sold</th>
-                    <th className="px-4 py-2.5 font-black text-right">Revenue</th>
-                    <th className="px-4 py-2.5 font-black text-right">Avg Price</th>
-                    <th className="px-4 py-2.5 font-black text-right">% Share</th>
-                    <th className="px-4 py-2.5 font-black text-right">Bills</th>
+                    <th className="sticky left-0 z-20 bg-[#F9FAFB] w-10 min-w-[40px] px-2 sm:px-4 py-2.5 font-black text-center text-[#9BAB9A]">
+                      #
+                    </th>
+                    <th
+                      onClick={() => handleSort('name')}
+                      className="sticky left-[40px] z-20 bg-[#F9FAFB] min-w-[140px] sm:min-w-[180px] px-2.5 sm:px-4 py-2.5 font-black text-left cursor-pointer hover:text-[#111111] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] whitespace-nowrap"
+                    >
+                      {entityLabel.toUpperCase()}
+                      {renderSortIndicator('name')}
+                    </th>
+                    <th className="px-2.5 sm:px-4 py-2.5 font-black text-left whitespace-nowrap min-w-[110px]">
+                      {isProduct ? 'VARIANT / SKU' : 'CATEGORY'}
+                    </th>
+                    <th
+                      onClick={() => handleSort('qty')}
+                      className="px-2.5 sm:px-4 py-2.5 font-black text-right whitespace-nowrap cursor-pointer hover:text-[#111111]"
+                    >
+                      QTY SOLD
+                      {renderSortIndicator('qty')}
+                    </th>
+                    <th
+                      onClick={() => handleSort('revenue')}
+                      className="px-2.5 sm:px-4 py-2.5 font-black text-right whitespace-nowrap cursor-pointer hover:text-[#111111]"
+                    >
+                      REVENUE
+                      {renderSortIndicator('revenue')}
+                    </th>
+                    <th
+                      onClick={() => handleSort('bills')}
+                      className="px-2.5 sm:px-4 py-2.5 font-black text-right whitespace-nowrap cursor-pointer hover:text-[#111111]"
+                    >
+                      BILLS
+                      {renderSortIndicator('bills')}
+                    </th>
+                    <th
+                      onClick={() => handleSort('avg')}
+                      className="px-2.5 sm:px-4 py-2.5 font-black text-right whitespace-nowrap cursor-pointer hover:text-[#111111]"
+                    >
+                      AVG REVENUE/BILL
+                      {renderSortIndicator('avg')}
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#E5E7EB]/20">
-                  {filteredItems.slice(0, 50).map((it, i) => (
+                  {filteredItems.slice(0, 100).map((it, i) => (
                     <tr
                       key={`${it.name}-${it.variant || it.sku || i}`}
-                      className="hover:bg-[#F9FAFB]/50 transition-colors"
+                      className="group hover:bg-[#F9FAFB]/50 transition-colors"
                     >
-                      <td className="px-4 py-2.5 text-[11px] text-[#9BAB9A] font-bold">
+                      <td className="sticky left-0 z-10 bg-white group-hover:bg-[#F9FAFB] w-10 min-w-[40px] px-2 sm:px-4 py-2 sm:py-2.5 text-[11px] sm:text-[12px] text-[#9BAB9A] font-bold text-center">
                         {i + 1}
                       </td>
-                      <td className="px-4 py-2.5 font-bold text-[#111111] min-w-[180px] whitespace-normal">
-                        <div>{it.name}</div>
-                        {it.variant && it.variant !== '-' && (
-                          <span className="text-[11px] text-gray-500 font-normal">
-                            ({it.variant})
-                          </span>
-                        )}
+                      <td className="sticky left-[40px] z-10 bg-white group-hover:bg-[#F9FAFB] min-w-[140px] sm:min-w-[180px] max-w-[200px] sm:max-w-none px-2.5 sm:px-4 py-2 sm:py-2.5 font-bold text-[#111111] text-[12px] sm:text-[13px] leading-snug break-words whitespace-normal shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">
+                        <div className="line-clamp-2 break-words" title={it.name}>
+                          {it.name}
+                        </div>
                       </td>
-                      <td className="px-4 py-2.5 text-[#374151] whitespace-nowrap">
-                        {it.category || 'Uncategorized'}
+                      <td className="px-2.5 sm:px-4 py-2 sm:py-2.5 text-[11px] sm:text-[12px] text-[#6B7280] whitespace-nowrap font-mono">
+                        {isProduct
+                          ? (it.variant && it.variant !== '-' ? it.variant : (it.sku || '-'))
+                          : (it.category || 'Uncategorized')}
                       </td>
-                      <td className="px-4 py-2.5 text-[#6B7280] font-mono text-[11px] whitespace-nowrap">
-                        {it.sku || it.variant || '-'}
-                      </td>
-                      <td className="px-4 py-2.5 font-bold text-[#111111] text-right whitespace-nowrap">
+                      <td className="px-2.5 sm:px-4 py-2 sm:py-2.5 font-bold text-[#111111] text-right whitespace-nowrap">
                         {Math.round(it.qty)}
                       </td>
-                      <td className="px-4 py-2.5 font-bold text-emerald-700 text-right whitespace-nowrap">
+                      <td className="px-2.5 sm:px-4 py-2 sm:py-2.5 font-bold text-emerald-700 text-right whitespace-nowrap">
                         {formatCurrency(it.revenue)}
                       </td>
-                      <td className="px-4 py-2.5 font-bold text-[#111111] text-right whitespace-nowrap">
-                        {formatCurrency(it.avgPrice ?? (it.qty > 0 ? it.revenue / it.qty : 0))}
-                      </td>
-                      <td className="px-4 py-2.5 font-bold text-gray-600 text-right whitespace-nowrap">
-                        {(it.share ?? 0).toFixed(1)}%
-                      </td>
-                      <td className="px-4 py-2.5 text-[#374151] text-right whitespace-nowrap">
+                      <td className="px-2.5 sm:px-4 py-2 sm:py-2.5 font-bold text-[#111111] text-right whitespace-nowrap">
                         {it.billCount}
+                      </td>
+                      <td className="px-2.5 sm:px-4 py-2 sm:py-2.5 font-bold text-[#111111] text-right whitespace-nowrap">
+                        {formatCurrency(it.billCount > 0 ? it.revenue / it.billCount : it.revenue)}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </>
+            {/* Subtle edge fade indicator on right for mobile swipe */}
+            <div className="pointer-events-none absolute right-0 top-7 bottom-0 w-6 bg-gradient-to-l from-white to-transparent sm:hidden" />
+          </div>
         ) : (
-          <p className="text-center text-[13px] text-[#374151] py-6">
-            {searchQuery
+          <p className="text-center text-[13px] text-[#374151] py-8 font-semibold">
+            {searchQuery.trim()
               ? `No ${pluralLabel} match your search query.`
               : `No ${isProduct ? 'product' : 'service'} sales in selected period`}
           </p>
@@ -801,7 +824,9 @@ export default function Dashboard() {
           category: String((r as Record<string,unknown>).category || ''),
           quantity: toNumber((r as Record<string,unknown>).quantity, 0),
           line_total: toNumber((r as Record<string,unknown>).line_total, 0),
-          item_type: ((r as Record<string,unknown>).item_type as 'product' | 'service') || 'product',
+          item_type: ((r as Record<string,unknown>).item_type === 'service' || (r as Record<string,unknown>).item_type === 'product')
+            ? ((r as Record<string,unknown>).item_type as 'product' | 'service')
+            : undefined,
           is_manual: Boolean((r as Record<string,unknown>).is_manual),
           source: String((r as Record<string,unknown>).source || ''),
           business_id: String((r as Record<string,unknown>).business_id || '1'),
@@ -1580,7 +1605,7 @@ export default function Dashboard() {
       ]
 
   return (
-    <div className="admin-shell h-screen max-h-screen min-h-screen bg-bgMain flex flex-col lg:flex-row overflow-hidden">
+    <div className="admin-shell h-[100dvh] max-h-[100dvh] min-h-[100dvh] lg:h-screen lg:max-h-screen lg:min-h-screen bg-bgMain flex flex-col lg:flex-row overflow-hidden">
       {/* Sidebar */}
       <aside
         className={[
@@ -1693,8 +1718,8 @@ export default function Dashboard() {
       </aside>
 
       {/* Main */}
-      <main className="flex-grow flex flex-col overflow-hidden">
-        <div className="flex-1 p-4 sm:p-6 lg:p-8 overflow-x-hidden overflow-y-auto">
+      <main className="flex-grow flex flex-col overflow-hidden min-h-0 min-w-0">
+        <div className="flex-1 min-h-0 p-4 sm:p-6 lg:p-8 overflow-x-hidden overflow-y-auto">
 
         {/* ΓöÇΓöÇ ANALYTICS TAB ΓöÇΓöÇ */}
 
@@ -2696,39 +2721,44 @@ export default function Dashboard() {
                   {(() => {
                     const filteredBills = analytics.todayBills.filter(b => !todayBillsSearch || b.invoice_no?.toLowerCase().includes(todayBillsSearch.toLowerCase()))
                     return filteredBills.length > 0 ? (
-                    <div className="overflow-x-auto rounded-xl border border-[#E5E7EB]/30">
-                      <table className="w-full min-w-[480px] text-[12px]">
-                        <thead className="bg-[#F9FAFB] text-[10px] uppercase tracking-wider text-[#374151]">
-                          <tr>
-                            <th className="px-3 py-2.5 font-black text-left">Invoice</th>
-                            <th className="px-3 py-2.5 font-black text-left">Customer</th>
-                            <th className="px-3 py-2.5 font-black text-left">Total</th>
-                            <th className="px-3 py-2.5 font-black text-left">Time</th>
-                            <th className="px-3 py-2.5 font-black text-left">Type</th>
-                            <th className="px-3 py-2.5 font-black text-left">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#E5E7EB]/20">
-                          {filteredBills.map(o => {
-                            const btLabel = normalizeOrderType(o.order_type) === 'manual_sale' ? 'MANUAL' : normalizeOrderMode(o.order_mode) === 'online' ? 'ONLINE' : 'OFFLINE'
-                            const btClass = normalizeOrderType(o.order_type) === 'manual_sale' ? 'bg-purple-100 text-purple-700' : normalizeOrderMode(o.order_mode) === 'online' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'
-                            return (
-                              <tr key={o.id} className="hover:bg-[#F9FAFB]/50">
-                                <td className="px-3 py-2.5 font-bold text-[#10B981] text-[11px]">{formatInvoiceNo(o.invoice_no)}</td>
-                                <td className="px-3 py-2.5 font-semibold text-[#111111] max-w-[100px] truncate">{o.customer_name}</td>
-                                <td className="px-3 py-2.5 font-black text-[#111111]">{formatCurrency(getOrderTotal(o))}</td>
-                                <td className="px-3 py-2.5 text-[#374151] whitespace-nowrap">{new Date(o.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</td>
-                                <td className="px-3 py-2.5"><span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${btClass}`}>{btLabel}</span></td>
-                                <td className="px-3 py-2.5">
-                                  <button onClick={() => void openOrderInvoice(o as unknown as DashboardOrder, 'view')} className="inline-flex items-center gap-1 rounded-lg border border-[#E5E7EB]/60 px-2 py-1.5 text-[11px] font-black text-[#111111] hover:bg-[#F9FAFB]" title="View Invoice">
-                                    <Eye size={13} /> View Invoice
-                                  </button>
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
+                    <div className="relative">
+                      <div className="flex items-center justify-end text-[11px] font-bold text-[#7daa8f] mb-1.5 sm:hidden px-1">
+                        <span>Swipe for more →</span>
+                      </div>
+                      <div className="overflow-x-auto rounded-xl border border-[#E5E7EB]/40 [webkit-overflow-scrolling:touch]">
+                        <table className="w-full min-w-[520px] text-[12px] sm:text-[13px] border-collapse bg-white">
+                          <thead className="bg-[#F9FAFB] text-[10px] sm:text-[11px] uppercase tracking-wider text-[#374151] border-b border-[#E5E7EB]/30">
+                            <tr>
+                              <th className="sticky left-0 z-20 bg-[#F9FAFB] px-3 py-2.5 font-black text-left shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] whitespace-nowrap">Invoice</th>
+                              <th className="px-3 py-2.5 font-black text-left">Customer</th>
+                              <th className="px-3 py-2.5 font-black text-right whitespace-nowrap">Total</th>
+                              <th className="px-3 py-2.5 font-black text-left whitespace-nowrap">Time</th>
+                              <th className="px-3 py-2.5 font-black text-left whitespace-nowrap">Type</th>
+                              <th className="px-3 py-2.5 font-black text-center whitespace-nowrap">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#E5E7EB]/20">
+                            {filteredBills.map(o => {
+                              const btLabel = normalizeOrderType(o.order_type) === 'manual_sale' ? 'MANUAL' : normalizeOrderMode(o.order_mode) === 'online' ? 'ONLINE' : 'OFFLINE'
+                              const btClass = normalizeOrderType(o.order_type) === 'manual_sale' ? 'bg-purple-100 text-purple-700' : normalizeOrderMode(o.order_mode) === 'online' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'
+                              return (
+                                <tr key={o.id} className="group hover:bg-[#F9FAFB]/50 transition-colors">
+                                  <td className="sticky left-0 z-10 bg-white group-hover:bg-[#F9FAFB] px-3 py-2.5 font-bold text-[#10B981] text-[11px] sm:text-[12px] whitespace-nowrap shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">{formatInvoiceNo(o.invoice_no)}</td>
+                                  <td className="px-3 py-2.5 font-semibold text-[#111111] max-w-[120px] truncate">{o.customer_name}</td>
+                                  <td className="px-3 py-2.5 font-black text-[#111111] text-right whitespace-nowrap">{formatCurrency(getOrderTotal(o))}</td>
+                                  <td className="px-3 py-2.5 text-[#374151] whitespace-nowrap">{new Date(o.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</td>
+                                  <td className="px-3 py-2.5 whitespace-nowrap"><span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${btClass}`}>{btLabel}</span></td>
+                                  <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                                    <button onClick={() => void openOrderInvoice(o as unknown as DashboardOrder, 'view')} className="inline-flex items-center gap-1 rounded-lg border border-[#E5E7EB]/60 px-2 py-1.5 text-[11px] font-black text-[#111111] hover:bg-[#F9FAFB]" title="View Invoice">
+                                      <Eye size={13} /> View Invoice
+                                    </button>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   ) : (
                     <p className="text-[13px] text-[#374151] text-center py-4">{todayBillsSearch ? 'No bills match your search.' : 'No bills yet today.'}</p>
@@ -2770,47 +2800,33 @@ export default function Dashboard() {
               <div className="bg-white rounded-2xl border border-[#E5E7EB]/30 p-5 shadow-sm">
                 <h3 className="text-base font-black text-[#111111] mb-4">{l('Category Analytics', 'வகை பகுப்பாய்வு')}</h3>
                 {analytics.topCategories.length > 0 ? (
-                  <>
-                  <div className="space-y-3 md:hidden">
-                    {analytics.topCategories.map((c, i) => (
-                      <div key={c.name} className="rounded-2xl border border-[#E5E7EB]/30 bg-[#FBFAF6] p-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-[13px] font-black text-[#9BAB9A]">#{i + 1}</p>
-                            <p className="text-[16px] font-bold text-[#111111] break-words">{c.name}</p>
-                          </div>
-                          <p className="text-[14px] font-black text-emerald-700">{formatCurrency(c.revenue)}</p>
-                        </div>
-                        <div className="mt-3">
-                          <p className="text-[#9BAB9A] uppercase text-[11px] font-black">Qty Sold</p>
-                          <p className="font-bold text-[#111111]">{Math.round(c.qty)}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="hidden md:block overflow-x-auto rounded-xl border border-[#E5E7EB]/30">
-                    <table className="w-full text-left text-[13px]">
-                      <thead className="bg-[#F9FAFB] text-[10px] uppercase tracking-wider text-[#374151]">
-                        <tr>
-                          <th className="px-4 py-2.5 font-black">#</th>
-                          <th className="px-4 py-2.5 font-black">{l('Category', 'வகை')}</th>
-                          <th className="px-4 py-2.5 font-black">{l('Revenue', 'வருவாய்')}</th>
-                          <th className="px-4 py-2.5 font-black">{l('Qty Sold', 'விற்ற அளவு')}</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#E5E7EB]/20">
-                        {analytics.topCategories.map((c, i) => (
-                          <tr key={c.name} className="hover:bg-[#F9FAFB]/50">
-                            <td className="px-4 py-2 text-[11px] text-[#9BAB9A] font-bold">{i + 1}</td>
-                            <td className="px-4 py-2 font-bold text-[#111111]">{c.name}</td>
-                            <td className="px-4 py-2 font-bold text-emerald-700">{formatCurrency(c.revenue)}</td>
-                            <td className="px-4 py-2 text-[#374151]">{Math.round(c.qty)}</td>
+                  <div className="relative">
+                    <div className="flex items-center justify-end text-[11px] font-bold text-[#7daa8f] mb-1.5 sm:hidden px-1">
+                      <span>Swipe for more →</span>
+                    </div>
+                    <div className="overflow-x-auto rounded-xl border border-[#E5E7EB]/40 [webkit-overflow-scrolling:touch]">
+                      <table className="w-full min-w-[480px] text-left text-[12px] sm:text-[13px] border-collapse bg-white">
+                        <thead className="bg-[#F9FAFB] text-[10px] sm:text-[11px] uppercase tracking-wider text-[#374151] border-b border-[#E5E7EB]/30">
+                          <tr>
+                            <th className="sticky left-0 z-20 bg-[#F9FAFB] w-10 min-w-[40px] px-2.5 sm:px-4 py-2.5 font-black text-center text-[#9BAB9A]">#</th>
+                            <th className="sticky left-[40px] z-20 bg-[#F9FAFB] px-2.5 sm:px-4 py-2.5 font-black text-left shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] whitespace-nowrap">{l('Category', 'வகை')}</th>
+                            <th className="px-2.5 sm:px-4 py-2.5 font-black text-right whitespace-nowrap">{l('Revenue', 'வருவாய்')}</th>
+                            <th className="px-2.5 sm:px-4 py-2.5 font-black text-right whitespace-nowrap">{l('Qty Sold', 'விற்ற அளவு')}</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y divide-[#E5E7EB]/20">
+                          {analytics.topCategories.map((c, i) => (
+                            <tr key={c.name} className="group hover:bg-[#F9FAFB]/50 transition-colors">
+                              <td className="sticky left-0 z-10 bg-white group-hover:bg-[#F9FAFB] w-10 min-w-[40px] px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] text-[#9BAB9A] font-bold text-center">{i + 1}</td>
+                              <td className="sticky left-[40px] z-10 bg-white group-hover:bg-[#F9FAFB] px-2.5 sm:px-4 py-2 font-bold text-[#111111] whitespace-nowrap shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">{c.name}</td>
+                              <td className="px-2.5 sm:px-4 py-2 font-bold text-emerald-700 text-right whitespace-nowrap">{formatCurrency(c.revenue)}</td>
+                              <td className="px-2.5 sm:px-4 py-2 text-[#374151] font-bold text-right whitespace-nowrap">{Math.round(c.qty)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                  </>
                 ) : (
                   <p className="text-center text-[13px] text-[#374151] py-6">{l('No data in selected period', 'தேர்ந்த காலத்தில் தரவு இல்லை')}</p>
                 )}
@@ -2910,62 +2926,35 @@ export default function Dashboard() {
                     <span className="text-[11px] font-bold text-[#10B981]">{analytics.topCoupons.length} coupons</span>
                   </div>
                   {analytics.topCoupons.length > 0 ? (
-                    <>
-                      <div className="space-y-3 md:hidden">
-                        {analytics.topCoupons.map((coupon, i) => (
-                          <div key={coupon.code} className="rounded-2xl border border-[#E5E7EB]/30 bg-[#FBFAF6] p-4">
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <p className="text-[13px] font-black text-[#9BAB9A]">#{i + 1}</p>
-                                <div className="flex items-center gap-1.5 mt-0.5">
-                                  <p className="text-[16px] font-bold text-[#111111] break-words font-mono">{coupon.code}</p>
-                                  {coupon.percentage ? (
-                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
-                                      {coupon.percentage}% OFF
-                                    </span>
-                                  ) : null}
-                                </div>
-                              </div>
-                              <p className="text-[14px] font-black text-emerald-700">{formatCurrency(coupon.discounts)}</p>
-                            </div>
-                            <div className="mt-3 grid grid-cols-2 gap-3 text-[13px]">
-                              <div>
-                                <p className="text-[#9BAB9A] uppercase text-[11px] font-black">Orders</p>
-                                <p className="font-bold text-[#111111]">{coupon.usage}</p>
-                              </div>
-                              <div>
-                                <p className="text-[#9BAB9A] uppercase text-[11px] font-black">Avg Discount</p>
-                                <p className="font-semibold text-[#374151]">{coupon.usage > 0 ? formatCurrency(coupon.discounts / coupon.usage) : '-'}</p>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
+                    <div className="relative">
+                      <div className="flex items-center justify-end text-[11px] font-bold text-[#7daa8f] mb-1.5 sm:hidden px-1">
+                        <span>Swipe for more →</span>
                       </div>
-                      <div className="hidden md:block overflow-x-auto rounded-xl border border-[#E5E7EB]/30">
-                        <table className="w-full min-w-[500px] text-left text-[12px]">
-                          <thead className="bg-[#F9FAFB] text-[10px] uppercase tracking-wider text-[#374151]">
+                      <div className="overflow-x-auto rounded-xl border border-[#E5E7EB]/40 [webkit-overflow-scrolling:touch]">
+                        <table className="w-full min-w-[560px] text-left text-[12px] sm:text-[13px] border-collapse bg-white">
+                          <thead className="bg-[#F9FAFB] text-[10px] sm:text-[11px] uppercase tracking-wider text-[#374151] border-b border-[#E5E7EB]/30">
                             <tr>
-                              <th className="px-4 py-2.5 font-black">#</th>
-                              <th className="px-4 py-2.5 font-black">Code</th>
-                              <th className="px-4 py-2.5 font-black">Discount Rate</th>
-                              <th className="px-4 py-2.5 font-black">Orders Used</th>
-                              <th className="px-4 py-2.5 font-black">Total Discount</th>
-                              <th className="px-4 py-2.5 font-black">Avg Discount</th>
-                              <th className="px-4 py-2.5 font-black text-right">Status</th>
+                              <th className="sticky left-0 z-20 bg-[#F9FAFB] w-10 min-w-[40px] px-2.5 sm:px-4 py-2.5 font-black text-center text-[#9BAB9A]">#</th>
+                              <th className="sticky left-[40px] z-20 bg-[#F9FAFB] px-2.5 sm:px-4 py-2.5 font-black text-left shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] whitespace-nowrap">Code</th>
+                              <th className="px-2.5 sm:px-4 py-2.5 font-black text-left whitespace-nowrap">Discount Rate</th>
+                              <th className="px-2.5 sm:px-4 py-2.5 font-black text-right whitespace-nowrap">Orders Used</th>
+                              <th className="px-2.5 sm:px-4 py-2.5 font-black text-right whitespace-nowrap">Total Discount</th>
+                              <th className="px-2.5 sm:px-4 py-2.5 font-black text-right whitespace-nowrap">Avg Discount</th>
+                              <th className="px-2.5 sm:px-4 py-2.5 font-black text-right whitespace-nowrap">Status</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-[#E5E7EB]/20">
                             {analytics.topCoupons.map((coupon, i) => (
-                              <tr key={coupon.code} className="hover:bg-[#F9FAFB]/50">
-                                <td className="px-4 py-2 text-[11px] text-[#9BAB9A] font-bold">{i + 1}</td>
-                                <td className="px-4 py-2 font-bold text-[#111111] font-mono">{coupon.code}</td>
-                                <td className="px-4 py-2 font-bold text-amber-800">
+                              <tr key={coupon.code} className="group hover:bg-[#F9FAFB]/50 transition-colors">
+                                <td className="sticky left-0 z-10 bg-white group-hover:bg-[#F9FAFB] w-10 min-w-[40px] px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] text-[#9BAB9A] font-bold text-center">{i + 1}</td>
+                                <td className="sticky left-[40px] z-10 bg-white group-hover:bg-[#F9FAFB] px-2.5 sm:px-4 py-2 font-bold text-[#111111] font-mono whitespace-nowrap shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">{coupon.code}</td>
+                                <td className="px-2.5 sm:px-4 py-2 font-bold text-amber-800 whitespace-nowrap">
                                   {coupon.percentage ? `${coupon.percentage}%` : '-'}
                                 </td>
-                                <td className="px-4 py-2 font-bold">{coupon.usage}</td>
-                                <td className="px-4 py-2 font-bold text-emerald-700">{formatCurrency(coupon.discounts)}</td>
-                                <td className="px-4 py-2 text-[#374151]">{coupon.usage > 0 ? formatCurrency(coupon.discounts / coupon.usage) : '-'}</td>
-                                <td className="px-4 py-2 text-right">
+                                <td className="px-2.5 sm:px-4 py-2 font-bold text-[#111111] text-right whitespace-nowrap">{coupon.usage}</td>
+                                <td className="px-2.5 sm:px-4 py-2 font-bold text-emerald-700 text-right whitespace-nowrap">{formatCurrency(coupon.discounts)}</td>
+                                <td className="px-2.5 sm:px-4 py-2 text-[#374151] text-right whitespace-nowrap">{coupon.usage > 0 ? formatCurrency(coupon.discounts / coupon.usage) : '-'}</td>
+                                <td className="px-2.5 sm:px-4 py-2 text-right whitespace-nowrap">
                                   <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-black ${
                                     coupon.is_active === false
                                       ? 'bg-gray-100 text-gray-500'
@@ -2979,7 +2968,7 @@ export default function Dashboard() {
                           </tbody>
                         </table>
                       </div>
-                    </>
+                    </div>
                   ) : (
                     <p className="text-center text-[13px] text-[#374151] py-8">
                       No coupons configured in store yet. Add coupons from the Coupons tab to track performance.
@@ -2993,7 +2982,7 @@ export default function Dashboard() {
 
         {/* ── BILLING PANEL ── */}
         {tab === 'billing' && (
-          <div className="-m-4 sm:-m-6 lg:-m-8">
+          <div className="-m-4 sm:-m-6 lg:-m-8 pb-4 sm:pb-0">
             <Pos
               isEmbedded
               externalScannedCode={cartItemToInject}
@@ -4394,7 +4383,7 @@ export default function Dashboard() {
         {tab === 'settings' && <SettingsView onOpenInventory={() => setTab('inventory')} />}
         </div>
         {/* Footer */}
-        <div className="shrink-0 border-t border-gray-100 bg-white/80 py-2 text-center text-[12px] font-semibold text-[#7A8A78] tracking-wide print:hidden">
+        <div className="shrink-0 border-t border-gray-200/80 bg-white/95 backdrop-blur-sm py-2 px-3 text-center text-[11px] sm:text-[12px] font-semibold text-[#7A8A78] tracking-wide print:hidden pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           Powered by Cenexa Systems © 2026
         </div>
       </main>

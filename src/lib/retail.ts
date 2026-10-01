@@ -25,6 +25,7 @@ export type StructuredOrderItem = {
   note?: string | null
   /** Classification must come from the catalog record, never from keywords. */
   item_type: 'product' | 'service'
+  itemType?: 'product' | 'service'
 }
 
 type UnitFactors = Record<string, number>
@@ -446,6 +447,7 @@ export const buildStructuredOrderItem = (input: {
     note: input.note ? String(input.note) : null,
     // Classification comes from the catalog record. Fall back to 'product' only if truly absent.
     item_type: input.itemType === 'service' ? 'service' : 'product',
+    itemType: input.itemType === 'service' ? 'service' : 'product',
   }
 }
 
