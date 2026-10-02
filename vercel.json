@@ -49,11 +49,11 @@
     },
     {
       "source": "/api/backups/:id",
-      "destination": "/api/backups?id=:id"
+      "destination": "/api/settings?resource=backups&id=:id"
     },
     {
       "source": "/api/backups",
-      "destination": "/api/backups"
+      "destination": "/api/settings?resource=backups"
     },
     {
       "source": "/api/order-items",
