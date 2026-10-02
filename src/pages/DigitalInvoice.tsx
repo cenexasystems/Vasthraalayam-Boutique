@@ -6,9 +6,10 @@ import { Printer, ArrowLeft, MessageCircle } from 'lucide-react'
 import { printThermalReceipt } from '../lib/thermalPrint'
 import { invoicePdfFile, invoicePdfFileFromElement } from '../lib/invoicePdf'
 import { uploadInvoicePdf } from '../lib/storage'
-import { normalizeStructuredOrderItem } from '../lib/retail'
+import { normalizeStructuredOrderItem, toNumber, computeOrderTotal, roundTo } from '../lib/retail'
 import { buildProfessionalWhatsAppMessage } from '../lib/whatsappMessage'
 import { toWhatsAppUrl } from '../lib/phone'
+import { applyInvoiceTheme } from '../lib/invoiceTheme'
 
 export default function DigitalInvoice() {
   const { id } = useParams()
@@ -55,6 +56,7 @@ export default function DigitalInvoice() {
         }
 
         setInvoice(data)
+        applyInvoiceTheme((data as Record<string, unknown>)?.invoice_primary_color as string)
       } catch (err: unknown) {
         if (err instanceof Error) {
           setError(err.message)
@@ -93,7 +95,20 @@ export default function DigitalInvoice() {
 
   const invoiceItems = (Array.isArray(invoice.items) ? invoice.items : [])
     .map((item: Record<string, unknown>) => normalizeStructuredOrderItem(item))
-  const subtotal = invoiceItems.reduce((sum: number, item: ReturnType<typeof normalizeStructuredOrderItem>) => sum + item.line_total, 0)
+  const itemsSubtotal = invoiceItems.reduce((sum: number, item: ReturnType<typeof normalizeStructuredOrderItem>) => sum + item.line_total, 0)
+  const subtotal = roundTo(toNumber(invoice.subtotal, itemsSubtotal), 2)
+  const deliveryCharge = toNumber(invoice.delivery_charge ?? invoice.shipping, 0)
+  const discountAmount = toNumber(invoice.discount_amount, 0)
+  const manualDiscountAmount = toNumber(invoice.manual_discount_amount, 0)
+  const totalGst = toNumber(invoice.total_gst ?? invoice.gst_amount, 0)
+  const orderTotal = computeOrderTotal({
+    total: invoice.total ?? invoice.total_amount ?? invoice.grand_total,
+    subtotal,
+    delivery_charge: deliveryCharge,
+    total_gst: totalGst,
+    discount_amount: discountAmount,
+    manual_discount_amount: manualDiscountAmount,
+  })
 
   const downloadPdf = async () => {
     if (!invoiceElementRef.current || downloadingPdf) return
@@ -171,11 +186,11 @@ export default function DigitalInvoice() {
       invoiceDate: invoice.created_at,
       items,
       subtotal,
-      couponDiscount: invoice.discount_amount,
-      manualDiscountAmount: invoice.manual_discount_amount,
-      shipping: invoice.delivery_charge,
-      gstAmount: invoice.total_gst || invoice.gst_amount || 0,
-      total: invoice.total,
+      couponDiscount: discountAmount,
+      manualDiscountAmount,
+      shipping: deliveryCharge,
+      gstAmount: totalGst,
+      total: orderTotal,
       paymentMode: invoice.payment_mode || invoice.payment_method,
       payments: invoice.payments,
     })
@@ -212,7 +227,6 @@ export default function DigitalInvoice() {
   }
 
   const printReceipt = () => {
-    const subtotal = invoice.total - (invoice.delivery_charge || 0) + (invoice.discount_amount || 0)
     printThermalReceipt({
       invoiceNo: invoice.invoice_no,
       date: invoice.created_at,
@@ -226,10 +240,10 @@ export default function DigitalInvoice() {
         line_total: item.line_total
       })),
       subtotal,
-      shipping: invoice.delivery_charge || 0,
-      couponDiscount: invoice.discount_amount || 0,
-      totalGst: invoice.total_gst || invoice.gst_amount || 0,
-      total: invoice.total > 0 ? invoice.total : (subtotal + (invoice.delivery_charge || 0) + (invoice.total_gst || invoice.gst_amount || 0) - (invoice.discount_amount || 0) - (invoice.manual_discount_amount || 0))
+      shipping: deliveryCharge,
+      couponDiscount: discountAmount,
+      totalGst,
+      total: orderTotal,
     })
   }
 
@@ -237,14 +251,14 @@ export default function DigitalInvoice() {
     <div className="digital-invoice-page bg-[#f9faf6] font-sans print:bg-white print:overflow-visible print:m-0 print:p-0">
       {/* Top action bar — uses position fixed so it always works on iOS regardless of scroll context */}
       <div className="bg-[#f9faf6]/95 backdrop-blur-sm p-4 fixed top-0 left-0 right-0 z-50 print:hidden flex items-center justify-between safe-area-inset-top" style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}>
-        <button onClick={handleBack} className="flex items-center gap-2 text-brand-black hover:text-[#7daa8f] font-semibold text-sm transition-colors bg-white border border-[#ead7b7] px-4 py-2 rounded-full shadow-sm cursor-pointer active:scale-95">
+        <button onClick={handleBack} className="flex items-center gap-2 text-brand-black hover:text-[var(--invoice-primary,#1F3A2E)] font-semibold text-sm transition-colors bg-white border border-[#ead7b7] px-4 py-2 rounded-full shadow-sm cursor-pointer active:scale-95">
           <ArrowLeft size={16} /> Back
         </button>
         <div className="flex items-center gap-2">
           <button
             onClick={downloadPdf}
             disabled={downloadingPdf}
-            className="flex items-center gap-2 bg-brand-black text-brand-onDark border border-[#7daa8f] px-4 py-2 rounded-full font-bold text-sm shadow-md hover:bg-[#1e2817] transition-colors cursor-pointer active:scale-95 disabled:opacity-70"
+            className="flex items-center gap-2 bg-brand-black text-brand-onDark border border-[var(--invoice-primary,#1F3A2E)] px-4 py-2 rounded-full font-bold text-sm shadow-md hover:bg-[#1e2817] transition-colors cursor-pointer active:scale-95 disabled:opacity-70"
           >
             <Printer size={16} /> {downloadingPdf ? 'Generating...' : <><span className="hidden sm:inline">PDF Invoice</span><span className="sm:hidden">PDF</span></>}
           </button>
@@ -270,16 +284,17 @@ export default function DigitalInvoice() {
             address={invoice.address}
             items={invoice.items || []}
             subtotal={subtotal}
-            shipping={invoice.delivery_charge || 0}
-            discountAmount={invoice.discount_amount || 0}
-            manualDiscountAmount={invoice.manual_discount_amount || 0}
-            gstAmount={invoice.total_gst || invoice.gst_amount || 0}
+            shipping={deliveryCharge}
+            deliveryCharge={deliveryCharge}
+            discountAmount={discountAmount}
+            manualDiscountAmount={manualDiscountAmount}
+            gstAmount={totalGst}
             couponCode={invoice.coupon_code}
-            total={invoice.total > 0 ? invoice.total : (subtotal + (invoice.delivery_charge || 0) + (invoice.total_gst || invoice.gst_amount || 0) - (invoice.discount_amount || 0) - (invoice.manual_discount_amount || 0))}
+            total={orderTotal}
             status={invoice.status}
             paymentMode={invoice.payment_mode || invoice.payment_method}
             payments={invoice.payments}
-            changeGiven={invoice.change_given}
+            changeGiven={toNumber(invoice.change_given, 0)}
           />
         </div>
       </div>

@@ -15,13 +15,13 @@ import { hashPassword, verifyPasswordHash } from './_lib/password.js'
 // branch below.
 const SETTINGS_COLUMNS = `
   name, owner_name, phone, shop_contact_number, email, address, business_type,
-  instagram_id, logo_url, gst_enabled, theme_color, low_stock_threshold, expiry_alert_days
+  instagram_id, logo_url, gst_enabled, theme_color, invoice_primary_color, low_stock_threshold, expiry_alert_days
 `
 
 const WRITABLE_COLUMNS = new Set([
   'name', 'owner_name', 'phone', 'shop_contact_number', 'email', 'address',
   'business_type', 'instagram_id', 'logo_url', 'gst_enabled', 'theme_color',
-  'low_stock_threshold', 'expiry_alert_days',
+  'invoice_primary_color', 'low_stock_threshold', 'expiry_alert_days',
 ])
 
 async function get(_req: VercelRequest, res: VercelResponse) {

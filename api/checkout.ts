@@ -3,6 +3,7 @@ import type { JSONValue } from 'postgres'
 import { sql } from './_lib/db.js'
 import { requireAuth } from './_lib/guard.js'
 import { methodRouter } from './_lib/handler.js'
+import { toNumber, roundTo } from './_lib/money.js'
 
 type IncomingItem = Record<string, unknown>
 export interface PaymentItem {
@@ -25,9 +26,9 @@ function sanitizeItems(items: IncomingItem[]): IncomingItem[] {
       ...item,
       product_id: item.product_id ?? item.productId ?? null,
       variant_id: item.variant_id ?? item.variantId ?? null,
-      quantity: Number(item.quantity ?? item.qty ?? 1),
-      unit_price: Number(item.unit_price ?? item.base_price ?? item.basePrice ?? item.price ?? 0),
-      base_price: Number(item.base_price ?? item.basePrice ?? item.unit_price ?? item.price ?? 0),
+      quantity: toNumber(item.quantity ?? item.qty, 1),
+      unit_price: toNumber(item.unit_price ?? item.base_price ?? item.basePrice ?? item.price, 0),
+      base_price: toNumber(item.base_price ?? item.basePrice ?? item.unit_price ?? item.price, 0),
       product_name: String(item.product_name || item.name || 'Product'),
       product_tamil_name: item.product_tamil_name ?? item.tamilName ?? item.nameTa ?? null,
       item_type: itType,
@@ -41,7 +42,7 @@ function sanitizeItems(items: IncomingItem[]): IncomingItem[] {
 }
 
 function round2(num: number): number {
-  return Math.round((num + Number.EPSILON) * 100) / 100
+  return roundTo(num, 2)
 }
 
 async function checkout(req: VercelRequest, res: VercelResponse) {
@@ -58,15 +59,36 @@ async function checkout(req: VercelRequest, res: VercelResponse) {
   // Pre-calculate subtotal and estimated grand total for server-side payment validation
   let subtotal = 0
   for (const item of items) {
-    const qty = Number(item.quantity ?? 0)
-    const unitPrice = Number(item.unit_price ?? item.base_price ?? item.price ?? 0)
-    const lineTotal = Number(item.line_total ?? round2(qty * unitPrice))
+    const qty = toNumber(item.quantity, 0)
+    const unitPrice = toNumber(item.unit_price ?? item.base_price ?? item.price, 0)
+    const lineTotal = toNumber(item.line_total, round2(qty * unitPrice))
     subtotal += lineTotal
   }
-  const shipping = Number(body.shipping ?? 0)
-  const deliveryCharge = Number(body.delivery_charge ?? 0)
-  const discountAmount = Number(body.discount_amount ?? 0)
-  const grandTotal = Math.max(0, round2(subtotal + shipping + deliveryCharge - discountAmount))
+  subtotal = round2(subtotal)
+  const shipping = toNumber(body.shipping, 0)
+  const deliveryCharge = toNumber(body.delivery_charge, 0)
+  const discountAmount = toNumber(body.discount_amount, 0)
+  const manualDiscountAmount = toNumber(body.manual_discount_amount, 0)
+  const totalGst = toNumber(body.total_gst ?? body.gst_amount, 0)
+  const grandTotal = Math.max(0, round2(subtotal + shipping + deliveryCharge + totalGst - discountAmount - manualDiscountAmount))
+
+  if (grandTotal <= 0) {
+    res.status(400).json({ error: 'Total amount must be greater than 0' })
+    return
+  }
+
+  // Validate client-sent total if present
+  if (body.total !== undefined || body.total_amount !== undefined || body.grand_total !== undefined) {
+    const clientTotal = toNumber(body.total_amount ?? body.total ?? body.grand_total, -1)
+    if (clientTotal <= 0) {
+      res.status(400).json({ error: 'Total amount must be a valid number greater than 0' })
+      return
+    }
+    if (Math.abs(clientTotal - grandTotal) > 0.05) {
+      res.status(400).json({ error: `Total amount (${clientTotal}) does not match calculated total (${grandTotal})` })
+      return
+    }
+  }
 
   // Validate payments array: [{ mode: 'cash'|'qr'|'card'|'online', amount }]
   const incomingPayments = Array.isArray(body.payments) ? (body.payments as Array<{ mode?: string; amount?: unknown }>) : null
@@ -80,8 +102,8 @@ async function checkout(req: VercelRequest, res: VercelResponse) {
         res.status(400).json({ error: `Invalid payment mode: ${mode}` })
         return
       }
-      const amt = Number(p.amount)
-      if (isNaN(amt) || amt < 0) {
+      const amt = toNumber(p.amount, -1)
+      if (amt < 0) {
         res.status(400).json({ error: 'Payment amount must be greater than or equal to 0' })
         return
       }
@@ -126,7 +148,16 @@ async function checkout(req: VercelRequest, res: VercelResponse) {
 
   // Set payment_mode = 'split' when more than one mode is used; keep single mode otherwise
   const paymentMode = normalizedPayments.length > 1 ? 'split' : normalizedPayments[0].mode
-  const changeGiven = totalPaid > grandTotal ? round2(totalPaid - grandTotal) : round2(Number(body.change_given || 0))
+  const changeGiven = totalPaid > grandTotal ? round2(totalPaid - grandTotal) : round2(toNumber(body.change_given, 0))
+
+  // In split payment or normal non-deposit payments, ensure sum of payments minus change equals total
+  if (!isDeposit) {
+    const netPaid = round2(totalPaid - changeGiven)
+    if (Math.abs(netPaid - grandTotal) > 0.05) {
+      res.status(400).json({ error: `The sum of payments (${totalPaid}) minus change given (${changeGiven}) must equal total (${grandTotal})` })
+      return
+    }
+  }
 
   // Save the order and payments in one single transaction
   try {
@@ -143,14 +174,14 @@ async function checkout(req: VercelRequest, res: VercelResponse) {
           p_order_type => ${body.order_type ?? 'pos_sale'},
           p_delivery_charge => ${deliveryCharge},
           p_discount_amount => ${discountAmount},
-          p_manual_discount_amount => ${body.manual_discount_amount ?? 0},
+          p_manual_discount_amount => ${manualDiscountAmount},
           p_manual_discount_type => ${body.manual_discount_type ?? 'flat'},
           p_manual_discount_value => ${body.manual_discount_value ?? 0},
           p_coupon_code => ${body.coupon_code ?? null},
           p_coupon_percentage => ${body.coupon_percentage ?? 0},
           p_payment_method => ${paymentMode},
           p_split_details => ${tx.json((body.split_details ?? {}) as JSONValue)},
-          p_total_gst => ${body.total_gst ?? 0},
+          p_total_gst => ${totalGst},
           p_gst_enabled => ${Boolean(body.gst_enabled)},
           p_remarks => ${body.remarks ?? null},
           p_reference_number => ${body.reference_number ?? null},
@@ -169,14 +200,26 @@ async function checkout(req: VercelRequest, res: VercelResponse) {
         SET payments = ${tx.json(normalizedPayments as unknown as JSONValue)},
             change_given = ${changeGiven},
             payment_mode = ${paymentMode},
-            payment_method = ${paymentMode}
+            payment_method = ${paymentMode},
+            delivery_charge = ${deliveryCharge},
+            discount_amount = ${discountAmount},
+            manual_discount_amount = ${manualDiscountAmount},
+            total_gst = ${totalGst},
+            gst_amount = ${totalGst},
+            total = ${grandTotal}
         WHERE id = ${orderRes.order_id}
       `
 
       return {
         order_id: orderRes.order_id,
         invoice_no: orderRes.invoice_no,
-        total: orderRes.total,
+        total: grandTotal,
+        total_amount: grandTotal,
+        subtotal,
+        delivery_charge: deliveryCharge,
+        discount_amount: discountAmount,
+        manual_discount_amount: manualDiscountAmount,
+        total_gst: totalGst,
         payments: normalizedPayments,
         change_given: changeGiven,
         payment_mode: paymentMode,

@@ -1,8 +1,9 @@
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
 import { BRAND_ADDRESS, BRAND_EN, BRAND_PHONE_DISPLAY } from './brand'
-import { formatCurrency, formatQuantityDisplay, normalizeStructuredOrderItem, formatInvoiceNo } from './retail'
+import { formatCurrency, formatQuantityDisplay, normalizeStructuredOrderItem, formatInvoiceNo, toNumber, computeOrderTotal } from './retail'
 import { LOGO_BASE64 } from './logoBase64'
+import { getInvoiceTheme } from './invoiceTheme'
 
 export type InvoicePdfData = {
   invoiceNo: string
@@ -21,24 +22,28 @@ export type InvoicePdfData = {
   paymentMode?: string
   payments?: Array<{ mode: string; amount: number }>
   changeGiven?: number
+  primaryColor?: string
 }
 
 // jsPDF's built-in Helvetica font does not include the ₹ Unicode glyph (U+20B9).
 // In ISO-8859-1 (WinAnsiEncoding), \u20B9 maps to character code 185 (0xB9), which renders
 // as the superscript 1 (¹) glyph. Replacing with "Rs. " ensures clean and proper PDF formatting.
-const money = (value: number): string => {
-  const formatted = formatCurrency(Number(value || 0)).replace(/\s+/g, ' ')
+const money = (value: unknown): string => {
+  const formatted = formatCurrency(toNumber(value, 0)).replace(/\s+/g, ' ')
   return formatted.replace(/^[₹\u20b9]\s*/, 'Rs. ')
 }
 
 /** Creates a compact A4 invoice that can be attached as a file to WhatsApp. */
 export function createInvoicePdf(data: InvoicePdfData): Blob {
   const formattedNo = formatInvoiceNo(data.invoiceNo)
+  const theme = getInvoiceTheme(data.primaryColor)
+  const primaryColor = theme.primary
+  const accentColor = theme.accent
+  const contrastColor = theme.contrast
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   const pageWidth = 210
   const left = 16
   const right = 194
-  const primaryColor = '#7daa8f' // Flamingo Pink
   const ink = '#18202a'
   const muted = '#68717c'
   let y = 16
@@ -141,11 +146,25 @@ export function createInvoicePdf(data: InvoicePdfData): Blob {
   })
 
   y = Math.max(y + 6, 150)
-  const rows: Array<[string, string, string]> = [['Subtotal', money(data.subtotal), ink]]
-  if ((data.discountAmount || 0) > 0) rows.push([`Coupon${data.couponCode ? ` (${data.couponCode})` : ''}`, `-${money(data.discountAmount || 0)}`, '#7daa8f'])
-  if ((data.manualDiscountAmount || 0) > 0) rows.push(['Discount', `-${money(data.manualDiscountAmount || 0)}`, '#7daa8f'])
-  if ((data.gstAmount || 0) > 0) rows.push(['GST', money(data.gstAmount || 0), ink])
-  rows.push(['Delivery', (data.shipping || 0) > 0 ? money(data.shipping) : 'FREE', ink])
+  const safeSubtotal = toNumber(data.subtotal, 0)
+  const safeShipping = toNumber(data.shipping, 0)
+  const safeDiscountAmount = toNumber(data.discountAmount, 0)
+  const safeManualDiscountAmount = toNumber(data.manualDiscountAmount, 0)
+  const safeGstAmount = toNumber(data.gstAmount, 0)
+  const safeTotal = computeOrderTotal({
+    total: data.total,
+    subtotal: safeSubtotal,
+    delivery_charge: safeShipping,
+    total_gst: safeGstAmount,
+    discount_amount: safeDiscountAmount,
+    manual_discount_amount: safeManualDiscountAmount,
+  })
+
+  const rows: Array<[string, string, string]> = [['Subtotal', money(safeSubtotal), ink]]
+  if (safeDiscountAmount > 0) rows.push([`Coupon${data.couponCode ? ` (${data.couponCode})` : ''}`, `-${money(safeDiscountAmount)}`, primaryColor])
+  if (safeManualDiscountAmount > 0) rows.push(['Discount', `-${money(safeManualDiscountAmount)}`, primaryColor])
+  if (safeGstAmount > 0) rows.push(['GST', money(safeGstAmount), ink])
+  rows.push(['Delivery', safeShipping > 0 ? money(safeShipping) : 'FREE', ink])
   doc.setFontSize(9)
   rows.forEach(([label, value, color]) => { doc.setFont('helvetica', 'normal'); doc.setTextColor(color); doc.text(label, 143, y, { align: 'right' }); doc.text(value, right - 4, y, { align: 'right' }); y += 7 })
   doc.setDrawColor(primaryColor)
@@ -155,7 +174,7 @@ export function createInvoicePdf(data: InvoicePdfData): Blob {
   doc.setFontSize(14)
   doc.setTextColor(primaryColor)
   doc.text('TOTAL', 143, y + 6, { align: 'right' })
-  doc.text(money(data.total), right - 4, y + 6, { align: 'right' })
+  doc.text(money(safeTotal), right - 4, y + 6, { align: 'right' })
 
   y = 275
   doc.setDrawColor('#d8dce0')

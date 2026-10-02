@@ -1,6 +1,6 @@
 import React from 'react'
 import { BRAND_ADDRESS, BRAND_EN, BRAND_INSTAGRAM, BRAND_PRIMARY_PHONE_DISPLAY, BRAND_ICON } from '../lib/brand'
-import { formatCurrency, formatQuantityDisplay, normalizeStructuredOrderItem, formatInvoiceNo } from '../lib/retail'
+import { formatCurrency, formatQuantityDisplay, normalizeStructuredOrderItem, formatInvoiceNo, toNumber, computeOrderTotal } from '../lib/retail'
 
 export interface InvoiceItem {
   id: string | number
@@ -68,8 +68,22 @@ export const Invoice: React.FC<InvoiceProps> = ({
     catch { return new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) }
   })()
 
-  const statusColor = status === 'completed' ? '#7daa8f' : status === 'cancelled' ? '#dc2626' : '#d97706'
-  const effectiveDelivery = deliveryCharge || shipping
+  const statusColor = status === 'completed' ? 'var(--invoice-primary, #1F3A2E)' : status === 'cancelled' ? '#dc2626' : '#d97706'
+  const safeSubtotal = toNumber(subtotal, 0)
+  const safeShipping = toNumber(shipping, 0)
+  const safeDeliveryCharge = toNumber(deliveryCharge, 0)
+  const effectiveDelivery = safeDeliveryCharge || safeShipping
+  const safeDiscountAmount = toNumber(discountAmount, 0)
+  const safeManualDiscountAmount = toNumber(manualDiscountAmount, 0)
+  const safeGstAmount = toNumber(gstAmount, 0)
+  const safeTotal = computeOrderTotal({
+    total,
+    subtotal: safeSubtotal,
+    delivery_charge: effectiveDelivery,
+    total_gst: safeGstAmount,
+    discount_amount: safeDiscountAmount,
+    manual_discount_amount: safeManualDiscountAmount,
+  })
 
   return (
     <div
@@ -77,6 +91,8 @@ export const Invoice: React.FC<InvoiceProps> = ({
       className="w-full max-w-[680px] mx-auto bg-white text-[#111111] box-border flex flex-col p-4 sm:p-8 print:p-0 print:max-w-full overflow-hidden border border-[#ead7b7]/40 shadow-xl rounded-3xl print:min-h-[290mm]"
       style={{
         fontFamily: "'Inter', 'Segoe UI', sans-serif",
+        WebkitPrintColorAdjust: 'exact',
+        printColorAdjust: 'exact',
       }}
     >
       {/* ── HEADER ────────────────────────────────────────────────── */}
@@ -84,7 +100,7 @@ export const Invoice: React.FC<InvoiceProps> = ({
         <div style={{ width: 64, height: 64, margin: '0 auto 10px auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <img src={BRAND_ICON} alt={BRAND_EN} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
         </div>
-        <div style={{ fontSize: 24, fontWeight: 900, color: 'var(--brand-black)', letterSpacing: 2, textTransform: 'uppercase' }}>
+        <div style={{ fontSize: 24, fontWeight: 900, color: 'var(--invoice-primary, #1F3A2E)', letterSpacing: 2, textTransform: 'uppercase' }}>
           {BRAND_EN}
         </div>
         <div style={{ fontSize: 11, color: '#4b5563', marginTop: 4, fontWeight: 500, paddingLeft: 8, paddingRight: 8 }}>
@@ -164,12 +180,12 @@ export const Invoice: React.FC<InvoiceProps> = ({
       <div className="w-full overflow-x-auto">
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 320 }}>
           <thead>
-            <tr style={{ background: 'var(--brand-black)', borderRadius: 8 }}>
-              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, fontWeight: 800, color: 'var(--brand-on-dark)', textTransform: 'uppercase', letterSpacing: 0.8, width: 28 }}>#</th>
-              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, fontWeight: 800, color: 'var(--brand-on-dark)', textTransform: 'uppercase', letterSpacing: 0.8 }}>Item / SKU</th>
-              <th style={{ padding: '8px 10px', textAlign: 'center', fontSize: 10, fontWeight: 800, color: 'var(--brand-on-dark)', textTransform: 'uppercase', letterSpacing: 0.8, width: 45 }}>Qty</th>
-              <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, fontWeight: 800, color: 'var(--brand-on-dark)', textTransform: 'uppercase', letterSpacing: 0.8, width: 75 }}>Rate</th>
-              <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, fontWeight: 800, color: 'var(--brand-on-dark)', textTransform: 'uppercase', letterSpacing: 0.8, width: 85 }}>Amount</th>
+            <tr style={{ background: 'var(--invoice-primary, #1F3A2E)', borderRadius: 8 }}>
+              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, fontWeight: 800, color: 'var(--invoice-primary-contrast, #FFFFFF)', textTransform: 'uppercase', letterSpacing: 0.8, width: 28 }}>#</th>
+              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, fontWeight: 800, color: 'var(--invoice-primary-contrast, #FFFFFF)', textTransform: 'uppercase', letterSpacing: 0.8 }}>Item / SKU</th>
+              <th style={{ padding: '8px 10px', textAlign: 'center', fontSize: 10, fontWeight: 800, color: 'var(--invoice-primary-contrast, #FFFFFF)', textTransform: 'uppercase', letterSpacing: 0.8, width: 45 }}>Qty</th>
+              <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, fontWeight: 800, color: 'var(--invoice-primary-contrast, #FFFFFF)', textTransform: 'uppercase', letterSpacing: 0.8, width: 75 }}>Rate</th>
+              <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, fontWeight: 800, color: 'var(--invoice-primary-contrast, #FFFFFF)', textTransform: 'uppercase', letterSpacing: 0.8, width: 85 }}>Amount</th>
             </tr>
           </thead>
           <tbody>
@@ -200,31 +216,31 @@ export const Invoice: React.FC<InvoiceProps> = ({
       </div>
 
       {/* ── TOTALS ───────────────────────────────────────────────── */}
-      <div className="invoice-totals" style={{ marginTop: 24, borderTop: '2px solid #7daa8f', paddingTop: 16 }}>
+      <div className="invoice-totals" style={{ marginTop: 24, borderTop: '2px solid var(--invoice-primary, #1F3A2E)', paddingTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <div style={{ minWidth: 240, width: '100%', maxWidth: 300 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
               <span style={{ fontSize: 12, color: '#666' }}>Subtotal</span>
-              <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(subtotal)}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(safeSubtotal)}</span>
             </div>
-            {discountAmount > 0 && (
+            {safeDiscountAmount > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontSize: 12, color: '#5f6d59' }}>
+                <span style={{ fontSize: 12, color: 'var(--invoice-primary, #1F3A2E)' }}>
                   Coupon{couponCode ? ` (${couponCode})` : ''}
                 </span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#5f6d59', fontVariantNumeric: 'tabular-nums' }}>−{formatCurrency(discountAmount)}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--invoice-primary, #1F3A2E)', fontVariantNumeric: 'tabular-nums' }}>−{formatCurrency(safeDiscountAmount)}</span>
               </div>
             )}
-            {manualDiscountAmount > 0 && (
+            {safeManualDiscountAmount > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontSize: 12, color: '#5f6d59' }}>Manual Discount</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#5f6d59', fontVariantNumeric: 'tabular-nums' }}>−{formatCurrency(manualDiscountAmount)}</span>
+                <span style={{ fontSize: 12, color: 'var(--invoice-primary, #1F3A2E)' }}>Manual Discount</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--invoice-primary, #1F3A2E)', fontVariantNumeric: 'tabular-nums' }}>−{formatCurrency(safeManualDiscountAmount)}</span>
               </div>
             )}
-            {gstAmount > 0 && (
+            {safeGstAmount > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                 <span style={{ fontSize: 12, color: '#666' }}>GST</span>
-                <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>+{formatCurrency(gstAmount)}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>+{formatCurrency(safeGstAmount)}</span>
               </div>
             )}
             {effectiveDelivery > 0 && (
@@ -236,11 +252,11 @@ export const Invoice: React.FC<InvoiceProps> = ({
             <div
               style={{
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                borderTop: '2px solid #7daa8f', paddingTop: 10, marginTop: 4,
+                borderTop: '2px solid var(--invoice-primary, #1F3A2E)', paddingTop: 10, marginTop: 4,
               }}
             >
-              <span style={{ fontSize: 15, fontWeight: 900, color: 'var(--brand-black)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Total</span>
-              <span style={{ fontSize: 20, fontWeight: 900, color: 'var(--brand-black)', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(total)}</span>
+              <span style={{ fontSize: 15, fontWeight: 900, color: 'var(--invoice-primary, #1F3A2E)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Total</span>
+              <span style={{ fontSize: 20, fontWeight: 900, color: 'var(--invoice-primary, #1F3A2E)', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(safeTotal)}</span>
             </div>
             {payments && payments.length > 0 && (
               <div style={{ borderTop: '1px dashed #d0d0d0', marginTop: 8, paddingTop: 6 }}>
@@ -250,7 +266,7 @@ export const Invoice: React.FC<InvoiceProps> = ({
                     <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(p.amount)}</span>
                   </div>
                 ))}
-                {changeGiven != null && changeGiven > 0 && (
+                {toNumber(changeGiven, 0) > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#16a34a' }}>
                     <span>Change Given</span>
                     <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(changeGiven)}</span>
@@ -276,7 +292,7 @@ export const Invoice: React.FC<InvoiceProps> = ({
           textAlign: 'center',
         }}
       >
-        <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--brand-black)', letterSpacing: 0.5 }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--invoice-primary, #1F3A2E)', letterSpacing: 0.5 }}>
           Thank you for shopping at VASTHRAALAYAM BOUTIQUE!
         </div>
         <div style={{ fontSize: 10, color: '#666', marginTop: 3, fontWeight: 500 }}>

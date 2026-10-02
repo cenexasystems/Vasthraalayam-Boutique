@@ -60,15 +60,48 @@ const INR_CURRENCY = new Intl.NumberFormat('en-IN', {
 
 const clampTo = (value: number, min = 0) => (value < min ? min : value)
 
-export const roundTo = (value: number, places = 2) => {
-  const factor = 10 ** places
-  return Math.round((value + Number.EPSILON) * factor) / factor
+export const toNumber = (value: unknown, fallback = 0): number => {
+  if (value === null || value === undefined) return fallback
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : fallback
+  }
+  const cleaned = String(value)
+    .replace(/[₹\u20b9]|Rs\.?|INR/gi, '')
+    .replace(/,/g, '')
+    .trim()
+  if (!cleaned) return fallback
+  const parsed = Number(cleaned)
+  return Number.isFinite(parsed) ? parsed : fallback
 }
 
-export const toNumber = (value: unknown, fallback = 0) => {
-  if (value === null || value === undefined) return fallback
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : fallback
+export const roundTo = (value: unknown, places = 2): number => {
+  const num = toNumber(value, 0)
+  const factor = 10 ** places
+  return Math.round((num + Number.EPSILON) * factor) / factor
+}
+
+export const computeOrderTotal = (order: {
+  total?: unknown
+  total_amount?: unknown
+  grand_total?: unknown
+  subtotal?: unknown
+  delivery_charge?: unknown
+  shipping?: unknown
+  total_gst?: unknown
+  gst_amount?: unknown
+  discount_amount?: unknown
+  manual_discount_amount?: unknown
+  coupon_discount?: unknown
+}): number => {
+  const savedTotal = toNumber(order.total ?? order.total_amount ?? order.grand_total, -1)
+  if (savedTotal > 0) return roundTo(savedTotal, 2)
+
+  const subtotal = toNumber(order.subtotal, 0)
+  const delivery = toNumber(order.delivery_charge ?? order.shipping, 0)
+  const gst = toNumber(order.total_gst ?? order.gst_amount, 0)
+  const discount = toNumber(order.discount_amount ?? order.coupon_discount, 0)
+  const manualDiscount = toNumber(order.manual_discount_amount, 0)
+  return Math.max(0, roundTo(subtotal + delivery + gst - discount - manualDiscount, 2))
 }
 
 export const safeId = (id: unknown): number | null => {
@@ -338,7 +371,14 @@ export const calculateLineTotal = (
 export const variantLineTotal = (price: number, cartQty: number): number =>
   roundTo(price * Math.max(0, Math.round(cartQty)), 2)
 
-export const formatCurrency = (value: number) => INR_CURRENCY.format(roundTo(value, 2)).replace(/\u00a0/g, ' ')
+export const formatCurrency = (value: unknown): string => {
+  const num = toNumber(value, NaN)
+  if (!Number.isFinite(num)) {
+    console.warn('[formatCurrency] Invalid monetary value:', value)
+    return '₹0.00'
+  }
+  return INR_CURRENCY.format(roundTo(num, 2)).replace(/\u00a0/g, ' ')
+}
 
 export const formatCompactQuantity = (quantity: number, unitLabel: string) => {
   const q = formatNumber(quantity)

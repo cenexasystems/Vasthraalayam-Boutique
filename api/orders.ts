@@ -3,6 +3,7 @@ import type { JSONValue } from 'postgres'
 import { sql } from './_lib/db.js'
 import { requireAuth } from './_lib/guard.js'
 import { methodRouter } from './_lib/handler.js'
+import { toNumber, roundTo, computeOrderTotal } from './_lib/money.js'
 
 // Consolidated from api/orders/{index,[id]}.ts and api/order-items.ts into a
 // single file so this project stays within the Hobby plan's 12 Serverless Function limit.
@@ -37,7 +38,7 @@ const PATCHABLE_COLUMNS = new Set([
 function digitsOf(s: string) { return s.replace(/\D/g, '') }
 
 function round2(num: number): number {
-  return Math.round((num + Number.EPSILON) * 100) / 100
+  return roundTo(num, 2)
 }
 
 /**
@@ -66,16 +67,47 @@ function textSearchGroup(qText: string, fields: Array<'invoice_no' | 'customer_n
 }
 
 /**
- * Ensures old records with an empty payments array fall back to payment_mode + total
+ * Ensures numeric fields are coerced to numbers and payments/change_given are normalized
  */
 function formatOrderRow(row: Record<string, unknown>) {
-  const payments = Array.isArray(row.payments) && row.payments.length > 0
+  const subtotal = toNumber(row.subtotal, 0)
+  const deliveryCharge = toNumber(row.delivery_charge ?? row.shipping, 0)
+  const discountAmount = toNumber(row.discount_amount, 0)
+  const manualDiscountAmount = toNumber(row.manual_discount_amount, 0)
+  const totalGst = toNumber(row.total_gst ?? row.gst_amount, 0)
+  const total = computeOrderTotal({
+    total: row.total ?? row.total_amount ?? row.grand_total,
+    subtotal,
+    delivery_charge: deliveryCharge,
+    total_gst: totalGst,
+    discount_amount: discountAmount,
+    manual_discount_amount: manualDiscountAmount,
+  })
+  const changeGiven = toNumber(row.change_given, 0)
+
+  const rawPayments = Array.isArray(row.payments) && row.payments.length > 0
     ? row.payments
-    : [{ mode: String(row.payment_mode || row.payment_method || 'cash').toLowerCase(), amount: Number(row.total || 0) }]
+    : [{ mode: String(row.payment_mode || row.payment_method || 'cash').toLowerCase(), amount: total }]
+
+  const payments = (rawPayments as Array<Record<string, unknown>>).map((p) => ({
+    mode: String(p?.mode || 'cash').toLowerCase(),
+    amount: toNumber(p?.amount, 0),
+  }))
+
   return {
     ...row,
+    total,
+    total_amount: total,
+    grand_total: total,
+    subtotal,
+    delivery_charge: deliveryCharge,
+    shipping: deliveryCharge,
+    discount_amount: discountAmount,
+    manual_discount_amount: manualDiscountAmount,
+    total_gst: totalGst,
+    gst_amount: totalGst,
+    change_given: changeGiven,
     payments,
-    change_given: Number(row.change_given || 0),
   }
 }
 
@@ -235,6 +267,7 @@ async function getPublicInvoice(req: VercelRequest, res: VercelResponse) {
           base_price: Number(adv.total_amount || 0),
           line_total: Number(adv.total_amount || 0),
         }]
+    const mappedTotal = toNumber(adv.total_amount, 0)
     const mapped = {
       id: adv.completed_order_id || adv.id,
       invoice_no: adv.invoice_number || adv.deposit_id,
@@ -242,16 +275,19 @@ async function getPublicInvoice(req: VercelRequest, res: VercelResponse) {
       phone: adv.phone,
       address: adv.address || '',
       items: advItems,
-      total: Number(adv.total_amount || 0),
-      subtotal: Number(adv.total_amount || 0),
+      total: mappedTotal,
+      total_amount: mappedTotal,
+      grand_total: mappedTotal,
+      subtotal: mappedTotal,
       delivery_charge: 0,
+      shipping: 0,
       discount_amount: 0,
       manual_discount_amount: 0,
       total_gst: 0,
       gst_amount: 0,
       status: adv.status,
       payment_mode: adv.final_payment_method || 'Advance Payment',
-      payments: [{ mode: String(adv.final_payment_method || 'advance').toLowerCase(), amount: Number(adv.total_amount || 0) }],
+      payments: [{ mode: String(adv.final_payment_method || 'advance').toLowerCase(), amount: mappedTotal }],
       change_given: 0,
       created_at: adv.completed_at || adv.created_at,
     }

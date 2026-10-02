@@ -15,6 +15,20 @@
     --brand-surface: #FBFAF6;
     --brand-text-dark: #111111;
     --brand-text-muted: #6B7280;
+
+    /* Invoice brand theme variables sampled from logo */
+    --invoice-primary: #1F3A2E;
+    --invoice-accent: #C5A059;
+    --invoice-primary-contrast: #FFFFFF;
+    --invoice-tint: rgba(31, 58, 46, 0.07);
+    --invoice-border: rgba(31, 58, 46, 0.22);
+  }
+
+  #invoice-print-root,
+  .digital-invoice-page,
+  .invoice-table-header {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   *, *::before, *::after {

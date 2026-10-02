@@ -1,4 +1,4 @@
-import { formatInvoiceNo } from './retail'
+import { formatInvoiceNo, toNumber, computeOrderTotal } from './retail'
 import { BRAND_EN, BRAND_INSTAGRAM, BRAND_INSTAGRAM_URL, BRAND_PRIMARY_PHONE_DISPLAY, BRAND_PRODUCTION_DOMAIN } from './brand'
 
 export type WhatsAppLineItem = {
@@ -53,14 +53,23 @@ export const buildProfessionalWhatsAppMessage = (input: BuildWhatsAppMessageInpu
   const customerName = input.customerName?.trim() || 'Valued Customer'
   const invoiceUrl = input.invoiceUrl || publicInvoiceUrl(input.invoiceNumber)
   const formattedNo = formatInvoiceNo(input.invoiceNumber)
+  const safeTotal = computeOrderTotal({
+    total: input.total,
+    subtotal: input.subtotal,
+    delivery_charge: input.shipping,
+    total_gst: input.gstAmount,
+    discount_amount: input.couponDiscount,
+    manual_discount_amount: input.manualDiscountAmount,
+  })
+
   const itemsText = input.items && input.items.length > 0
-    ? input.items.map(item => `• ${item.name} (x${item.qty}) - ₹ ${Number(item.lineTotal || 0).toFixed(2)}`).join('\n')
+    ? input.items.map(item => `• ${item.name} (x${item.qty}) - ₹ ${toNumber(item.lineTotal, 0).toFixed(2)}`).join('\n')
     : ''
 
   const paymentDisplay = (() => {
     if (input.payments && input.payments.length > 0) {
       return input.payments
-        .map(p => `${p.mode === 'qr' ? 'QR' : p.mode.charAt(0).toUpperCase() + p.mode.slice(1)} ₹${Number(p.amount || 0).toFixed(2)}`)
+        .map(p => `${p.mode === 'qr' ? 'QR' : p.mode.charAt(0).toUpperCase() + p.mode.slice(1)} ₹${toNumber(p.amount, 0).toFixed(2)}`)
         .join(', ')
     }
     return input.paymentMode || ''
@@ -75,7 +84,7 @@ Thank you for shopping at ${BRAND_EN}! We truly appreciate your patronage.
 
 🧾 *INVOICE DETAILS*
 📌 *Invoice No:* #${formattedNo}
-${input.invoiceDate ? `📅 *Date:* ${new Date(input.invoiceDate).toLocaleDateString('en-IN')}\n` : ''}${paymentDisplay ? `💳 *Payment Mode:* ${paymentDisplay}\n` : ''}${input.total !== undefined ? `💰 *Total Amount:* ₹ ${Number(input.total || 0).toFixed(2)}\n` : ''}
+${input.invoiceDate ? `📅 *Date:* ${new Date(input.invoiceDate).toLocaleDateString('en-IN')}\n` : ''}${paymentDisplay ? `💳 *Payment Mode:* ${paymentDisplay}\n` : ''}${safeTotal > 0 ? `💰 *Total Amount:* ₹ ${safeTotal.toFixed(2)}\n` : ''}
 ${itemsText ? `📦 *ITEMS ORDERED:*\n${itemsText}\n\n` : ''}📄 *View & Download Digital Invoice / PDF:*
 👉 ${invoiceUrl}
 
@@ -110,9 +119,9 @@ We have successfully received your initial advance payment!
 🧾 *Advance Order Details* 👇
 📦 Deposit ID: #${input.depositId}
 👔 Product: ${input.productName}
-💵 Total Order Amount: ₹${input.totalAmount}
-💰 Advance Paid: ₹${input.depositAmount}${input.paymentMethod ? ` (${input.paymentMethod.toLowerCase() === 'upi' ? 'QR' : input.paymentMethod.toUpperCase()})` : ''}
-🔴 Balance to Pay on Delivery: ₹${input.remainingBalance}
+💵 Total Order Amount: ₹${toNumber(input.totalAmount, 0).toFixed(2)}
+💰 Advance Paid: ₹${toNumber(input.depositAmount, 0).toFixed(2)}${input.paymentMethod ? ` (${input.paymentMethod.toLowerCase() === 'upi' ? 'QR' : input.paymentMethod.toUpperCase()})` : ''}
+🔴 Balance to Pay on Delivery: ₹${toNumber(input.remainingBalance, 0).toFixed(2)}
 📅 Expected Delivery Date: ${deliveryDateFormatted}
 
 Your garments are being prepared with utmost care. We will have everything ready on or before ${deliveryDateFormatted}!

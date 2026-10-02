@@ -840,63 +840,74 @@ export async function updatePrinterProfileInDb(
   }
 
   const res = await neonApi.put<PrinterProfile>('/printer-profiles', payload)
+  if (res.error) {
+    throw new Error(res.error instanceof Error ? res.error.message : String(res.error))
+  }
   const updated = res.data || profile
   const current = getStoredPrinterProfiles(bizId).map((p) => (p.id === updated.id ? updated : p))
   saveStoredPrinterProfilesLocally(current, bizId)
   return updated
 }
 
-export async function deletePrinterProfileInDb(id: string, businessId?: string): Promise<boolean> {
+export async function deletePrinterProfileInDb(
+  id: string,
+  businessId?: string
+): Promise<{ success: boolean; id?: string; promoted_default_id?: string | null }> {
   const bizId = businessId || getCurrentBusinessId()
-  try {
-    await neonApi.delete(`/printer-profiles?id=${encodeURIComponent(id)}&business_id=${encodeURIComponent(bizId)}`)
-  } catch (err) {
-    console.warn('[barcode] Failed to delete printer profile from DB:', err)
+  const res = await neonApi.delete<{ success: boolean; id: string; promoted_default_id?: string | null }>(
+    `/printer-profiles?id=${encodeURIComponent(id)}&business_id=${encodeURIComponent(bizId)}`
+  )
+  if (res.error) {
+    throw new Error(res.error instanceof Error ? res.error.message : String(res.error))
   }
   const current = getStoredPrinterProfiles(bizId).filter((p) => p.id !== id)
-  saveStoredPrinterProfilesLocally(current.length > 0 ? current : [DEFAULT_PRINTER_PROFILE], bizId)
-  return true
+  const promotedId = res.data?.promoted_default_id
+  const updatedProfiles = current.map((p) => ({
+    ...p,
+    is_default: promotedId ? p.id === promotedId : p.is_default,
+  }))
+  saveStoredPrinterProfilesLocally(updatedProfiles.length > 0 ? updatedProfiles : [DEFAULT_PRINTER_PROFILE], bizId)
+  return res.data || { success: true, id }
 }
 
-export async function setDefaultPrinterProfileInDb(id: string, businessId?: string): Promise<PrinterProfile | null> {
+export async function setDefaultPrinterProfileInDb(id: string, businessId?: string): Promise<PrinterProfile> {
   const bizId = businessId || getCurrentBusinessId()
-  try {
-    const res = await neonApi.put<PrinterProfile>('/printer-profiles', {
-      action: 'set_default',
-      id,
-      business_id: bizId,
-    })
-    if (res.data) {
-      const current = getStoredPrinterProfiles(bizId).map((p) => ({
-        ...p,
-        is_default: p.id === id,
-      }))
-      saveStoredPrinterProfilesLocally(current, bizId)
-      return res.data
-    }
-  } catch (err) {
-    console.warn('[barcode] Failed to set default printer profile:', err)
+  const res = await neonApi.put<PrinterProfile>('/printer-profiles', {
+    action: 'set_default',
+    id,
+    business_id: bizId,
+  })
+  if (res.data) {
+    const current = getStoredPrinterProfiles(bizId).map((p) => ({
+      ...p,
+      is_default: p.id === id,
+    }))
+    saveStoredPrinterProfilesLocally(current, bizId)
+    return res.data
   }
-  return null
+  const errMsg = res.error instanceof Error ? res.error.message : (res.error ? String(res.error) : 'Failed to set default profile')
+  throw new Error(errMsg)
 }
 
-export async function duplicatePrinterProfileInDb(id: string, businessId?: string): Promise<PrinterProfile | null> {
+export async function duplicatePrinterProfileInDb(
+  id: string,
+  snapshot?: Partial<PrinterProfile>,
+  businessId?: string
+): Promise<PrinterProfile> {
   const bizId = businessId || getCurrentBusinessId()
-  try {
-    const res = await neonApi.put<PrinterProfile>('/printer-profiles', {
-      action: 'duplicate',
-      id,
-      business_id: bizId,
-    })
-    if (res.data) {
-      const current = getStoredPrinterProfiles(bizId)
-      saveStoredPrinterProfilesLocally([...current, res.data], bizId)
-      return res.data
-    }
-  } catch (err) {
-    console.warn('[barcode] Failed to duplicate printer profile:', err)
+  const res = await neonApi.put<PrinterProfile>('/printer-profiles', {
+    action: 'duplicate',
+    id,
+    ...(snapshot || {}),
+    business_id: bizId,
+  })
+  if (res.data) {
+    const current = getStoredPrinterProfiles(bizId)
+    saveStoredPrinterProfilesLocally([...current, res.data], bizId)
+    return res.data
   }
-  return null
+  const errMsg = res.error instanceof Error ? res.error.message : (res.error ? String(res.error) : 'Failed to duplicate profile')
+  throw new Error(errMsg)
 }
 
 export async function saveLastUsedProfileId(profileId: string, businessId?: string): Promise<void> {

@@ -82,20 +82,46 @@ async function get(req: VercelRequest, res: VercelResponse) {
   const isProfile = req.query.resource === 'profiles'
 
   if (isProfile) {
-    const [profileRows, prefRows] = await Promise.all([
-      sql`
+    let profileRows = await sql`
+      SELECT *
+      FROM public.printer_profiles
+      WHERE business_id = ${businessId}
+      ORDER BY is_default DESC, created_at ASC
+    `
+
+    // Auto-seed default profile if none exists for this business
+    if (profileRows.length === 0) {
+      const defaultId = `profile_default_${businessId}`
+      await sql`
+        INSERT INTO public.printer_profiles (
+          id, business_id, name, is_default, printer_type, size_id, orientation, rotation,
+          margin_top_mm, margin_right_mm, margin_bottom_mm, margin_left_mm,
+          gap_x_mm, gap_y_mm, offset_x_mm, offset_y_mm, barcode_type, font_scale, barcode_height_scale,
+          show_product_name, show_price, show_sku, show_mrp, show_variant, show_business_name, show_date,
+          sheet_start_position, created_at, updated_at
+        ) VALUES (
+          ${defaultId}, ${businessId}, 'Standard Thermal 38×25', true, 'label', '2_38x25', 'portrait', 0,
+          0, 0, 0, 0,
+          2, 0, 0, 0, 'CODE128', 1.0, 1.0,
+          true, true, true, false, true, true, false,
+          1, NOW(), NOW()
+        )
+        ON CONFLICT (id) DO NOTHING
+      `
+      profileRows = await sql`
         SELECT *
         FROM public.printer_profiles
         WHERE business_id = ${businessId}
         ORDER BY is_default DESC, created_at ASC
-      `,
-      sql`
-        SELECT last_used_profile_id
-        FROM public.business_label_settings
-        WHERE business_id = ${businessId}
-        LIMIT 1
-      `,
-    ])
+      `
+    }
+
+    const prefRows = await sql`
+      SELECT last_used_profile_id
+      FROM public.business_label_settings
+      WHERE business_id = ${businessId}
+      LIMIT 1
+    `
 
     res.status(200).json({
       data: profileRows.map(shapeProfileRow),
@@ -139,6 +165,17 @@ async function create(req: VercelRequest, res: VercelResponse) {
       return
     }
 
+    // Check unique name per business
+    const duplicate = await sql`
+      SELECT id FROM public.printer_profiles
+      WHERE business_id = ${businessId} AND LOWER(TRIM(name)) = LOWER(${name})
+      LIMIT 1
+    `
+    if (duplicate.length > 0) {
+      res.status(400).json({ error: 'A profile with this name already exists' })
+      return
+    }
+
     const id = typeof body.id === 'string' && body.id.trim() ? body.id.trim() : `profile_${Date.now()}`
     const isDefault = Boolean(body.is_default)
 
@@ -156,7 +193,7 @@ async function create(req: VercelRequest, res: VercelResponse) {
         margin_top_mm, margin_right_mm, margin_bottom_mm, margin_left_mm,
         gap_x_mm, gap_y_mm, offset_x_mm, offset_y_mm, barcode_type, font_scale, barcode_height_scale,
         show_product_name, show_price, show_sku, show_mrp, show_variant, show_business_name, show_date,
-        created_at, updated_at
+        sheet_start_position, created_at, updated_at
       ) VALUES (
         ${id}, ${businessId}, ${name}, ${isDefault},
         ${String(body.printer_type || 'label')},
@@ -181,6 +218,7 @@ async function create(req: VercelRequest, res: VercelResponse) {
         ${body.show_variant !== false},
         ${body.show_business_name !== false},
         ${Boolean(body.show_date)},
+        ${Number(body.sheet_start_position || 1)},
         NOW(), NOW()
       )
       RETURNING *
@@ -285,35 +323,75 @@ async function update(req: VercelRequest, res: VercelResponse) {
 
     // 3) Duplicate profile
     if (body.action === 'duplicate') {
+      let original: any = null
       const existing = await sql`
         SELECT * FROM public.printer_profiles
         WHERE id = ${id} AND business_id = ${businessId}
         LIMIT 1
       `
-      if (existing.length === 0) {
-        res.status(404).json({ error: 'Profile to duplicate not found' })
-        return
+      if (existing.length > 0) {
+        original = existing[0]
+      } else {
+        // Fallback to provided snapshot or default settings
+        original = {
+          name: String(body.name || 'Standard Thermal 38×25'),
+          printer_type: String(body.printer_type || 'label'),
+          size_id: String(body.size_id || '2_38x25'),
+          orientation: String(body.orientation || 'portrait'),
+          rotation: Number(body.rotation || 0),
+          margin_top_mm: Number(body.margin_top_mm || 0),
+          margin_right_mm: Number(body.margin_right_mm || 0),
+          margin_bottom_mm: Number(body.margin_bottom_mm || 0),
+          margin_left_mm: Number(body.margin_left_mm || 0),
+          gap_x_mm: Number(body.gap_x_mm ?? 2),
+          gap_y_mm: Number(body.gap_y_mm || 0),
+          offset_x_mm: Number(body.offset_x_mm || 0),
+          offset_y_mm: Number(body.offset_y_mm || 0),
+          barcode_type: String(body.barcode_type || 'CODE128'),
+          font_scale: Number(body.font_scale || 1.0),
+          barcode_height_scale: Number(body.barcode_height_scale || 1.0),
+          show_product_name: body.show_product_name !== undefined ? Boolean(body.show_product_name) : true,
+          show_price: body.show_price !== undefined ? Boolean(body.show_price) : true,
+          show_sku: body.show_sku !== undefined ? Boolean(body.show_sku) : true,
+          show_mrp: Boolean(body.show_mrp),
+          show_variant: body.show_variant !== undefined ? Boolean(body.show_variant) : true,
+          show_business_name: body.show_business_name !== undefined ? Boolean(body.show_business_name) : true,
+          show_date: Boolean(body.show_date),
+          sheet_start_position: Number(body.sheet_start_position || 1),
+        }
       }
 
-      const original = existing[0]
-      const newId = `profile_${Date.now()}`
-      const newName = `${original.name} (Copy)`
+      // Query all existing profile names for this business to determine unique copy name
+      const allProfiles = await sql`
+        SELECT name FROM public.printer_profiles WHERE business_id = ${businessId}
+      `
+      const existingNames = new Set(allProfiles.map((r: Record<string, unknown>) => String(r.name || '').trim().toLowerCase()))
 
+      const baseClean = original.name.replace(/\s*\(Copy(?:\s+\d+)?\)$/i, '').trim()
+      let candidate = `${baseClean} (Copy)`
+      let counter = 2
+      while (existingNames.has(candidate.toLowerCase())) {
+        candidate = `${baseClean} (Copy ${counter})`
+        counter++
+      }
+
+      const newId = `profile_${Date.now()}`
       const rows = await sql`
         INSERT INTO public.printer_profiles (
           id, business_id, name, is_default, printer_type, size_id, orientation, rotation,
           margin_top_mm, margin_right_mm, margin_bottom_mm, margin_left_mm,
           gap_x_mm, gap_y_mm, offset_x_mm, offset_y_mm, barcode_type, font_scale, barcode_height_scale,
           show_product_name, show_price, show_sku, show_mrp, show_variant, show_business_name, show_date,
-          created_at, updated_at
+          sheet_start_position, created_at, updated_at
         ) VALUES (
-          ${newId}, ${businessId}, ${newName}, false,
+          ${newId}, ${businessId}, ${candidate}, false,
           ${original.printer_type}, ${original.size_id}, ${original.orientation}, ${original.rotation},
           ${original.margin_top_mm}, ${original.margin_right_mm}, ${original.margin_bottom_mm}, ${original.margin_left_mm},
           ${original.gap_x_mm}, ${original.gap_y_mm}, ${original.offset_x_mm}, ${original.offset_y_mm},
           ${original.barcode_type}, ${original.font_scale}, ${original.barcode_height_scale},
           ${original.show_product_name}, ${original.show_price}, ${original.show_sku}, ${original.show_mrp},
           ${original.show_variant}, ${original.show_business_name}, ${original.show_date},
+          ${Number(original.sheet_start_position || 1)},
           NOW(), NOW()
         )
         RETURNING *
@@ -327,6 +405,17 @@ async function update(req: VercelRequest, res: VercelResponse) {
     const name = String(body.name || '').trim()
     if (!name) {
       res.status(400).json({ error: 'Profile name is required' })
+      return
+    }
+
+    // Check unique name per business
+    const duplicate = await sql`
+      SELECT id FROM public.printer_profiles
+      WHERE business_id = ${businessId} AND id != ${id} AND LOWER(TRIM(name)) = LOWER(${name})
+      LIMIT 1
+    `
+    if (duplicate.length > 0) {
+      res.status(400).json({ error: 'A profile with this name already exists' })
       return
     }
 
@@ -355,6 +444,7 @@ async function update(req: VercelRequest, res: VercelResponse) {
           show_variant = ${body.show_variant !== false},
           show_business_name = ${body.show_business_name !== false},
           show_date = ${Boolean(body.show_date)},
+          sheet_start_position = ${Number(body.sheet_start_position || 1)},
           updated_at = NOW()
       WHERE id = ${id} AND business_id = ${businessId}
       RETURNING *
@@ -455,16 +545,49 @@ async function remove(req: VercelRequest, res: VercelResponse) {
   }
 
   if (isProfile) {
-    const rows = await sql`
-      DELETE FROM public.printer_profiles
-      WHERE id = ${id} AND business_id = ${businessId}
-      RETURNING id
+    const countRows = await sql`
+      SELECT COUNT(*)::int AS count FROM public.printer_profiles WHERE business_id = ${businessId}
     `
-    if (rows.length === 0) {
+    if ((countRows[0]?.count || 0) <= 1) {
+      res.status(400).json({ error: 'Cannot delete the only remaining profile' })
+      return
+    }
+
+    const targetRows = await sql`
+      SELECT is_default FROM public.printer_profiles WHERE id = ${id} AND business_id = ${businessId}
+    `
+    if (targetRows.length === 0) {
       res.status(404).json({ error: 'Printer profile not found' })
       return
     }
-    res.status(200).json({ data: { success: true, id } })
+
+    const wasDefault = Boolean(targetRows[0].is_default)
+
+    await sql`
+      DELETE FROM public.printer_profiles
+      WHERE id = ${id} AND business_id = ${businessId}
+    `
+
+    // If default was deleted, make another one default
+    let promotedDefaultId: string | null = null
+    if (wasDefault) {
+      const promoteRows = await sql`
+        UPDATE public.printer_profiles
+        SET is_default = true, updated_at = NOW()
+        WHERE id = (
+          SELECT id FROM public.printer_profiles
+          WHERE business_id = ${businessId}
+          ORDER BY created_at ASC
+          LIMIT 1
+        )
+        RETURNING id
+      `
+      if (promoteRows.length > 0) {
+        promotedDefaultId = String(promoteRows[0].id)
+      }
+    }
+
+    res.status(200).json({ data: { success: true, id, promoted_default_id: promotedDefaultId } })
     return
   }
 

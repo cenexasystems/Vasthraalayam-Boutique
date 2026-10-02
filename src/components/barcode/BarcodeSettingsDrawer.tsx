@@ -17,6 +17,8 @@ import {
   Sliders,
   SlidersHorizontal,
   Bookmark,
+  Save,
+  AlertCircle,
 } from 'lucide-react'
 import {
   type BarcodeSettings,
@@ -50,6 +52,36 @@ import {
 } from '../../lib/barcode'
 import { CreateCustomSizeModal } from './CreateCustomSizeModal'
 
+function checkProfileModified(current: PrinterProfile, saved: PrinterProfile | undefined): boolean {
+  if (!saved) return false
+  const keys: (keyof PrinterProfile)[] = [
+    'printer_type',
+    'size_id',
+    'orientation',
+    'rotation',
+    'margin_top_mm',
+    'margin_right_mm',
+    'margin_bottom_mm',
+    'margin_left_mm',
+    'gap_x_mm',
+    'gap_y_mm',
+    'offset_x_mm',
+    'offset_y_mm',
+    'barcode_type',
+    'font_scale',
+    'barcode_height_scale',
+    'show_product_name',
+    'show_price',
+    'show_sku',
+    'show_mrp',
+    'show_variant',
+    'show_business_name',
+    'show_date',
+    'sheet_start_position',
+  ]
+  return keys.some((k) => current[k] !== saved[k])
+}
+
 interface BarcodeSettingsDrawerProps {
   isOpen: boolean
   onClose: () => void
@@ -82,7 +114,20 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
   })
   const [showSaveProfileModal, setShowSaveProfileModal] = useState(false)
   const [newProfileName, setNewProfileName] = useState('')
-  const [profileMessage, setProfileMessage] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isDuplicating, setIsDuplicating] = useState(false)
+
+  const showToast = (message: string, type: 'success' | 'error' = 'success', duration = 3000) => {
+    setToast({ message, type })
+    setTimeout(() => {
+      setToast((cur) => (cur?.message === message ? null : cur))
+    }, duration)
+  }
+
+  // Saved Profile vs Screen Settings modified check
+  const savedProfile = profiles.find((p) => p.id === activeProfile.id)
+  const isModified = checkProfileModified(activeProfile, savedProfile)
 
   // Custom Sizes State
   const [customSizes, setCustomSizes] = useState<LabelSizeConfig[]>(() => getStoredCustomSizes(activeBizId))
@@ -129,7 +174,10 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
         const targetId = lastUsedProfileId || settings.selectedProfileId
         const match = dbProfiles.find((p) => p.id === targetId) || dbProfiles.find((p) => p.is_default) || dbProfiles[0]
         if (match) {
-          setActiveProfile(match)
+          // If activeProfile is uninitialized or not in DB, sync it
+          if (!activeProfile.id || activeProfile.id === 'default_label_profile' || !dbProfiles.some((p) => p.id === activeProfile.id)) {
+            setActiveProfile({ ...match })
+          }
           const updated: BarcodeSettings = {
             ...settings,
             printerType: match.printer_type,
@@ -178,7 +226,7 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
 
   if (!isOpen) return null
 
-  // Helpers to push profile changes
+  // Helpers to push screen draft changes without altering saved profile until user clicks "Update Profile"
   const applyProfileUpdates = (patch: Partial<PrinterProfile>) => {
     const updatedProfile: PrinterProfile = { ...activeProfile, ...patch }
     setActiveProfile(updatedProfile)
@@ -195,20 +243,16 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
       profile: updatedProfile,
     }
 
-    // Save locally and in state
+    // Save draft locally and inform parent for live preview
     saveStoredBarcodeSettings(updatedSettings, activeBizId)
     onUpdateSettings(updatedSettings)
-
-    // Save to profiles list
-    setProfiles((prev) => prev.map((p) => (p.id === updatedProfile.id ? updatedProfile : p)))
-    void updatePrinterProfileInDb(updatedProfile, activeBizId)
   }
 
   // Profile Switching
-  const handleSelectProfile = (profileId: string) => {
-    const found = profiles.find((p) => p.id === profileId)
+  const handleSelectProfile = (profileId: string, profileList = profiles) => {
+    const found = profileList.find((p) => p.id === profileId)
     if (!found) return
-    setActiveProfile(found)
+    setActiveProfile({ ...found })
     void saveLastUsedProfileId(profileId, activeBizId)
 
     const updatedSettings: BarcodeSettings = {
@@ -225,18 +269,48 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
     saveStoredBarcodeSettings(updatedSettings, activeBizId)
     onUpdateSettings(updatedSettings)
 
-    setProfileMessage(`Loaded profile "${found.name}"`)
-    setTimeout(() => setProfileMessage(null), 2500)
+    showToast(`Loaded profile "${found.name}"`, 'success')
   }
 
-  // Profile Operations
+  // Update Profile with current screen settings
+  const handleUpdateProfile = async () => {
+    if (isSaving || isDuplicating) return
+    setIsSaving(true)
+    try {
+      const updated = await updatePrinterProfileInDb(activeProfile, activeBizId)
+      setProfiles((prev) => prev.map((p) => (p.id === activeProfile.id ? updated : p)))
+      setActiveProfile(updated)
+      showToast('Profile updated', 'success')
+    } catch (err: any) {
+      console.error('Failed to update profile:', err)
+      showToast(err?.message || 'Failed to update profile', 'error')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Profile Operations: Save As New Profile
   const handleSaveAsNewProfile = async () => {
-    if (!newProfileName.trim()) return
+    const trimmed = newProfileName.trim()
+    if (!trimmed) {
+      showToast('Profile name is required', 'error')
+      return
+    }
+
+    const nameExists = profiles.some(
+      (p) => p.name.trim().toLowerCase() === trimmed.toLowerCase()
+    )
+    if (nameExists) {
+      showToast('A profile with this name already exists', 'error')
+      return
+    }
+
+    setIsSaving(true)
     try {
       const created = await createPrinterProfileInDb(
         {
           ...activeProfile,
-          name: newProfileName.trim(),
+          name: trimmed,
           is_default: false,
         },
         activeBizId
@@ -245,69 +319,165 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
       setActiveProfile(created)
       setShowSaveProfileModal(false)
       setNewProfileName('')
-      setProfileMessage(`Saved profile "${created.name}"`)
-      setTimeout(() => setProfileMessage(null), 3000)
-    } catch (e) {
+
+      const updatedSettings: BarcodeSettings = {
+        ...settings,
+        printerType: created.printer_type,
+        selectedSizeId: created.size_id,
+        selectedProfileId: created.id,
+        showSalePrice: created.show_price,
+        showCompanyName: created.show_business_name,
+        showItemName: created.show_product_name,
+        showDiscount: created.show_mrp,
+        profile: created,
+      }
+      saveStoredBarcodeSettings(updatedSettings, activeBizId)
+      onUpdateSettings(updatedSettings)
+
+      showToast(`Saved profile "${created.name}"`, 'success')
+    } catch (e: any) {
       console.error('Failed to create profile:', e)
+      showToast(e?.message || 'Failed to create profile', 'error')
+    } finally {
+      setIsSaving(false)
     }
   }
 
   const handleSetDefaultProfile = async () => {
+    if (isSaving || isDuplicating) return
+    setIsSaving(true)
     try {
       await setDefaultPrinterProfileInDb(activeProfile.id, activeBizId)
       setProfiles((prev) =>
         prev.map((p) => ({ ...p, is_default: p.id === activeProfile.id }))
       )
       setActiveProfile((prev) => ({ ...prev, is_default: true }))
-      setProfileMessage(`Set "${activeProfile.name}" as default profile`)
-      setTimeout(() => setProfileMessage(null), 2500)
-    } catch (e) {
+      showToast(`Set "${activeProfile.name}" as default profile`, 'success')
+    } catch (e: any) {
       console.error('Failed to set default profile:', e)
+      showToast(e?.message || 'Failed to set default profile', 'error')
+    } finally {
+      setIsSaving(false)
     }
   }
 
   const handleDuplicateProfile = async () => {
+    if (isDuplicating || isSaving || !activeProfile?.id) return
+
+    let snapshotToDuplicate: Partial<PrinterProfile> | undefined
+    if (isModified) {
+      const useCurrent = window.confirm(
+        'Duplicate with current unsaved settings?\n\nOK = Duplicate using current screen settings\nCancel = Duplicate using saved profile settings'
+      )
+      if (useCurrent) {
+        snapshotToDuplicate = activeProfile
+      } else {
+        const saved = profiles.find((p) => p.id === activeProfile.id)
+        if (saved) snapshotToDuplicate = saved
+      }
+    } else {
+      const saved = profiles.find((p) => p.id === activeProfile.id)
+      if (saved) snapshotToDuplicate = saved
+    }
+
+    setIsDuplicating(true)
     try {
-      const duplicated = await duplicatePrinterProfileInDb(activeProfile.id, activeBizId)
+      const duplicated = await duplicatePrinterProfileInDb(
+        activeProfile.id,
+        snapshotToDuplicate,
+        activeBizId
+      )
       if (duplicated) {
         setProfiles((prev) => [...prev, duplicated])
         setActiveProfile(duplicated)
-        setProfileMessage(`Duplicated as "${duplicated.name}"`)
-        setTimeout(() => setProfileMessage(null), 2500)
+
+        const updatedSettings: BarcodeSettings = {
+          ...settings,
+          printerType: duplicated.printer_type,
+          selectedSizeId: duplicated.size_id,
+          selectedProfileId: duplicated.id,
+          showSalePrice: duplicated.show_price,
+          showCompanyName: duplicated.show_business_name,
+          showItemName: duplicated.show_product_name,
+          showDiscount: duplicated.show_mrp,
+          profile: duplicated,
+        }
+        saveStoredBarcodeSettings(updatedSettings, activeBizId)
+        onUpdateSettings(updatedSettings)
+
+        showToast('Profile duplicated', 'success')
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to duplicate profile:', e)
+      showToast(e?.message || 'Failed to duplicate profile', 'error')
+    } finally {
+      setIsDuplicating(false)
     }
   }
 
   const handleRenameProfile = async () => {
+    if (isSaving || isDuplicating) return
     const currentName = activeProfile.name
     const prompted = window.prompt('Rename profile:', currentName)
-    if (!prompted || prompted.trim() === '' || prompted.trim() === currentName) return
-    const updated = { ...activeProfile, name: prompted.trim() }
-    applyProfileUpdates({ name: prompted.trim() })
-    await updatePrinterProfileInDb(updated, activeBizId)
-    setProfileMessage(`Renamed to "${prompted.trim()}"`)
-    setTimeout(() => setProfileMessage(null), 2500)
+    if (prompted === null) return
+    const trimmed = prompted.trim()
+    if (!trimmed) {
+      showToast('Profile name cannot be empty', 'error')
+      return
+    }
+    if (trimmed === currentName) return
+
+    const nameExists = profiles.some(
+      (p) => p.id !== activeProfile.id && p.name.trim().toLowerCase() === trimmed.toLowerCase()
+    )
+    if (nameExists) {
+      showToast('A profile with this name already exists', 'error')
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      const updated = { ...activeProfile, name: trimmed }
+      await updatePrinterProfileInDb(updated, activeBizId)
+      setActiveProfile(updated)
+      setProfiles((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
+      showToast('Profile renamed', 'success')
+    } catch (err: any) {
+      console.error('Failed to rename profile:', err)
+      showToast(err?.message || 'Failed to rename profile', 'error')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleDeleteProfile = async () => {
+    if (isSaving || isDuplicating) return
     if (profiles.length <= 1) {
-      alert('Cannot delete the only remaining profile.')
+      showToast('Cannot delete the only remaining profile.', 'error')
       return
     }
     if (!window.confirm(`Delete profile "${activeProfile.name}"?`)) return
+
+    setIsSaving(true)
     try {
-      await deletePrinterProfileInDb(activeProfile.id, activeBizId)
+      const res = await deletePrinterProfileInDb(activeProfile.id, activeBizId)
       const remaining = profiles.filter((p) => p.id !== activeProfile.id)
-      setProfiles(remaining)
-      const fallback = remaining[0] || DEFAULT_PRINTER_PROFILE
-      setActiveProfile(fallback)
-      handleSelectProfile(fallback.id)
-      setProfileMessage('Profile deleted')
-      setTimeout(() => setProfileMessage(null), 2500)
-    } catch (e) {
+      const promotedId = res?.promoted_default_id
+      const updatedList = remaining.map((p, idx) => ({
+        ...p,
+        is_default: promotedId ? p.id === promotedId : (idx === 0 && activeProfile.is_default ? true : p.is_default),
+      }))
+
+      setProfiles(updatedList)
+      const fallback = updatedList.find((p) => p.is_default) || updatedList[0] || DEFAULT_PRINTER_PROFILE
+      setActiveProfile({ ...fallback })
+      handleSelectProfile(fallback.id, updatedList)
+      showToast('Profile deleted', 'success')
+    } catch (e: any) {
       console.error('Failed to delete profile:', e)
+      showToast(e?.message || 'Failed to delete profile', 'error')
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -382,7 +552,7 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
       {createPortal(
         <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-screen h-screen h-[100dvh] z-[9999] flex justify-end bg-black/65 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="absolute inset-0" onClick={onClose} />
-          <div className="relative z-10 w-full max-w-md bg-white h-screen h-[100dvh] shadow-2xl flex flex-col border-l border-gray-200 animate-in slide-in-from-right duration-200">
+          <div className="relative z-10 w-full max-w-full sm:max-w-md bg-white h-screen h-[100dvh] shadow-2xl flex flex-col border-l border-gray-200 animate-in slide-in-from-right duration-200">
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 bg-brand-black text-white shrink-0">
               <div className="flex items-center gap-2">
@@ -399,10 +569,29 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
             </div>
 
             {/* Notification alert banner */}
-            {profileMessage && (
-              <div className="bg-emerald-50 border-b border-emerald-200 px-4 py-2 text-xs text-emerald-800 font-bold flex items-center justify-between">
-                <span>{profileMessage}</span>
-                <Check size={14} className="text-emerald-600" />
+            {toast && (
+              <div
+                className={`px-4 py-2.5 text-xs font-bold flex items-center justify-between transition-all shrink-0 ${
+                  toast.type === 'error'
+                    ? 'bg-red-50 border-b border-red-200 text-red-800'
+                    : 'bg-emerald-50 border-b border-emerald-200 text-emerald-800'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {toast.type === 'error' ? (
+                    <AlertCircle size={15} className="text-red-600 shrink-0" />
+                  ) : (
+                    <Check size={15} className="text-emerald-600 shrink-0" />
+                  )}
+                  <span>{toast.message}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setToast(null)}
+                  className="text-gray-400 hover:text-gray-600 cursor-pointer"
+                >
+                  <X size={13} />
+                </button>
               </div>
             )}
 
@@ -434,17 +623,24 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
                     {/* Active Profile Dropdown & Controls */}
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <label className="text-[11px] font-black uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
-                          <Bookmark size={12} className="text-blue-600" /> Saved Profiles
-                        </label>
+                        <div className="flex items-center gap-2">
+                          <label className="text-[11px] font-black uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
+                            <Bookmark size={12} className="text-blue-600" /> Saved Profiles
+                          </label>
+                          {isModified && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-300">
+                              Modified
+                            </span>
+                          )}
+                        </div>
                         <span className="text-[10px] text-gray-400 font-bold">Scoped to Business</span>
                       </div>
 
-                      <div className="flex gap-2">
+                      <div className="flex flex-col sm:flex-row gap-2">
                         <select
                           value={activeProfile.id}
                           onChange={(e) => handleSelectProfile(e.target.value)}
-                          className="flex-1 h-9 px-3 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
+                          className="flex-1 min-w-0 h-10 px-3 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
                         >
                           {profiles.map((p) => (
                             <option key={p.id} value={p.id}>
@@ -453,51 +649,74 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
                           ))}
                         </select>
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNewProfileName(`${activeProfile.name} Copy`)
-                            setShowSaveProfileModal(true)
-                          }}
-                          title="Save as new profile"
-                          className="px-2.5 h-9 rounded-xl bg-brand-black text-brand-onDark border border-[#7daa8f] text-[11px] font-black uppercase tracking-wider hover:bg-[#1e2817] flex items-center gap-1 cursor-pointer"
-                        >
-                          <Plus size={12} /> Save As
-                        </button>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {isModified && (
+                            <button
+                              type="button"
+                              onClick={handleUpdateProfile}
+                              disabled={isSaving || isDuplicating}
+                              title="Update saved profile with current screen settings"
+                              className="h-10 min-h-[40px] px-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              <Save size={13} />
+                              <span>Update Profile</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewProfileName(`${activeProfile.name} Copy`)
+                              setShowSaveProfileModal(true)
+                            }}
+                            title="Save as new profile"
+                            className="h-10 min-h-[40px] px-3 rounded-xl bg-brand-black text-brand-onDark border border-[#7daa8f] text-[11px] font-black uppercase tracking-wider hover:bg-[#1e2817] flex items-center gap-1.5 cursor-pointer shadow-xs"
+                          >
+                            <Plus size={13} />
+                            <span>Save As</span>
+                          </button>
+                        </div>
                       </div>
 
-                      {/* Profile action pills */}
-                      <div className="flex items-center gap-1.5 flex-wrap pt-1 text-[11px]">
+                      {/* Profile action pills in a responsive wrapping row */}
+                      <div className="flex flex-wrap items-center gap-2 pt-1.5 w-full">
                         {!activeProfile.is_default && (
                           <button
                             type="button"
                             onClick={handleSetDefaultProfile}
-                            className="px-2 py-1 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 font-bold flex items-center gap-1 hover:bg-amber-100 cursor-pointer"
+                            disabled={isSaving || isDuplicating}
+                            className="h-10 min-h-[40px] px-3.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-900 text-xs font-bold flex items-center justify-center gap-2 hover:bg-amber-100 transition-colors cursor-pointer shadow-2xs disabled:opacity-50"
                           >
-                            <Star size={11} className="fill-amber-500 text-amber-500" /> Set as Default
+                            <Star size={14} className="fill-amber-500 text-amber-500" />
+                            <span>Set as Default</span>
                           </button>
                         )}
                         <button
                           type="button"
                           onClick={handleRenameProfile}
-                          className="px-2 py-1 rounded-lg border border-gray-200 bg-white text-gray-700 font-bold flex items-center gap-1 hover:bg-gray-50 cursor-pointer"
+                          disabled={isSaving || isDuplicating}
+                          className="h-10 min-h-[40px] px-3.5 rounded-xl border border-gray-300 bg-white text-gray-800 text-xs font-bold flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors cursor-pointer shadow-2xs disabled:opacity-50"
                         >
-                          <Pencil size={11} /> Rename
+                          <Pencil size={14} className="text-gray-600" />
+                          <span>Rename</span>
                         </button>
                         <button
                           type="button"
                           onClick={handleDuplicateProfile}
-                          className="px-2 py-1 rounded-lg border border-gray-200 bg-white text-gray-700 font-bold flex items-center gap-1 hover:bg-gray-50 cursor-pointer"
+                          disabled={isSaving || isDuplicating || !activeProfile?.id}
+                          className="h-10 min-h-[40px] px-3.5 rounded-xl border border-gray-300 bg-white text-gray-800 text-xs font-bold flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors cursor-pointer shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          <Copy size={11} /> Duplicate
+                          <Copy size={14} className="text-gray-600" />
+                          <span>{isDuplicating ? 'Duplicating...' : 'Duplicate'}</span>
                         </button>
                         {profiles.length > 1 && (
                           <button
                             type="button"
                             onClick={handleDeleteProfile}
-                            className="px-2 py-1 rounded-lg border border-red-200 bg-red-50 text-red-700 font-bold flex items-center gap-1 hover:bg-red-100 cursor-pointer"
+                            disabled={isSaving || isDuplicating}
+                            className="h-10 min-h-[40px] px-3.5 rounded-xl border border-red-200 bg-red-50 text-red-700 text-xs font-bold flex items-center justify-center gap-2 hover:bg-red-100 transition-colors cursor-pointer shadow-2xs disabled:opacity-50"
                           >
-                            <Trash2 size={11} /> Delete
+                            <Trash2 size={14} className="text-red-600" />
+                            <span>Delete</span>
                           </button>
                         )}
                       </div>
