@@ -18,6 +18,12 @@ export type BuildWhatsAppMessageInput = {
   invoiceUrl?: string
   paymentMode?: string
   payments?: Array<{ mode: string; amount: number }>
+  changeGiven?: number
+  depositAmount?: number
+  remainingBalance?: number
+  advancePaid?: number
+  balancePaid?: number
+  balanceDue?: number
   items?: WhatsAppLineItem[]
   subtotal?: number
   couponDiscount?: number
@@ -66,14 +72,57 @@ export const buildProfessionalWhatsAppMessage = (input: BuildWhatsAppMessageInpu
     ? input.items.map(item => `• ${item.name} (x${item.qty}) - ₹ ${toNumber(item.lineTotal, 0).toFixed(2)}`).join('\n')
     : ''
 
-  const paymentDisplay = (() => {
-    if (input.payments && input.payments.length > 0) {
-      return input.payments
-        .map(p => `${p.mode === 'qr' ? 'QR' : p.mode.charAt(0).toUpperCase() + p.mode.slice(1)} ₹${toNumber(p.amount, 0).toFixed(2)}`)
-        .join(', ')
+  const formatMode = (m?: string): string => {
+    if (!m) return 'Cash'
+    const lower = m.trim().toLowerCase()
+    if (lower === 'qr' || lower === 'upi') return 'QR / UPI'
+    if (lower === 'cash') return 'Cash'
+    if (lower === 'card') return 'Card'
+    return m.charAt(0).toUpperCase() + m.slice(1)
+  }
+
+  const activePayments = (input.payments || []).filter(p => toNumber(p.amount, 0) > 0)
+  const isDeposit = (input.depositAmount != null && input.depositAmount > 0) || (input.remainingBalance != null)
+
+  let paymentSection = ''
+  if (isDeposit) {
+    const advPaid = toNumber(input.depositAmount ?? input.advancePaid, 0)
+    const balPaid = toNumber(input.balancePaid, 0)
+    const remBal = toNumber(input.remainingBalance ?? input.balanceDue, 0)
+    const depositTotalPaid = advPaid + balPaid
+
+    const depositLines = [
+      `• Advance Paid: ₹ ${advPaid.toFixed(2)}`,
+    ]
+    if (balPaid > 0) {
+      depositLines.push(`• Balance Paid: ₹ ${balPaid.toFixed(2)}`)
     }
-    return input.paymentMode || ''
-  })()
+    if (remBal > 0) {
+      depositLines.push(`• Balance Due: ₹ ${remBal.toFixed(2)}`)
+    }
+    if (input.paymentMode) {
+      depositLines.push(`• Payment Mode: ${formatMode(input.paymentMode)}`)
+    }
+    if (depositTotalPaid > 0) {
+      depositLines.push(`--------------------------\n*Total Paid:* ₹ ${depositTotalPaid.toFixed(2)}`)
+    }
+    paymentSection = `💳 *PAYMENT DETAILS:*\n${depositLines.join('\n')}`
+  } else if (activePayments.length > 0) {
+    const totalPaid = activePayments.reduce((s, p) => s + toNumber(p.amount, 0), 0)
+    const cashPaid = activePayments.filter(p => p.mode.toLowerCase() === 'cash').reduce((s, p) => s + toNumber(p.amount, 0), 0)
+    const lines = activePayments.map(p => `• ${formatMode(p.mode)}: ₹ ${toNumber(p.amount, 0).toFixed(2)}`)
+    const change = toNumber(input.changeGiven, 0)
+    if (change > 0) {
+      lines.push(`• Change Returned: -₹ ${change.toFixed(2)}`)
+      if (cashPaid > 0) {
+        lines.push(`• Net Cash: ₹ ${Math.max(0, cashPaid - change).toFixed(2)}`)
+      }
+    }
+    lines.push(`--------------------------\n*Total Paid:* ₹ ${totalPaid.toFixed(2)}`)
+    paymentSection = `💳 *PAYMENT DETAILS:*\n${lines.join('\n')}`
+  } else {
+    paymentSection = `💳 *PAYMENT DETAILS:*\n• Payment Mode: ${formatMode(input.paymentMode)}\n--------------------------\n*Total Paid:* ₹ ${safeTotal.toFixed(2)}`
+  }
 
   return `✨ *${BRAND_EN}* ✨
 🛍️ *Official Purchase Invoice & Receipt* 🛍️
@@ -84,8 +133,8 @@ Thank you for shopping at ${BRAND_EN}! We truly appreciate your patronage.
 
 🧾 *INVOICE DETAILS*
 📌 *Invoice No:* #${formattedNo}
-${input.invoiceDate ? `📅 *Date:* ${new Date(input.invoiceDate).toLocaleDateString('en-IN')}\n` : ''}${paymentDisplay ? `💳 *Payment Mode:* ${paymentDisplay}\n` : ''}${safeTotal > 0 ? `💰 *Total Amount:* ₹ ${safeTotal.toFixed(2)}\n` : ''}
-${itemsText ? `📦 *ITEMS ORDERED:*\n${itemsText}\n\n` : ''}📄 *View & Download Digital Invoice / PDF:*
+${input.invoiceDate ? `📅 *Date:* ${new Date(input.invoiceDate).toLocaleDateString('en-IN')}\n` : ''}
+${itemsText ? `📦 *ITEMS ORDERED:*\n${itemsText}\n\n` : ''}${safeTotal > 0 ? `💰 *Total Amount:* ₹ ${safeTotal.toFixed(2)}\n\n` : ''}${paymentSection ? `${paymentSection}\n\n` : ''}📄 *View & Download Digital Invoice / PDF:*
 👉 ${invoiceUrl}
 
 📞 *Shop Contact:* ${BRAND_PRIMARY_PHONE_DISPLAY}

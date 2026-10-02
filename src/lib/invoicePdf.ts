@@ -23,6 +23,11 @@ export type InvoicePdfData = {
   payments?: Array<{ mode: string; amount: number }>
   changeGiven?: number
   primaryColor?: string
+  depositAmount?: number
+  remainingBalance?: number
+  advancePaid?: number
+  balancePaid?: number
+  balanceDue?: number
 }
 
 // jsPDF's built-in Helvetica font does not include the ₹ Unicode glyph (U+20B9).
@@ -31,6 +36,15 @@ export type InvoicePdfData = {
 const money = (value: unknown): string => {
   const formatted = formatCurrency(toNumber(value, 0)).replace(/\s+/g, ' ')
   return formatted.replace(/^[₹\u20b9]\s*/, 'Rs. ')
+}
+
+const formatMode = (m?: string): string => {
+  if (!m) return 'Cash'
+  const lower = m.trim().toLowerCase()
+  if (lower === 'qr' || lower === 'upi') return 'QR / UPI'
+  if (lower === 'cash') return 'Cash'
+  if (lower === 'card') return 'Card'
+  return m.charAt(0).toUpperCase() + m.slice(1)
 }
 
 /** Creates a compact A4 invoice that can be attached as a file to WhatsApp. */
@@ -56,30 +70,54 @@ export function createInvoicePdf(data: InvoicePdfData): Blob {
   y += 7
   doc.setDrawColor('#d8dce0')
   doc.line(left, y, right, y)
-  y += 10
+  y += 8
+
+  // ── HEADER (Left: Logo + Name + Address + Phone | Right: Only Date) ──
+  const headerStartY = y
+  const logoWidth = 20
+  const logoHeight = 20
+  const leftContentX = left + logoWidth + 4 // 16 + 20 + 4 = 40mm
+  const rightBlockWidth = 62 // ~35% of 178mm printable width
+  const leftBlockMaxWidth = (right - left) - rightBlockWidth - 6 // 178 - 62 - 6 = 110mm
+  const textMaxWidth = leftBlockMaxWidth - logoWidth - 4 // 110 - 24 = 86mm
 
   try {
-    doc.addImage(LOGO_BASE64, 'PNG', left, y, 20, 20)
+    doc.addImage(LOGO_BASE64, 'PNG', left, y, logoWidth, logoHeight)
   } catch {
     doc.setTextColor(primaryColor)
     doc.setFontSize(16)
     doc.text(BRAND_EN, left, y + 10)
   }
+
+  // Business Name (wrapped if long)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(13)
   doc.setTextColor(primaryColor)
-  doc.text(BRAND_EN, left + 24, y + 5)
+  const brandLines = doc.splitTextToSize(BRAND_EN, textMaxWidth) as string[]
+  doc.text(brandLines, leftContentX, y + 4.5)
+  let currentLeftY = y + 4.5 + brandLines.length * 5
+
+  // Address (wrapped)
   doc.setFontSize(8)
   doc.setTextColor(muted)
   doc.setFont('helvetica', 'normal')
-  doc.text(BRAND_ADDRESS, left + 24, y + 10, { maxWidth: 85 })
-  doc.text(`Phone: ${BRAND_PHONE_DISPLAY}`, left + 24, y + 18)
-  doc.text(`Date: ${new Date(data.date).toLocaleDateString('en-IN')}`, right, y + 2, { align: 'right' })
-  const paymentText = data.payments && data.payments.length > 0
-    ? data.payments.map(p => `${p.mode === 'qr' ? 'QR' : p.mode.toUpperCase()}: ${money(p.amount)}`).join(', ')
-    : data.paymentMode || 'POS'
-  doc.text(`Payment: ${paymentText}`, right, y + 7, { align: 'right' })
-  y += 28
+  const addressLines = doc.splitTextToSize(BRAND_ADDRESS, textMaxWidth) as string[]
+  doc.text(addressLines, leftContentX, currentLeftY)
+  currentLeftY += addressLines.length * 3.6
+
+  // Phone
+  doc.text(`Phone: ${BRAND_PHONE_DISPLAY}`, leftContentX, currentLeftY + 1)
+  currentLeftY += 5
+
+  // Right block: ONLY Date (Right-aligned, white-space nowrap, max-width ~35%, no payment text)
+  const dateFormatted = new Date(data.date).toLocaleDateString('en-IN')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8.5)
+  doc.setTextColor(muted)
+  doc.text(`Date: ${dateFormatted}`, right, headerStartY + 4.5, { align: 'right' })
+
+  // Spacing before Bill To box
+  y = Math.max(headerStartY + logoHeight + 4, currentLeftY + 4)
 
   const customerName = String(data.customerName || 'Walk-in Customer').trim()
   const customerPhone = String(data.phone || '—').trim()
@@ -171,10 +209,133 @@ export function createInvoicePdf(data: InvoicePdfData): Blob {
   doc.setLineWidth(0.7)
   doc.line(118, y - 3, right, y - 3)
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(14)
+  doc.setFontSize(13)
   doc.setTextColor(primaryColor)
-  doc.text('TOTAL', 143, y + 6, { align: 'right' })
-  doc.text(money(safeTotal), right - 4, y + 6, { align: 'right' })
+  doc.text('TOTAL', 143, y + 5.5, { align: 'right' })
+  doc.text(money(safeTotal), right - 4, y + 5.5, { align: 'right' })
+  y += 11
+
+  // ── PAYMENT DETAILS SECTION (under TOTAL) ─────────────────────────
+  doc.setDrawColor('#e5e7eb')
+  doc.setLineWidth(0.3)
+  doc.line(118, y - 2, right, y - 2)
+  y += 3
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.setTextColor(primaryColor)
+  doc.text('PAYMENT DETAILS', 120, y)
+  y += 5
+
+  const activePayments = (data.payments || []).filter(p => toNumber(p.amount, 0) > 0)
+  const isDepositInvoice = (data.depositAmount != null && data.depositAmount > 0) || (data.remainingBalance != null)
+
+  if (isDepositInvoice) {
+    const advPaid = toNumber(data.depositAmount ?? data.advancePaid, 0)
+    const remBalance = toNumber(data.remainingBalance ?? data.balanceDue, 0)
+    const balPaid = toNumber(data.balancePaid, 0)
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    doc.setTextColor(ink)
+
+    doc.text('Advance Paid', 120, y)
+    doc.text(money(advPaid), right - 4, y, { align: 'right' })
+    y += 4.5
+
+    if (balPaid > 0) {
+      doc.text('Balance Paid', 120, y)
+      doc.text(money(balPaid), right - 4, y, { align: 'right' })
+      y += 4.5
+    }
+
+    if (remBalance > 0) {
+      doc.setTextColor(primaryColor)
+      doc.setFont('helvetica', 'bold')
+      doc.text('Balance Due', 120, y)
+      doc.text(money(remBalance), right - 4, y, { align: 'right' })
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(ink)
+      y += 4.5
+    }
+
+    if (data.paymentMode) {
+      doc.setFontSize(7.5)
+      doc.setTextColor(muted)
+      doc.text(`Payment Mode: ${formatMode(data.paymentMode)}`, 120, y)
+      y += 4.5
+    }
+  } else if (activePayments.length > 0) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    doc.setTextColor(ink)
+
+    let totalPaid = 0
+    let cashPaid = 0
+
+    activePayments.forEach(p => {
+      const amt = toNumber(p.amount, 0)
+      totalPaid += amt
+      if (p.mode.toLowerCase() === 'cash') cashPaid += amt
+      doc.text(formatMode(p.mode), 120, y)
+      doc.text(money(amt), right - 4, y, { align: 'right' })
+      y += 4.5
+    })
+
+    const change = toNumber(data.changeGiven, 0)
+    if (change > 0) {
+      doc.setTextColor(muted)
+      doc.text('Change Returned', 120, y)
+      doc.text(`-${money(change)}`, right - 4, y, { align: 'right' })
+      y += 4.5
+
+      if (cashPaid > 0) {
+        doc.text('Net Cash', 120, y)
+        doc.text(money(Math.max(0, cashPaid - change)), right - 4, y, { align: 'right' })
+        y += 4.5
+      }
+      doc.setTextColor(ink)
+    }
+
+    doc.setDrawColor('#e5e7eb')
+    doc.setLineWidth(0.2)
+    doc.line(118, y, right, y)
+    y += 3.5
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8.5)
+    doc.setTextColor(primaryColor)
+    doc.text('Total Paid', 120, y)
+    doc.text(money(totalPaid), right - 4, y, { align: 'right' })
+    y += 5
+  } else {
+    // Single payment bill
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    doc.setTextColor(ink)
+
+    const modeLabel = formatMode(data.paymentMode)
+    doc.text('Payment Mode:', 120, y)
+    doc.text(modeLabel, right - 4, y, { align: 'right' })
+    y += 4.5
+
+    doc.setDrawColor('#e5e7eb')
+    doc.setLineWidth(0.2)
+    doc.line(118, y, right, y)
+    y += 3.5
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8.5)
+    doc.setTextColor(primaryColor)
+    doc.text('Total Paid', 120, y)
+    doc.text(money(safeTotal), right - 4, y, { align: 'right' })
+    y += 5
+  }
+
+  if (y > 265) {
+    doc.addPage()
+    y = 20
+  }
 
   y = 275
   doc.setDrawColor('#d8dce0')

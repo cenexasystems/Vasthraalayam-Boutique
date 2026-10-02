@@ -755,9 +755,9 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
 
   return createPortal(
     <>
-      <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-screen h-screen h-[100dvh] z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
+      <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-full h-full h-[100dvh] max-h-[100dvh] z-[9999] flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
         <div className="absolute inset-0" onClick={onClose} />
-        <div className="relative z-10 bg-white w-full max-w-6xl h-screen h-[100dvh] sm:h-auto sm:max-h-[94vh] rounded-none sm:rounded-3xl border-0 sm:border border-gray-200 shadow-2xl overflow-hidden flex flex-col">
+        <div className="relative z-10 bg-white w-full max-w-6xl max-h-[100dvh] sm:max-h-[94dvh] rounded-t-3xl sm:rounded-3xl border-0 sm:border border-gray-200 shadow-2xl overflow-hidden flex flex-col">
           {/* TOP BAR matching Screenshot 195106 */}
           <div className="flex items-center justify-between px-4 py-3.5 sm:px-6 sm:py-4 border-b border-gray-200 bg-brand-black text-white shrink-0">
             <div className="flex items-center gap-2">
@@ -1491,13 +1491,13 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
           </div>
 
           {/* MODAL FOOTER */}
-          <div className="flex flex-col border-t border-gray-200 bg-white shrink-0 pb-[calc(env(safe-area-inset-bottom)+0.5rem)]">
+          <div className="sticky bottom-0 z-20 flex flex-col border-t border-gray-200 bg-white shrink-0 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
             <div className="px-3 py-2.5 sm:px-6 sm:py-3.5 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-3.5 py-2 sm:px-5 sm:py-2.5 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer shrink-0"
+                  className="min-h-[44px] sm:min-h-0 px-3.5 py-2 sm:px-5 sm:py-2.5 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer shrink-0 flex items-center justify-center"
                 >
                   Close
                 </button>
@@ -1507,12 +1507,12 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
               </div>
 
               <div className="flex items-center gap-2 sm:gap-2.5 shrink-0 flex-wrap justify-end">
-                <label className="flex items-center gap-1.5 mr-1 cursor-pointer" title="Check this to automatically increase stock by the number of labels printed.">
+                <label className="flex items-center gap-1.5 mr-1 cursor-pointer min-h-[44px] sm:min-h-0" title="Check this to automatically increase stock by the number of labels printed.">
                   <input
                     type="checkbox"
                     checked={updateStock}
                     onChange={(e) => setUpdateStock(e.target.checked)}
-                    className="w-3.5 h-3.5 rounded border-gray-300 text-brand-black focus:ring-brand-black cursor-pointer"
+                    className="w-4 h-4 rounded border-gray-300 text-brand-black focus:ring-brand-black cursor-pointer"
                   />
                   <span className="text-[11px] font-bold text-gray-700 select-none hidden sm:inline">
                     Update Stock
@@ -1547,7 +1547,7 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
                     }
                   }}
                   title="Download labels as exact vector PDF"
-                  className="px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl border border-gray-300 bg-white text-gray-700 text-[11px] sm:text-xs font-bold hover:bg-gray-50 transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+                  className="min-h-[44px] sm:min-h-0 px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl border border-gray-300 bg-white text-gray-700 text-[11px] sm:text-xs font-bold hover:bg-gray-50 transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
                 >
                   <Download size={13} />
                   <span className="hidden sm:inline">Download PDF</span>
@@ -1558,7 +1558,7 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setShowSheetPreviewModal(true)}
-                    className="px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl border border-brand-black bg-white text-brand-black text-[11px] sm:text-xs font-black uppercase tracking-wider hover:bg-gray-100 transition-all cursor-pointer shrink-0"
+                    className="min-h-[44px] sm:min-h-0 px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl border border-brand-black bg-white text-brand-black text-[11px] sm:text-xs font-black uppercase tracking-wider hover:bg-gray-100 transition-all cursor-pointer shrink-0 flex items-center justify-center"
                   >
                     Preview
                   </button>
@@ -1568,7 +1568,7 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
                   type="button"
                   onClick={handleGenerateAndCommitStock}
                   disabled={generating || queue.filter((it) => it.selected).length === 0}
-                  className="px-3 py-2 sm:px-6 sm:py-2.5 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-[11px] sm:text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] transition-all shadow-md flex items-center gap-1.5 sm:gap-2 cursor-pointer disabled:opacity-50 text-center justify-center shrink-0"
+                  className="min-h-[44px] sm:min-h-0 px-3 py-2 sm:px-6 sm:py-2.5 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-[11px] sm:text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] transition-all shadow-md flex items-center gap-1.5 sm:gap-2 cursor-pointer disabled:opacity-50 text-center justify-center shrink-0"
                 >
                   {generating ? (
                     <>

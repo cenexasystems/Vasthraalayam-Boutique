@@ -13,6 +13,9 @@ import {
   addAdvanceEvent, completeAdvanceOrder, createAdvanceOrder, getAdvanceOrderHistory, listAdvanceOrders, updateAdvanceStatus, deleteAdvanceOrder,
   type AdvanceOrder, type AdvancePayment, type AdvancePaymentMethod, type AdvanceStatus, type AdvanceTimeline,
 } from '../services/advanceOrderService'
+import { HardDeleteModal, type ImpactDetail } from '../components/common/HardDeleteModal'
+import { SplitPaymentSelector } from '../components/SplitPaymentSelector'
+import { type PaymentMode, type SplitPaymentValidationResult } from '../lib/splitPaymentUtils'
 
 // Custom Malaysian Ringgit icon
 const RMIcon = ({ size = 20, className = '' }: { size?: number; className?: string }) => (
@@ -70,8 +73,26 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
   const [payments, setPayments] = useState<AdvancePayment[]>([])
   const [paymentOrder, setPaymentOrder] = useState<AdvanceOrder | null>(null)
   const [paymentForm, setPaymentForm] = useState({ method: 'cash' as AdvancePaymentMethod, remarks: '' })
+  const [balanceMethod, setBalanceMethod] = useState<PaymentMode>('cash')
+  const [balanceValidation, setBalanceValidation] = useState<SplitPaymentValidationResult>({
+    isValid: true, totalPaid: 0, remaining: 0, changeGiven: 0, maxQrAllowed: 0, maxCardAllowed: 0, activePayments: []
+  })
+  const [depositMethod, setDepositMethod] = useState<PaymentMode>('cash')
+  const [depositValidation, setDepositValidation] = useState<SplitPaymentValidationResult>({
+    isValid: false, totalPaid: 0, remaining: 0, changeGiven: 0, maxQrAllowed: 0, maxCardAllowed: 0, activePayments: []
+  })
   const [manualDiscount, setManualDiscount] = useState('')
   const [manualDiscountType, setManualDiscountType] = useState<'rm' | '%'>('rm')
+  const [deleteModalConfig, setDeleteModalConfig] = useState<{
+    isOpen: boolean
+    title: string
+    subtitle?: string
+    entityType: 'advance_order'
+    impactDetails: ImpactDetail[]
+    requireTypeDelete: boolean
+    warningText?: string
+    onConfirm: () => Promise<{ backupId?: string | number } | void>
+  } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -80,15 +101,41 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
   useEffect(() => { void load() }, [load])
 
   const handleDeleteOrder = async (orderId: string, orderName: string) => {
-    if (!window.confirm(`Are you sure you want to delete advance order "${orderName}"? This action cannot be undone.`)) return
-    try {
-      await deleteAdvanceOrder(orderId)
-      setOrders(orders => orders.filter(o => o.id !== orderId))
-      setNotice('Order deleted successfully')
-      setTimeout(() => setNotice(''), 3000)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete order')
+    if (role === 'staff') {
+      alert('Deleting an advance order requires an admin account.')
+      return
     }
+
+    const targetOrder = orders.find(o => o.id === orderId)
+    const impactDetails: ImpactDetail[] = [
+      { label: 'Deposit Ref', value: targetOrder?.deposit_id || orderId },
+      { label: 'Customer', value: targetOrder?.customer_name || 'Customer' },
+      { label: 'Deposit Paid', value: `₹${formatCurrency(targetOrder?.deposit_amount ?? 0)}`, color: 'warning' },
+      { label: 'Total Value', value: `₹${formatCurrency(targetOrder?.total_amount ?? 0)}`, color: 'danger' },
+      {
+        label: 'Linked Completed Bill',
+        value: targetOrder?.completed_order_id ? 'Final bill will also be permanently deleted' : 'None (No bill created)',
+        color: targetOrder?.completed_order_id ? 'danger' : 'neutral',
+      },
+      { label: 'Payments & Timeline', value: 'All advance payments and timeline events purged' },
+    ]
+
+    setDeleteModalConfig({
+      isOpen: true,
+      title: `Permanently Delete Advance Order "${orderName}"`,
+      subtitle: `Deposit Ref: ${targetOrder?.deposit_id || ''} • Customer: ${targetOrder?.customer_name || ''}`,
+      entityType: 'advance_order',
+      impactDetails,
+      requireTypeDelete: true,
+      warningText: 'This advance order, all recorded advance/balance payments, timeline logs, and any completed invoice created from it will be permanently deleted from Neon.',
+      onConfirm: async () => {
+        await deleteAdvanceOrder(orderId)
+        setOrders(prev => prev.filter(o => o.id !== orderId))
+        setNotice('Advance order permanently deleted')
+        setTimeout(() => setNotice(''), 3000)
+        await load()
+      },
+    })
   }
 
 
@@ -160,11 +207,38 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
 
   const create = async (event: FormEvent) => {
     event.preventDefault(); setSaving(true); setError(''); setNotice('')
-    const total = Number(form.totalAmount); const deposit = Number(form.depositAmount)
-    if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(deposit) || deposit <= 0 || deposit >= total) { setError('Deposit must be greater than RM0 and less than the total order amount.'); setSaving(false); return }
+    const total = Number(form.totalAmount)
+    if (!Number.isFinite(total) || total <= 0) {
+      setError('Total order amount must be greater than zero.')
+      setSaving(false)
+      return
+    }
+    if (!depositValidation.isValid) {
+      setError(depositValidation.errorMessage || 'Enter a valid advance deposit amount.')
+      setSaving(false)
+      return
+    }
+
+    const deposit = depositValidation.totalPaid
     try {
-      const created = await createAdvanceOrder({ ...form, totalAmount: total, depositAmount: deposit, referenceNumber: form.reference_number, createdByName: role || 'Staff', products: [{ name: form.productName, category: form.category, description: form.description, quantity: 1, base_price: total, line_total: total, unit: 'piece', unit_type: 'unit', source: 'advance_order' }] })
-      setOrders(current => [created, ...current]); setForm(initialForm); setCreateOpen(false); setNotice(`${created.deposit_id} created. Deposit is tracked separately and has not been added to revenue.`)
+      const effectiveMode: AdvancePaymentMethod = depositMethod === 'split'
+        ? (depositValidation.activePayments.length > 1 ? 'split' : (depositValidation.activePayments[0]?.mode as AdvancePaymentMethod || 'cash'))
+        : (depositMethod as AdvancePaymentMethod)
+
+      const created = await createAdvanceOrder({
+        ...form,
+        totalAmount: total,
+        depositAmount: deposit,
+        paymentMethod: effectiveMode,
+        payments: depositValidation.activePayments,
+        referenceNumber: form.reference_number,
+        createdByName: role || 'Staff',
+        products: [{ name: form.productName, category: form.category, description: form.description, quantity: 1, base_price: total, line_total: total, unit: 'piece', unit_type: 'unit', source: 'advance_order' }]
+      })
+      setOrders(current => [created, ...current])
+      setForm(initialForm)
+      setCreateOpen(false)
+      setNotice(`${created.deposit_id} created. Deposit is tracked separately and has not been added to revenue.`)
 
       // Redirect to WhatsApp with advance deposit receipt
       const advanceMsg = buildAdvanceDepositWhatsAppMessage({
@@ -175,7 +249,7 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
         depositAmount: created.deposit_amount,
         remainingBalance: created.remaining_balance,
         expectedDeliveryDate: created.expected_delivery_date,
-        paymentMethod: form.paymentMethod,
+        paymentMethod: effectiveMode,
       })
       window.open(toWhatsAppUrl(created.phone, advanceMsg), '_blank', 'noopener,noreferrer')
     } catch (err) { setError(err instanceof Error ? err.message : 'Unable to create advance order') } finally { setSaving(false) }
@@ -195,7 +269,12 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
   }
 
   const receivePayment = async (event: FormEvent) => {
-    event.preventDefault(); if (!paymentOrder) return; setSaving(true); setError('')
+    event.preventDefault(); if (!paymentOrder) return
+    if (!balanceValidation.isValid) {
+      setError(balanceValidation.errorMessage || 'Please enter valid balance payment amounts')
+      return
+    }
+    setSaving(true); setError('')
     try {
       const manualDiscountNum = Math.max(0, Number(manualDiscount) || 0)
       const manualDisc = manualDiscountType === '%'
@@ -205,16 +284,23 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
       const parts = [paymentForm.remarks]
       if (manualDisc > 0) parts.push(`Manual Discount: ${manualDiscountType === '%' ? manualDiscountNum + '%' : '₹' + manualDiscountNum.toFixed(2)} = -INR ${manualDisc.toFixed(2)}`)
       const finalRemarks = parts.filter(Boolean).join(' | ')
+
+      const effectiveMode: AdvancePaymentMethod = balanceMethod === 'split'
+        ? (balanceValidation.activePayments.length > 1 ? 'split' : (balanceValidation.activePayments[0]?.mode as AdvancePaymentMethod || 'cash'))
+        : (balanceMethod as AdvancePaymentMethod)
+
       const result = await completeAdvanceOrder(
         paymentOrder.id, 
-        paymentForm.method, 
+        effectiveMode, 
         finalAmount,
         null,
         0,
         manualDisc,
-        finalRemarks
+        finalRemarks,
+        balanceValidation.activePayments,
+        balanceValidation.changeGiven
       )
-      const completed: AdvanceOrder = { ...paymentOrder, status: 'completed', remaining_balance: finalAmount, completed_at: result.completed_at, completed_order_id: result.order_id, invoice_number: result.invoice_no, final_payment_method: paymentForm.method }
+      const completed: AdvanceOrder = { ...paymentOrder, status: 'completed', remaining_balance: finalAmount, completed_at: result.completed_at, completed_order_id: result.order_id, invoice_number: result.invoice_no, final_payment_method: effectiveMode }
       setOrders(rows => rows.map(row => row.id === completed.id ? completed : row)); onOrderCompleted?.(completed); setPaymentOrder(null); setPaymentForm({ method: 'cash', remarks: '' }); setManualDiscount(''); setManualDiscountType('rm'); setNotice(`${result.invoice_no} generated once. The full ${formatCurrency(completed.total_amount)} is now recognized as revenue.`)
 
       // Redirect to WhatsApp with final invoice URL + Instagram + Feedback form
@@ -223,7 +309,21 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
   }
 
   const productRows = (order: AdvanceOrder) => order.products.length ? order.products : [{ name: order.product_name, quantity: 1, base_price: order.total_amount, line_total: order.total_amount, unit: 'piece', unit_type: 'unit' }]
-  const invoiceFile = (order: AdvanceOrder) => invoicePdfFile({ invoiceNo: order.invoice_number || order.deposit_id, date: order.completed_at || new Date().toISOString(), customerName: order.customer_name, phone: order.phone, address: order.address, items: productRows(order), subtotal: order.total_amount, shipping: 0, total: order.total_amount, paymentMode: order.final_payment_method || 'Paid' })
+  const invoiceFile = (order: AdvanceOrder) => invoicePdfFile({
+    invoiceNo: order.invoice_number || order.deposit_id,
+    date: order.completed_at || new Date().toISOString(),
+    customerName: order.customer_name,
+    phone: order.phone,
+    address: order.address,
+    items: productRows(order),
+    subtotal: order.total_amount,
+    shipping: 0,
+    total: order.total_amount,
+    paymentMode: order.final_payment_method || 'Paid',
+    depositAmount: order.deposit_amount,
+    remainingBalance: order.remaining_balance,
+    balancePaid: order.status === 'completed' ? (order.total_amount - order.deposit_amount) : 0,
+  })
   const printFinal = (order: AdvanceOrder) => printThermalReceipt({ invoiceNo: order.invoice_number || order.deposit_id, date: order.completed_at || new Date().toISOString(), customerName: order.customer_name, phone: order.phone, items: productRows(order).map(item => ({ name: String(item.name || 'Product'), qty: Number(item.quantity || 1), unit: String(item.unit || 'piece'), price: Number(item.base_price || 0), line_total: Number(item.line_total || 0) })), subtotal: order.total_amount, shipping: 0, total: order.total_amount })
   
   const whatsappDepositReceipt = (order: AdvanceOrder) => {
@@ -246,6 +346,20 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
       phone: order.phone,
       invoiceNumber: invNum,
       invoiceUrl: publicInvoiceUrl(invNum),
+      items: productRows(order).map(item => ({
+        name: String(item.name || 'Product'),
+        qty: Number(item.quantity || 1),
+        unit: String(item.unit || 'piece'),
+        unitType: 'unit',
+        rate: Number(item.base_price || 0),
+        lineTotal: Number(item.line_total || 0),
+      })),
+      subtotal: order.total_amount,
+      total: order.total_amount,
+      paymentMode: order.final_payment_method || 'Paid',
+      depositAmount: order.deposit_amount,
+      remainingBalance: order.remaining_balance,
+      balancePaid: order.status === 'completed' ? (order.total_amount - order.deposit_amount) : 0,
     })
     window.open(toWhatsAppUrl(order.phone, message), '_blank', 'noopener,noreferrer')
   }
@@ -401,101 +515,124 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
     </div>
 
     {createOpen && createPortal(
-      <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-screen h-screen h-[100dvh] z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-        <form onSubmit={create} className="max-h-[92vh] w-full max-w-4xl overflow-hidden overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl border border-[#ead7b7]">
-          <div className="mb-5 flex items-center justify-between">
+      <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-full h-full h-[100dvh] max-h-[100dvh] z-[9999] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
+        <div className="absolute inset-0" onClick={() => setCreateOpen(false)} />
+        <div className="relative z-10 w-full max-w-4xl max-h-[100dvh] sm:max-h-[92dvh] rounded-t-3xl sm:rounded-3xl bg-white shadow-2xl border-0 sm:border border-[#ead7b7] overflow-hidden flex flex-col">
+          <div className="shrink-0 px-5 py-3.5 sm:px-6 sm:py-4 border-b border-gray-100 flex items-center justify-between bg-[#FBFAF6]">
             <div>
-              <h3 className="text-xl font-black text-brand-black">Create Advance Order</h3>
+              <h3 className="text-lg sm:text-xl font-black text-brand-black">Create Advance Order</h3>
               <p className="text-xs text-amber-700">Creates an advance receipt only - no revenue or final invoice.</p>
             </div>
             <button type="button" onClick={() => setCreateOpen(false)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-700 transition cursor-pointer">
               <X size={18} />
             </button>
           </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Customer Name *"><input required className={inputClass} value={form.customerName} onChange={e=>setForm({...form,customerName:e.target.value})}/></Field>
-            <Field label="Phone Number *"><input required className={inputClass} value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></Field>
-            <Field label="Address"><textarea className={inputClass} value={form.address} onChange={e=>setForm({...form,address:e.target.value})}/></Field>
-            <Field label="Product Name *"><input required list="advance-products" className={inputClass} value={form.productName} onChange={e=>{const product=products.find(p=>p.name===e.target.value);setForm({...form,productName:e.target.value,category:product?.category||form.category})}}/><datalist id="advance-products">{products.map(p=><option key={p.id} value={p.name}/>)}</datalist></Field>
-            <Field label="Category"><input className={inputClass} value={form.category} onChange={e=>setForm({...form,category:e.target.value})}/></Field>
-            <Field label="Description"><textarea className={inputClass} value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></Field>
-            <Field label="Total Order Amount *"><input required min="0.01" step="0.01" type="number" className={inputClass} value={form.totalAmount} onChange={e=>setForm({...form,totalAmount:e.target.value})}/></Field>
-            <Field label="Deposit Amount Received *"><input required min="0" step="0.01" type="number" className={inputClass} value={form.depositAmount} onChange={e=>setForm({...form,depositAmount:e.target.value})}/></Field>
-            <Field label="Remaining Balance (automatic)"><div className="rounded-xl bg-violet-50 px-4 py-3 font-black text-violet-800">{formatCurrency(Math.max(0, Number(form.totalAmount||0)-Number(form.depositAmount||0)))}</div></Field>
-            <Field label="Deposit Payment Method"><select className={inputClass} value={form.paymentMethod} onChange={e=>setForm({...form,paymentMethod:e.target.value as AdvancePaymentMethod})}><option value="cash">Cash</option><option value="upi">QR</option><option value="card">Card</option></select></Field>
-            <Field label="Expected Delivery Date *"><input required type="date" className={inputClass} value={form.expectedDeliveryDate} onChange={e=>setForm({...form,expectedDeliveryDate:e.target.value})}/></Field>
-            <Field label="Order Status"><select disabled className={inputClass} value="pending_deposit"><option value="pending_deposit">Pending Deposit</option></select></Field>
-            <div className="md:col-span-2"><Field label="Reference Number"><input className={inputClass} value={form.reference_number} onChange={e=>setForm({...form,reference_number:e.target.value})} placeholder="e.g. PO-001, booking ref (optional)"/></Field></div>
-            <div className="md:col-span-2"><Field label="Remarks"><textarea className={inputClass} value={form.remarks} onChange={e=>setForm({...form,remarks:e.target.value})} placeholder="e.g. special instructions, colour, size notes"/></Field></div>
-          </div>
-          <div className="mt-6 flex justify-end gap-3">
-            <button type="button" onClick={()=>setCreateOpen(false)} className="rounded-xl border px-5 py-2.5 font-bold cursor-pointer hover:bg-gray-50 transition">Cancel</button>
-            <button disabled={saving} className="rounded-xl bg-[#7e22ce] px-5 py-2.5 font-black text-white shadow-md disabled:opacity-50 cursor-pointer hover:bg-[#6b1cb1] transition">{saving?'Creating...':'Create & Save Advance Receipt'}</button>
-          </div>
-        </form>
+          <form onSubmit={create} className="flex flex-col flex-1 overflow-hidden min-h-0">
+            <div className="overflow-y-auto flex-1 p-4 sm:p-6 space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="Customer Name *"><input required className={inputClass} value={form.customerName} onChange={e=>setForm({...form,customerName:e.target.value})}/></Field>
+                <Field label="Phone Number *"><input required className={inputClass} value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></Field>
+                <Field label="Address"><textarea className={inputClass} value={form.address} onChange={e=>setForm({...form,address:e.target.value})}/></Field>
+                <Field label="Product Name *"><input required list="advance-products" className={inputClass} value={form.productName} onChange={e=>{const product=products.find(p=>p.name===e.target.value);setForm({...form,productName:e.target.value,category:product?.category||form.category})}}/><datalist id="advance-products">{products.map(p=><option key={p.id} value={p.name}/>)}</datalist></Field>
+                <Field label="Category"><input className={inputClass} value={form.category} onChange={e=>setForm({...form,category:e.target.value})}/></Field>
+                <Field label="Description"><textarea className={inputClass} value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></Field>
+                <div className="md:col-span-2">
+                  <Field label="Total Order Amount *"><input required min="0.01" step="0.01" type="number" className={inputClass} value={form.totalAmount} onChange={e=>setForm({...form,totalAmount:e.target.value})}/></Field>
+                </div>
+                <div className="md:col-span-2">
+                  <SplitPaymentSelector
+                    type="deposit"
+                    targetAmount={Number(form.totalAmount) || 0}
+                    method={depositMethod}
+                    onMethodChange={setDepositMethod}
+                    onChange={setDepositValidation}
+                    disabled={saving}
+                    initialSingleAmount={form.depositAmount}
+                  />
+                </div>
+                <Field label="Expected Delivery Date *"><input required type="date" className={inputClass} value={form.expectedDeliveryDate} onChange={e=>setForm({...form,expectedDeliveryDate:e.target.value})}/></Field>
+                <Field label="Order Status"><select disabled className={inputClass} value="pending_deposit"><option value="pending_deposit">Pending Deposit</option></select></Field>
+                <div className="md:col-span-2"><Field label="Reference Number"><input className={inputClass} value={form.reference_number} onChange={e=>setForm({...form,reference_number:e.target.value})} placeholder="e.g. PO-001, booking ref (optional)"/></Field></div>
+                <div className="md:col-span-2"><Field label="Remarks"><textarea className={inputClass} value={form.remarks} onChange={e=>setForm({...form,remarks:e.target.value})} placeholder="e.g. special instructions, colour, size notes"/></Field></div>
+              </div>
+            </div>
+            <div className="sticky bottom-0 z-20 shrink-0 bg-[#FBFAF6] px-4 py-3 sm:px-6 sm:py-3.5 border-t border-gray-200 flex items-center justify-end gap-2.5 sm:gap-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
+              <button type="button" onClick={()=>setCreateOpen(false)} className="flex-1 sm:flex-initial min-h-[48px] sm:min-h-0 rounded-xl border border-gray-300 px-5 py-2.5 font-bold cursor-pointer hover:bg-gray-50 transition flex items-center justify-center">Cancel</button>
+              <button disabled={saving || !depositValidation.isValid} className="flex-[1.5] sm:flex-initial min-h-[48px] sm:min-h-0 rounded-xl bg-[#7e22ce] px-5 py-2.5 font-black text-white shadow-md disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer hover:bg-[#6b1cb1] transition flex items-center justify-center">{saving?'Creating...':'Create & Save Advance Receipt'}</button>
+            </div>
+          </form>
+        </div>
       </div>,
       document.body
     )}
 
     {paymentOrder && createPortal(
-      <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-screen h-screen h-[100dvh] z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-        <form onSubmit={receivePayment} className="w-full max-w-md max-h-[92vh] overflow-hidden overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl border border-[#ead7b7]">
-          <div className="mb-5 flex items-start justify-between">
+      <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-full h-full h-[100dvh] max-h-[100dvh] z-[9999] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
+        <div className="absolute inset-0" onClick={()=>setPaymentOrder(null)} />
+        <div className="relative z-10 w-full max-w-md max-h-[100dvh] sm:max-h-[92dvh] rounded-t-3xl sm:rounded-3xl bg-white shadow-2xl border-0 sm:border border-[#ead7b7] overflow-hidden flex flex-col">
+          <div className="shrink-0 px-5 py-3.5 sm:px-6 sm:py-4 border-b border-gray-100 flex items-start justify-between bg-[#FBFAF6]">
             <div>
               <p className="text-xs font-black uppercase tracking-wider text-emerald-600 font-mono">{paymentOrder.deposit_id}</p>
-              <h3 className="text-xl font-black text-[#273126]">Receive Remaining Payment</h3>
+              <h3 className="text-lg sm:text-xl font-black text-[#273126]">Receive Remaining Payment</h3>
             </div>
             <button type="button" onClick={()=>setPaymentOrder(null)} className="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-700 transition cursor-pointer">
               <X size={16}/>
             </button>
           </div>
-          <div className="mb-6 rounded-2xl bg-emerald-50 py-5 text-center">
-            {(() => {
-              const manualNum = Math.max(0, Number(manualDiscount) || 0);
-              const manualDisc = manualDiscountType === '%' ? Math.round(paymentOrder.remaining_balance * (manualNum / 100) * 100) / 100 : manualNum;
-              const finalAmt = Math.max(0, paymentOrder.remaining_balance - manualDisc);
-              return (
-                <>
-                  <p className="text-[11px] font-black uppercase tracking-widest text-emerald-600">Remaining Amount</p>
-                  <p className={`mt-1 font-black text-emerald-800 ${manualDisc > 0 ? 'text-xl line-through opacity-60' : 'text-4xl'}`}>{formatCurrency(paymentOrder.remaining_balance)}</p>
-                  {manualDisc > 0 && (
-                    <>
-                      <div className="mt-2 space-y-0.5 text-xs text-emerald-700">
-                        <p>Manual Discount: -{formatCurrency(manualDisc)}</p>
+          {(() => {
+            const manualNum = Math.max(0, Number(manualDiscount) || 0)
+            const manualDisc = manualDiscountType === '%' ? Math.round(paymentOrder.remaining_balance * (manualNum / 100) * 100) / 100 : manualNum
+            const finalAmt = Math.max(0, paymentOrder.remaining_balance - manualDisc)
+            return (
+              <form onSubmit={receivePayment} className="flex flex-col flex-1 overflow-hidden min-h-0">
+                <div className="overflow-y-auto flex-1 p-4 sm:p-6 space-y-4">
+                  <div className="rounded-2xl bg-emerald-50 py-5 text-center">
+                    <p className="text-[11px] font-black uppercase tracking-widest text-emerald-600">Remaining Amount</p>
+                    <p className={`mt-1 font-black text-emerald-800 ${manualDisc > 0 ? 'text-xl line-through opacity-60' : 'text-4xl'}`}>{formatCurrency(paymentOrder.remaining_balance)}</p>
+                    {manualDisc > 0 && (
+                      <>
+                        <div className="mt-2 space-y-0.5 text-xs text-emerald-700">
+                          <p>Manual Discount: -{formatCurrency(manualDisc)}</p>
+                        </div>
+                        <p className="mt-3 text-3xl font-black text-emerald-950">You Pay: {formatCurrency(finalAmt)}</p>
+                      </>
+                    )}
+                  </div>
+                  <div className="space-y-4">
+                    <Field label="Manual Discount">
+                      <div className="flex gap-2 items-center">
+                        <select value={manualDiscountType} onChange={e=>setManualDiscountType(e.target.value as 'rm'|'%')} className="rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-sm font-black text-[#273126] outline-none focus:border-[#7e22ce] focus:ring-2 focus:ring-violet-100 cursor-pointer">
+                          <option value="rm">₹</option>
+                          <option value="%">%</option>
+                        </select>
+                        <input type="number" min="0" step="0.01" className={`${inputClass} flex-1`} value={manualDiscount} onChange={e=>setManualDiscount(e.target.value)} placeholder="0" />
                       </div>
-                      <p className="mt-3 text-3xl font-black text-emerald-950">You Pay: {formatCurrency(finalAmt)}</p>
-                    </>
-                  )}
-                </>
-              )
-            })()}
-          </div>
-          <div className="space-y-4">
-            <Field label="Manual Discount">
-              <div className="flex gap-2 items-center">
-                <select value={manualDiscountType} onChange={e=>setManualDiscountType(e.target.value as 'rm'|'%')} className="rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-sm font-black text-[#273126] outline-none focus:border-[#7e22ce] focus:ring-2 focus:ring-violet-100 cursor-pointer">
-                  <option value="rm">₹</option>
-                  <option value="%">%</option>
-                </select>
-                <input type="number" min="0" step="0.01" className={`${inputClass} flex-1`} value={manualDiscount} onChange={e=>setManualDiscount(e.target.value)} placeholder="0" />
-              </div>
-            </Field>
-            <Field label="Payment Method">
-              <select className={inputClass} value={paymentForm.method} onChange={e=>setPaymentForm({...paymentForm,method:e.target.value as AdvancePaymentMethod})}>
-                <option value="cash">Cash</option>
-                <option value="upi">QR</option>
-                <option value="card">Card</option>
-              </select>
-            </Field>
-            <Field label="Payment Notes">
-              <textarea className={inputClass} value={paymentForm.remarks} onChange={e=>setPaymentForm({...paymentForm,remarks:e.target.value})} placeholder="Notes about this payment (optional)"/>
-            </Field>
-            <p className="mt-2 rounded-xl bg-amber-50 p-3 text-[11px] font-semibold text-amber-800">Confirmation marks the order Completed, creates one official invoice, and recognizes the full {formatCurrency(paymentOrder.total_amount)} as revenue.</p>
-            <button disabled={saving} className="mt-5 w-full rounded-xl bg-emerald-600 py-3.5 font-black text-white shadow-lg shadow-emerald-600/30 transition-transform active:scale-95 disabled:opacity-50 cursor-pointer hover:bg-emerald-700">
-              {saving?'Processing...':'Confirm Final Payment'}
-            </button>
-          </div>
-        </form>
+                    </Field>
+
+                    <SplitPaymentSelector
+                      type="balance"
+                      targetAmount={finalAmt}
+                      method={balanceMethod}
+                      onMethodChange={setBalanceMethod}
+                      onChange={setBalanceValidation}
+                      disabled={saving}
+                    />
+
+                    <Field label="Payment Notes">
+                      <textarea className={inputClass} value={paymentForm.remarks} onChange={e=>setPaymentForm({...paymentForm,remarks:e.target.value})} placeholder="Notes about this payment (optional)"/>
+                    </Field>
+                    <p className="mt-2 rounded-xl bg-amber-50 p-3 text-[11px] font-semibold text-amber-800">Confirmation marks the order Completed, creates one official invoice, and recognizes the full {formatCurrency(paymentOrder.total_amount)} as revenue.</p>
+                  </div>
+                </div>
+                <div className="sticky bottom-0 z-20 shrink-0 bg-[#FBFAF6] px-4 py-3 sm:px-6 sm:py-3.5 border-t border-gray-200 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
+                  <button disabled={saving || !balanceValidation.isValid} className="w-full min-h-[48px] rounded-xl bg-emerald-600 py-3 font-black text-white shadow-lg shadow-emerald-600/30 transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer hover:bg-emerald-700 flex items-center justify-center">
+                    {saving?'Processing...':'Confirm Final Payment'}
+                  </button>
+                </div>
+              </form>
+            )
+          })()}
+        </div>
       </div>,
       document.body
     )}
@@ -631,12 +768,12 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
           </div>
 
           {/* Sticky Drawer Footer */}
-          <div className="shrink-0 px-6 py-4 border-t border-gray-200 bg-[#FBFAF6] flex items-center justify-between gap-3">
+          <div className="sticky bottom-0 z-20 shrink-0 px-4 py-3 sm:px-6 sm:py-4 border-t border-gray-200 bg-[#FBFAF6] flex items-center justify-between gap-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={() => downloadFile(selected.status === 'completed' ? invoiceFile(selected) : advanceReceiptPdf(selected))}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 bg-white text-xs font-bold text-gray-700 hover:bg-gray-100 cursor-pointer transition shadow-xs"
+                className="inline-flex items-center justify-center min-h-[44px] sm:min-h-0 gap-1.5 px-3 py-2 rounded-xl border border-gray-200 bg-white text-xs font-bold text-gray-700 hover:bg-gray-100 cursor-pointer transition shadow-xs"
                 title={selected.status === 'completed' ? 'Download PDF Invoice' : 'Download PDF Receipt'}
               >
                 <Download size={14} /> PDF
@@ -644,7 +781,7 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
               <button
                 type="button"
                 onClick={() => selected.status === 'completed' ? whatsappInvoice(selected) : whatsappDepositReceipt(selected)}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold hover:bg-emerald-100 cursor-pointer transition shadow-xs"
+                className="inline-flex items-center justify-center min-h-[44px] sm:min-h-0 gap-1.5 px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold hover:bg-emerald-100 cursor-pointer transition shadow-xs"
                 title="Share via WhatsApp"
               >
                 <MessageCircle size={14} /> WhatsApp
@@ -653,7 +790,7 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
             <button
               type="button"
               onClick={() => setSelected(null)}
-              className="px-5 py-2 rounded-xl bg-brand-black text-white text-xs font-black hover:bg-gray-800 cursor-pointer transition"
+              className="min-h-[44px] sm:min-h-0 px-5 py-2 rounded-xl bg-brand-black text-white text-xs font-black hover:bg-gray-800 cursor-pointer transition flex items-center justify-center"
             >
               Close
             </button>
@@ -661,6 +798,20 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
         </div>
       </div>,
       document.body
+    )}
+
+    {deleteModalConfig && (
+      <HardDeleteModal
+        isOpen={deleteModalConfig.isOpen}
+        onClose={() => setDeleteModalConfig(null)}
+        onConfirm={deleteModalConfig.onConfirm}
+        title={deleteModalConfig.title}
+        subtitle={deleteModalConfig.subtitle}
+        entityType={deleteModalConfig.entityType}
+        impactDetails={deleteModalConfig.impactDetails}
+        requireTypeDelete={deleteModalConfig.requireTypeDelete}
+        warningText={deleteModalConfig.warningText}
+      />
     )}
   </div>
 }

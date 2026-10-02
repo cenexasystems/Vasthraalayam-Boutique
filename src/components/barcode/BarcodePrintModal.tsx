@@ -395,9 +395,9 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
 }
 
   return createPortal(
-    <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-screen h-screen h-[100dvh] z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
+    <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-full h-full h-[100dvh] max-h-[100dvh] z-[9999] flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
       <div className="absolute inset-0" onClick={onClose} />
-      <div className="relative z-10 bg-white rounded-none sm:rounded-3xl max-w-2xl sm:max-w-3xl w-full h-screen h-[100dvh] sm:h-auto sm:max-h-[92vh] border-0 sm:border border-[#ead7b7] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150">
+      <div className="relative z-10 bg-white rounded-t-3xl sm:rounded-3xl max-w-2xl sm:max-w-3xl w-full max-h-[90dvh] sm:max-h-[92dvh] border-0 sm:border border-[#ead7b7] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150">
         {/* Header */}
         <div className="bg-brand-black px-4 py-3 sm:px-6 sm:py-4 border-b border-[#7daa8f]/30 flex items-center justify-between text-white shrink-0">
           <div className="flex items-center gap-3">
@@ -583,7 +583,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                 {quantity || 1} {quantity === '1' ? 'Label' : 'Labels'} • {selectedPreset.widthMm} × {selectedPreset.heightMm} mm ({printerType === 'label' ? 'Roll' : 'A4 Sheet'})
               </span>
             </div>
-            <div className="bg-[#FBFAF6] border-2 border-dashed border-[#ead7b7] rounded-2xl py-6 px-4 flex items-center justify-center min-h-[140px]">
+            <div className="bg-[#FBFAF6] border-2 border-dashed border-[#ead7b7] rounded-2xl py-4 sm:py-6 px-4 flex items-center justify-center max-h-[160px] sm:max-h-none min-h-[100px] sm:min-h-[140px] overflow-hidden">
               <BarcodeLabel
                 productName={productName}
                 variantName={variantName}
@@ -598,22 +598,22 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="bg-[#FBFAF6] px-4 py-3 sm:px-6 sm:py-3.5 border-t border-[#ead7b7] flex items-center justify-between shrink-0 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] gap-2">
+        {/* Sticky Action Bar at the bottom */}
+        <div className="sticky bottom-0 z-20 shrink-0 bg-[#FBFAF6] px-4 py-3 sm:px-6 sm:py-3.5 border-t border-[#ead7b7] flex items-center justify-between pb-[max(0.75rem,env(safe-area-inset-bottom))] gap-2.5 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 sm:px-5 sm:py-2.5 rounded-xl border border-gray-300 text-gray-700 font-bold text-xs sm:text-sm hover:bg-gray-100 transition-colors cursor-pointer shrink-0"
+            className="flex-1 sm:flex-initial min-h-[48px] sm:min-h-0 py-2.5 sm:py-2.5 px-4 sm:px-5 rounded-xl border border-gray-300 text-gray-700 font-bold text-xs sm:text-sm hover:bg-gray-100 transition-colors cursor-pointer flex items-center justify-center shrink-0"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={handlePrint}
-            className="flex items-center gap-1.5 sm:gap-2 px-4 py-2 sm:px-6 sm:py-2.5 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark font-black hover:bg-[#1e2817] transition-all shadow-md cursor-pointer hover:scale-[1.02] text-xs sm:text-sm shrink-0"
+            className="flex-[1.5] sm:flex-initial min-h-[48px] sm:min-h-0 py-2.5 sm:py-2.5 px-4 sm:px-6 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark font-black hover:bg-[#1e2817] transition-all shadow-md cursor-pointer hover:scale-[1.02] text-xs sm:text-sm flex items-center justify-center gap-1.5 sm:gap-2 shrink-0"
           >
             <Printer size={16} />
-            Print {quantity || '1'} {quantity === '1' ? 'Sticker' : 'Stickers'}
+            <span>Print {quantity || '1'} {quantity === '1' ? 'Sticker' : 'Stickers'}</span>
           </button>
         </div>
       </div>

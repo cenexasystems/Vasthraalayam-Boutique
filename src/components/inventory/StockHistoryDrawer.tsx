@@ -222,6 +222,17 @@ export const StockHistoryDrawer: React.FC<StockHistoryDrawerProps> = ({
             })
           )}
         </div>
+
+        {/* Sticky Footer on Mobile */}
+        <div className="sticky bottom-0 z-20 shrink-0 bg-[#FBFAF6] border-t border-gray-200 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] flex items-center justify-end sm:hidden shadow-[0_-4px_12px_rgba(0,0,0,0.06)]">
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full min-h-[48px] px-4 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 bg-white hover:bg-gray-100 transition-colors cursor-pointer flex items-center justify-center"
+          >
+            Close
+          </button>
+        </div>
       </div>
     </div>,
     document.body

@@ -100,14 +100,40 @@ async function put(req: VercelRequest, res: VercelResponse) {
 }
 
 async function del(req: VercelRequest, res: VercelResponse) {
-  if (!requireAuth(req, res)) return
+  const session = requireAuth(req, res, ['admin'])
+  if (!session) return
   const id = Number(req.query.id)
-  const rows = await sql`DELETE FROM public.categories WHERE id = ${id} RETURNING id`
-  if (rows.length === 0) {
-    res.status(404).json({ error: 'Category not found' })
+  if (!id || isNaN(id)) {
+    res.status(400).json({ error: 'Valid category ID is required' })
     return
   }
-  res.status(200).json({ data: { id } })
+
+  const force = req.query.force === 'true' || req.query.force === '1'
+  const businessId = String(req.query.business_id || '1').trim()
+  try {
+    const rows = await sql`
+      SELECT public.hard_delete_category(
+        ${id}::bigint,
+        ${businessId},
+        ${session.portalId},
+        ${force}
+      ) AS result
+    `
+    const result = rows[0]?.result as Record<string, unknown>
+    res.status(200).json({ data: result })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('not found')) {
+      res.status(404).json({ error: msg })
+      return
+    }
+    if (msg.includes('contains') && msg.includes('products')) {
+      res.status(409).json({ error: msg, requiresConfirmation: true })
+      return
+    }
+    console.error('[categories.del] Hard delete failed:', err)
+    res.status(500).json({ error: msg || 'Failed to hard delete category' })
+  }
 }
 
 export default methodRouter({ GET: list, POST: create, PUT: put, DELETE: del })

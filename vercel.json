@@ -40,8 +40,20 @@
       "destination": "/api/inventory?action=receive"
     },
     {
+      "source": "/api/inventory-movements/:id",
+      "destination": "/api/inventory?resource=movements&id=:id"
+    },
+    {
       "source": "/api/inventory-movements",
       "destination": "/api/inventory?resource=movements"
+    },
+    {
+      "source": "/api/backups/:id",
+      "destination": "/api/backups?id=:id"
+    },
+    {
+      "source": "/api/backups",
+      "destination": "/api/backups"
     },
     {
       "source": "/api/order-items",

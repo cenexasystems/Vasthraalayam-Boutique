@@ -54,6 +54,25 @@ async function getById(req: VercelRequest, res: VercelResponse) {
 }
 
 async function get(req: VercelRequest, res: VercelResponse) {
+  if (req.query.action === 'preview_delete') {
+    if (!requireAuth(req, res, ['admin'])) return
+    const id = Number(req.query.id)
+    if (!id || isNaN(id)) {
+      res.status(400).json({ error: 'Valid product ID is required' })
+      return
+    }
+    const businessId = String(req.query.business_id || '1').trim()
+    try {
+      const rows = await sql`
+        SELECT public.preview_delete_product(${id}::bigint, ${businessId}) AS result
+      `
+      res.status(200).json({ data: rows[0]?.result })
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      res.status(404).json({ error: msg || 'Product not found' })
+    }
+    return
+  }
   if (req.query.id !== undefined) return getById(req, res)
   return list(req, res)
 }
@@ -127,4 +146,35 @@ async function put(req: VercelRequest, res: VercelResponse) {
   res.status(200).json({ data: rows[0] })
 }
 
-export default methodRouter({ GET: get, POST: create, PUT: put })
+async function del(req: VercelRequest, res: VercelResponse) {
+  const session = requireAuth(req, res, ['admin'])
+  if (!session) return
+  const id = Number(req.query.id)
+  if (!id || isNaN(id)) {
+    res.status(400).json({ error: 'Valid product ID is required' })
+    return
+  }
+
+  const businessId = String(req.query.business_id || '1').trim()
+  try {
+    const rows = await sql`
+      SELECT public.hard_delete_product(
+        ${id}::bigint,
+        ${businessId},
+        ${session.portalId}
+      ) AS result
+    `
+    const result = rows[0]?.result as Record<string, unknown>
+    res.status(200).json({ data: result })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('not found') || msg.includes('not authorized')) {
+      res.status(404).json({ error: msg })
+      return
+    }
+    console.error('[products.del] Hard delete failed:', err)
+    res.status(500).json({ error: msg || 'Failed to hard delete product' })
+  }
+}
+
+export default methodRouter({ GET: get, POST: create, PUT: put, DELETE: del })

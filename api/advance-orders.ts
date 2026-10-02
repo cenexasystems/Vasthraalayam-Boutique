@@ -60,6 +60,7 @@ function normalizeOrder(row: Record<string, unknown>) {
     completed_order_id: row.completed_order_id ? String(row.completed_order_id) : null,
     invoice_number: row.invoice_number ? String(row.invoice_number) : null,
     final_payment_method: row.final_payment_method ? String(row.final_payment_method) : null,
+    advance_payment_method: String(row.advance_payment_method || 'cash'),
     business_id: String(row.business_id || '1'),
   }
 }
@@ -81,6 +82,7 @@ async function list(req: VercelRequest, res: VercelResponse) {
         COALESCE(reference_number, '') AS reference_number,
         created_by, created_by_name, created_at, updated_at,
         completed_at, completed_order_id, invoice_number, final_payment_method,
+        COALESCE(advance_payment_method, 'cash') AS advance_payment_method,
         COALESCE(business_id, '1') AS business_id
       FROM public.advance_orders
       WHERE business_id = ${bizId}
@@ -139,41 +141,76 @@ async function create(req: VercelRequest, res: VercelResponse) {
   const body = (req.body ?? {}) as Record<string, unknown>
 
   // ── Server-side validation ─────────────────────────────────────────────────
+  // ── Server-side validation ─────────────────────────────────────────────────
   const customerName = String(body.p_customer_name || body.customer_name || '').trim()
   const phone = String(body.p_phone || body.phone || '').trim()
   const productName = String(body.p_product_name || body.product_name || '').trim()
   const totalAmount = Number(body.p_total_amount || body.total_amount || 0)
-  const depositAmount = Number(body.p_deposit_amount || body.deposit_amount || 0)
   const deliveryDate = String(body.p_expected_delivery_date || body.expected_delivery_date || '').trim()
   const products = Array.isArray(body.p_products || body.products) ? (body.p_products || body.products) as unknown[] : []
-  const paymentMethod = String(body.p_payment_method || body.payment_method || '').toLowerCase()
+  let paymentMethod = String(body.p_payment_method || body.payment_method || 'cash').toLowerCase()
+  if (paymentMethod === 'upi') paymentMethod = 'qr'
+
+  const rawPayments = (body.p_payments || body.payments) as Array<{ mode: string; amount: number; notes?: string }> | undefined
+  const hasSplitPayments = Array.isArray(rawPayments) && rawPayments.length > 0
+
+  let depositAmount = Number(body.p_deposit_amount || body.deposit_amount || 0)
+  let cleanPayments: Array<{ mode: string; amount: number; notes?: string }> = []
+
+  if (hasSplitPayments) {
+    cleanPayments = (rawPayments || []).map(p => {
+      let m = String(p.mode || '').toLowerCase().trim()
+      if (m === 'upi') m = 'qr'
+      return {
+        mode: m,
+        amount: Math.round((Number(p.amount) || 0) * 100) / 100,
+        notes: String(p.notes || '').trim()
+      }
+    }).filter(p => p.amount > 0)
+
+    for (const p of cleanPayments) {
+      if (!['cash', 'qr', 'card'].includes(p.mode)) {
+        res.status(400).json({ error: `Invalid payment mode: ${p.mode}` })
+        return
+      }
+    }
+
+    depositAmount = cleanPayments.reduce((sum, p) => sum + p.amount, 0)
+    depositAmount = Math.round(depositAmount * 100) / 100
+    paymentMethod = cleanPayments.length > 1 ? 'split' : (cleanPayments[0]?.mode || 'cash')
+  }
 
   if (!customerName) { res.status(400).json({ error: 'Customer name is required' }); return }
   if (!phone) { res.status(400).json({ error: 'Phone number is required' }); return }
   if (!productName && products.length === 0) { res.status(400).json({ error: 'At least one product is required' }); return }
   if (!Number.isFinite(totalAmount) || totalAmount <= 0) { res.status(400).json({ error: 'Total amount must be greater than zero' }); return }
   if (!Number.isFinite(depositAmount) || depositAmount <= 0) { res.status(400).json({ error: 'Deposit amount must be greater than zero' }); return }
-  if (depositAmount >= totalAmount) { res.status(400).json({ error: 'Deposit must be less than the total amount' }); return }
+  if (depositAmount > totalAmount) { res.status(400).json({ error: 'Deposit cannot exceed the total amount' }); return }
   if (!deliveryDate) { res.status(400).json({ error: 'Expected delivery date is required' }); return }
-  if (!['cash', 'upi', 'card'].includes(paymentMethod)) { res.status(400).json({ error: 'Select a valid payment method: cash, upi, or card' }); return }
+  if (!hasSplitPayments && !['cash', 'qr', 'card', 'upi'].includes(paymentMethod)) {
+    res.status(400).json({ error: 'Select a valid payment method: cash, qr, or card' })
+    return
+  }
 
   try {
     const rows = await sql`
       SELECT * FROM public.create_advance_order(
-        p_customer_name       => ${customerName},
-        p_phone               => ${phone},
-        p_address             => ${String(body.p_address || body.address || '').trim()},
-        p_product_name        => ${productName || (products as Record<string, unknown>[]).map(p => String(p.name || '')).filter(Boolean).join(', ')},
-        p_category            => ${String(body.p_category || body.category || '').trim()},
-        p_description         => ${String(body.p_description || body.description || '').trim()},
-        p_total_amount        => ${totalAmount},
-        p_deposit_amount      => ${depositAmount},
+        p_customer_name          => ${customerName},
+        p_phone                  => ${phone},
+        p_address                => ${String(body.p_address || body.address || '').trim()},
+        p_product_name           => ${productName || (products as Record<string, unknown>[]).map(p => String(p.name || '')).filter(Boolean).join(', ')},
+        p_category               => ${String(body.p_category || body.category || '').trim()},
+        p_description            => ${String(body.p_description || body.description || '').trim()},
+        p_total_amount           => ${totalAmount},
+        p_deposit_amount         => ${depositAmount},
         p_expected_delivery_date => ${deliveryDate},
-        p_remarks             => ${String(body.p_remarks || body.remarks || '').trim()},
-        p_payment_method      => ${paymentMethod},
-        p_created_by_name     => ${String(body.p_created_by_name || body.created_by_name || session.portalId || '').trim()},
-        p_products            => ${sql.json(products as unknown as JSONValue)},
-        p_created_by          => ${session.portalId}
+        p_remarks                => ${String(body.p_remarks || body.remarks || '').trim()},
+        p_payment_method         => ${paymentMethod},
+        p_created_by_name        => ${String(body.p_created_by_name || body.created_by_name || session.portalId || '').trim()},
+        p_products               => ${sql.json(products as unknown as JSONValue)},
+        p_created_by             => ${session.portalId},
+        p_payments               => ${cleanPayments.length > 0 ? sql.json(cleanPayments as unknown as JSONValue) : null},
+        p_business_id            => ${String(body.business_id || body.p_business_id || '1')}
       )
     `
     const order = rows[0] as Record<string, unknown>
@@ -223,17 +260,48 @@ async function patch(req: VercelRequest, res: VercelResponse) {
   // Complete the advance order — final payment
   if (body.action === 'complete') {
     try {
+      let paymentMethod = String(body.payment_method || 'cash').toLowerCase()
+      if (paymentMethod === 'upi') paymentMethod = 'qr'
+
+      const rawPayments = (body.p_payments || body.payments) as Array<{ mode: string; amount: number; notes?: string }> | undefined
+      const hasSplitPayments = Array.isArray(rawPayments) && rawPayments.length > 0
+      let cleanPayments: Array<{ mode: string; amount: number; notes?: string }> = []
+
+      if (hasSplitPayments) {
+        cleanPayments = (rawPayments || []).map(p => {
+          let m = String(p.mode || '').toLowerCase().trim()
+          if (m === 'upi') m = 'qr'
+          return {
+            mode: m,
+            amount: Math.round((Number(p.amount) || 0) * 100) / 100,
+            notes: String(p.notes || '').trim()
+          }
+        }).filter(p => p.amount > 0)
+
+        for (const p of cleanPayments) {
+          if (!['cash', 'qr', 'card'].includes(p.mode)) {
+            res.status(400).json({ error: `Invalid payment mode: ${p.mode}` })
+            return
+          }
+        }
+        paymentMethod = cleanPayments.length > 1 ? 'split' : (cleanPayments[0]?.mode || 'cash')
+      }
+
+      const changeGiven = Number(body.change_given || body.p_change_given || 0)
+
       const rows = await sql`
         SELECT order_id, invoice_no, completed_at
         FROM public.complete_advance_order_v2(
           p_order_id          => ${id}::UUID,
-          p_payment_method    => ${String(body.payment_method || 'cash')},
+          p_payment_method    => ${paymentMethod},
           p_final_amount      => ${Number(body.final_amount || 0)},
           p_coupon_code       => ${body.coupon_code ? String(body.coupon_code) : null},
           p_coupon_percentage => ${Number(body.coupon_percentage || 0)},
           p_manual_discount   => ${Number(body.manual_discount || 0)},
           p_remarks           => ${String(body.remarks || '')},
-          p_created_by        => ${session.portalId}
+          p_created_by        => ${session.portalId},
+          p_payments          => ${cleanPayments.length > 0 ? sql.json(cleanPayments as unknown as JSONValue) : null},
+          p_change_given      => ${changeGiven}
         )
       `
       res.status(200).json({ data: rows[0] })
@@ -267,11 +335,34 @@ async function patch(req: VercelRequest, res: VercelResponse) {
 
 // ─── DELETE /api/advance-orders?id=:id ───────────────────────────────────────
 async function del(req: VercelRequest, res: VercelResponse) {
-  if (!requireAuth(req, res, ['admin'])) return
+  const session = requireAuth(req, res, ['admin'])
+  if (!session) return
   const id = String(req.query.id)
-  const rows = await sql`DELETE FROM public.advance_orders WHERE id = ${id} RETURNING id`
-  if (rows.length === 0) { res.status(404).json({ error: 'Advance order not found' }); return }
-  res.status(200).json({ data: { id } })
+  if (!id) {
+    res.status(400).json({ error: 'Advance order ID is required' })
+    return
+  }
+
+  const businessId = String(req.query.business_id || '1').trim()
+  try {
+    const rows = await sql`
+      SELECT public.hard_delete_advance_order(
+        ${id}::uuid,
+        ${businessId},
+        ${session.portalId}
+      ) AS result
+    `
+    const result = rows[0]?.result as Record<string, unknown>
+    res.status(200).json({ data: result })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('not found') || msg.includes('not authorized')) {
+      res.status(404).json({ error: msg })
+      return
+    }
+    console.error('[advance-orders.del] Hard delete failed:', err)
+    res.status(500).json({ error: msg || 'Failed to hard delete advance order' })
+  }
 }
 
 export default methodRouter({ GET: get, POST: create, PATCH: patch, DELETE: del })

@@ -24,6 +24,20 @@ export interface InventoryStockItem {
   updated_at?: string
 }
 
+export interface ProductDeletePreview {
+  product_id: number
+  product_name: string
+  item_type: string
+  stock_quantity: number
+  price: number
+  orders_count: number
+  total_amount_affected: number
+  affected_invoices: string[]
+  variants_count: number
+  barcodes_count: number
+  movements_count: number
+}
+
 export interface InventoryMovement {
   id: number
   product_id: number
@@ -184,19 +198,34 @@ export const inventoryService = {
   },
 
   /**
-   * Deactivate / delete a product or variant from inventory and catalog.
+   * Preview impact of deleting a product (affected bills, total revenue, stock).
+   */
+  async previewDeleteProduct(productId: number): Promise<ProductDeletePreview> {
+    const { data, error } = await neonApi.get<ProductDeletePreview>(`/products?action=preview_delete&id=${productId}`)
+    if (error) throw error
+    if (!data) throw new Error('Could not fetch delete preview')
+    return data
+  },
+
+  /**
+   * Hard delete a product or variant permanently from database and inventory.
    */
   async deleteInventoryItem(productId: number, variantId?: string | null): Promise<void> {
     if (variantId) {
-      const { error: vErr } = await neonApi.put(`/variants/${variantId}`, { is_active: false })
+      const { error: vErr } = await neonApi.delete(`/variants/${variantId}`)
       if (vErr) throw vErr
-      // Best-effort: also deactivate any barcode registered to this variant.
-      // (No dedicated endpoint for "by variant_id"; handled by the barcode
-      // lookup/deactivate flow when the variant is next scanned.)
     } else {
-      const { error: pErr } = await neonApi.put(`/products/${productId}`, { is_active: false })
+      const { error: pErr } = await neonApi.delete(`/products/${productId}`)
       if (pErr) throw pErr
     }
+  },
+
+  /**
+   * Delete a stock movement and reverse its stock effect.
+   */
+  async deleteMovement(movementId: number): Promise<void> {
+    const { error } = await neonApi.delete(`/inventory-movements/${movementId}`)
+    if (error) throw error
   },
 
   /**
@@ -365,8 +394,9 @@ export const inventoryService = {
   /**
    * Delete category.
    */
-  async deleteCategory(id: number): Promise<void> {
-    const { error } = await neonApi.delete(`/categories/${id}`)
+  async deleteCategory(id: number, force = false): Promise<void> {
+    const url = `/categories/${id}${force ? '?force=true' : ''}`
+    const { error } = await neonApi.delete(url)
 
     if (error) {
       console.error('[inventoryService.deleteCategory] Error:', error)

@@ -96,10 +96,12 @@ export const CategoryManagerView: React.FC = () => {
   }
 
   const handleDelete = async (cat: CategoryRecord) => {
+    let force = false
     if (cat.product_count && cat.product_count > 0) {
-      if (!confirm(`Warning: Category "${cat.name_en}" currently has ${cat.product_count} product(s) assigned to it. Are you sure you want to delete it?`)) {
+      if (!confirm(`Warning: Category "${cat.name_en}" currently has ${cat.product_count} product(s) assigned to it. Deleting this category will permanently remove all its products as well. Are you sure you want to proceed?`)) {
         return
       }
+      force = true
     } else {
       if (!confirm(`Are you sure you want to delete category "${cat.name_en}"?`)) {
         return
@@ -107,7 +109,7 @@ export const CategoryManagerView: React.FC = () => {
     }
 
     try {
-      await inventoryService.deleteCategory(cat.id)
+      await inventoryService.deleteCategory(cat.id, force)
       setSuccessMessage(`Category "${cat.name_en}" deleted.`)
       await loadCategories()
     } catch (err: unknown) {

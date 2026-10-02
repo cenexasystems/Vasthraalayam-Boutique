@@ -150,9 +150,9 @@ export const AdjustStockModal: React.FC<AdjustStockModalProps> = ({
   }
 
   return createPortal(
-    <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-screen h-screen h-[100dvh] z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
+    <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-full h-full h-[100dvh] max-h-[100dvh] z-[9999] flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
       <div className="absolute inset-0" onClick={onClose} />
-      <div className="relative z-10 bg-white rounded-none sm:rounded-3xl max-w-lg w-full h-screen h-[100dvh] sm:h-auto sm:max-h-[92vh] border-0 sm:border border-[#ead7b7] shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative z-10 bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full max-h-[100dvh] sm:max-h-[92dvh] border-0 sm:border border-[#ead7b7] shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
         <div className="shrink-0 bg-brand-black px-4 py-3 sm:px-5 sm:py-3.5 border-b border-[#7daa8f]/30 flex items-center justify-between text-white">
           <div className="flex items-center gap-2.5">
@@ -557,19 +557,19 @@ export const AdjustStockModal: React.FC<AdjustStockModalProps> = ({
             </div>
           </div>
 
-          {/* Fixed Footer at the bottom */}
-          <div className="shrink-0 px-4 py-3 sm:px-5 sm:py-3 bg-[#FBFAF6] border-t border-gray-200 flex items-center justify-end gap-2.5 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
+          {/* Sticky Action Bar at the bottom */}
+          <div className="sticky bottom-0 z-20 shrink-0 px-4 py-3 sm:px-5 sm:py-3 bg-[#FBFAF6] border-t border-gray-200 flex items-center justify-end gap-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 text-xs font-bold hover:bg-gray-100 transition-colors cursor-pointer"
+              className="flex-1 sm:flex-initial min-h-[48px] sm:min-h-0 py-2.5 sm:py-2 px-4 rounded-xl border border-gray-300 text-gray-700 text-xs sm:text-xs font-bold hover:bg-gray-100 transition-colors cursor-pointer flex items-center justify-center shrink-0"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitting || delta === 0}
-              className={`flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs font-black transition-all shadow-md disabled:opacity-50 cursor-pointer ${
+              className={`flex-[1.5] sm:flex-initial min-h-[48px] sm:min-h-0 py-2.5 sm:py-2 px-4 sm:px-5 rounded-xl text-xs font-black transition-all shadow-md disabled:opacity-50 cursor-pointer flex items-center justify-center gap-1.5 shrink-0 ${
                 mode === 'RESTOCK'
                   ? 'bg-brand-black border border-[#7daa8f] text-brand-onDark hover:bg-[#1e2817]'
                   : mode === 'REMOVE'
@@ -580,16 +580,18 @@ export const AdjustStockModal: React.FC<AdjustStockModalProps> = ({
               {submitting ? (
                 <>
                   <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />
-                  Saving...
+                  <span>Saving...</span>
                 </>
               ) : (
                 <>
                   <CheckCircle2 size={15} />
-                  {mode === 'RESTOCK'
-                    ? `Confirm Restock (+${numAdd} Units)`
-                    : mode === 'REMOVE'
-                    ? `Confirm Removal (-${numRemove} Units)`
-                    : `Confirm Reconciliation (${effectiveNewStock} Units)`}
+                  <span>
+                    {mode === 'RESTOCK'
+                      ? `Confirm Restock (+${numAdd} Units)`
+                      : mode === 'REMOVE'
+                      ? `Confirm Removal (-${numRemove} Units)`
+                      : `Confirm Reconciliation (${effectiveNewStock} Units)`}
+                  </span>
                 </>
               )}
             </button>

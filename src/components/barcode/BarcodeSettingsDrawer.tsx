@@ -1242,11 +1242,11 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
             </div>
 
             {/* Drawer Footer */}
-            <div className="p-4 border-t border-gray-200 bg-white">
+            <div className="sticky bottom-0 z-20 shrink-0 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-gray-200 bg-white shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
               <button
                 type="button"
                 onClick={onClose}
-                className="w-full py-2.5 rounded-xl bg-brand-black text-brand-onDark border border-[#7daa8f] font-black text-xs uppercase tracking-wider hover:bg-[#1e2817] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                className="w-full min-h-[48px] sm:min-h-0 sm:py-2.5 rounded-xl bg-brand-black text-brand-onDark border border-[#7daa8f] font-black text-xs uppercase tracking-wider hover:bg-[#1e2817] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
               >
                 <Check size={14} /> Done
               </button>
@@ -1258,8 +1258,8 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
 
       {/* Save Profile Modal */}
       {showSaveProfileModal && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-100">
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-2xl p-5 max-w-sm w-full space-y-4">
+        <div className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-100">
+          <div className="bg-white rounded-t-3xl sm:rounded-2xl border border-gray-200 shadow-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] max-w-sm w-full space-y-4">
             <h4 className="text-sm font-black text-gray-900 uppercase tracking-wide">
               Save as Printer Profile
             </h4>
@@ -1279,14 +1279,14 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') void handleSaveAsNewProfile()
                 }}
-                className="w-full h-10 px-3 rounded-xl border border-gray-300 text-xs font-bold outline-none focus:border-brand-black"
+                className="w-full h-11 px-3 rounded-xl border border-gray-300 text-xs font-bold outline-none focus:border-brand-black"
               />
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setShowSaveProfileModal(false)}
-                className="px-3 py-2 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 hover:bg-gray-100 cursor-pointer"
+                className="flex-1 sm:flex-none min-h-[48px] sm:min-h-0 px-3 py-2 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 hover:bg-gray-100 cursor-pointer flex items-center justify-center"
               >
                 Cancel
               </button>
@@ -1294,7 +1294,7 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
                 type="button"
                 onClick={handleSaveAsNewProfile}
                 disabled={!newProfileName.trim()}
-                className="px-4 py-2 rounded-xl bg-brand-black text-brand-onDark border border-[#7daa8f] text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] disabled:opacity-50 cursor-pointer"
+                className="flex-[1.5] sm:flex-none min-h-[48px] sm:min-h-0 px-4 py-2 rounded-xl bg-brand-black text-brand-onDark border border-[#7daa8f] text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] disabled:opacity-50 cursor-pointer flex items-center justify-center"
               >
                 Save Profile
               </button>

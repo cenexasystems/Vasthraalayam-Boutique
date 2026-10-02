@@ -72,11 +72,11 @@ export function CartDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             </div>
 
             {items.length > 0 && (
-              <div className="px-4 py-4 border-t border-gray-100 space-y-3">
+              <div className="sticky bottom-0 z-20 shrink-0 bg-white px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-gray-100 space-y-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)]">
                 <div className="flex justify-between font-bold text-textMain text-base">
                   <span>Order Total</span><span>{formatCurrency(orderTotal)}</span>
                 </div>
-                <Link to="/cart" onClick={onClose} className="flex items-center justify-center w-full bg-sageDark hover:bg-sageDeep text-white font-bold py-3 rounded-xl transition-colors">
+                <Link to="/cart" onClick={onClose} className="flex items-center justify-center w-full min-h-[48px] bg-sageDark hover:bg-sageDeep text-white font-bold py-3 rounded-xl transition-colors cursor-pointer">
                   {t('drawer.view_cart')}
                 </Link>
               </div>

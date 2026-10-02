@@ -162,4 +162,37 @@ async function post(req: VercelRequest, res: VercelResponse) {
   res.status(404).json({ error: 'Unknown inventory action' })
 }
 
-export default methodRouter({ GET: get, POST: post })
+async function del(req: VercelRequest, res: VercelResponse) {
+  if (req.query.resource === 'movements') {
+    const session = requireAuth(req, res, ['admin'])
+    if (!session) return
+    const id = Number(req.query.id)
+    if (!id || isNaN(id)) {
+      res.status(400).json({ error: 'Valid movement ID is required' })
+      return
+    }
+    const businessId = String(req.query.business_id || '1').trim()
+    try {
+      const rows = await sql`
+        SELECT public.hard_delete_inventory_movement(
+          ${id}::bigint,
+          ${businessId},
+          ${session.portalId}
+        ) AS result
+      `
+      res.status(200).json({ data: rows[0]?.result })
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('not found')) {
+        res.status(404).json({ error: msg })
+        return
+      }
+      console.error('[inventory.del] Hard delete failed:', err)
+      res.status(500).json({ error: msg || 'Failed to hard delete movement' })
+    }
+    return
+  }
+  res.status(404).json({ error: 'Unknown inventory resource for delete' })
+}
+
+export default methodRouter({ GET: get, POST: post, DELETE: del })

@@ -878,10 +878,10 @@ export default function ImageMappingTool() {
 
       {/* ── CONFI₹ UPLOAD MODAL ── */}
       {confirmUpload && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setConfirmUpload(false)} />
-          <div className="relative z-10 w-full max-w-md bg-white rounded-2xl shadow-2xl p-6 space-y-4">
-            <div className="flex items-start gap-3">
+          <div className="relative z-10 w-full max-w-md bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-4 max-h-[100dvh] sm:max-h-[90dvh] flex flex-col">
+            <div className="flex items-start gap-3 shrink-0">
               <div className="h-10 w-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
                 <AlertTriangle size={20} className="text-amber-500" />
               </div>
@@ -894,7 +894,7 @@ export default function ImageMappingTool() {
               </div>
             </div>
 
-            <div className="bg-[#F7F8F5] rounded-xl p-3 space-y-1 text-[11px] font-bold text-[#374151] max-h-[200px] overflow-y-auto">
+            <div className="bg-[#F7F8F5] rounded-xl p-3 space-y-1 text-[11px] font-bold text-[#374151] max-h-[200px] overflow-y-auto flex-1 min-h-0">
               {Object.entries(mappings).map(([key, file]) => (
                 <div key={key} className="flex items-center gap-2">
                   <span className="text-[#7daa8f]">→</span>
@@ -905,7 +905,7 @@ export default function ImageMappingTool() {
             </div>
 
             {duplicateFiles.size > 0 && (
-              <div className="flex items-center gap-2 px-3 py-2 bg-red-50 rounded-xl border border-red-200">
+              <div className="flex items-center gap-2 px-3 py-2 bg-red-50 rounded-xl border border-red-200 shrink-0">
                 <AlertTriangle size={13} className="text-red-500 shrink-0" />
                 <p className="text-[11px] font-bold text-red-700">
                   {duplicateFiles.size} duplicate image{duplicateFiles.size > 1 ? 's' : ''} — last mapping wins
@@ -913,22 +913,22 @@ export default function ImageMappingTool() {
               </div>
             )}
 
-            <p className="text-[11px] text-[#9BAB9A] font-bold">
+            <p className="text-[11px] text-[#9BAB9A] font-bold shrink-0">
               ⚠ This action cannot be automatically undone. Existing image URLs will be overwritten.
             </p>
 
-            <div className="flex gap-2 pt-1">
+            <div className="flex gap-2 pt-1 shrink-0">
               <button
                 type="button"
                 onClick={() => setConfirmUpload(false)}
-                className="flex-1 py-2.5 rounded-xl border border-[#E5E7EB]/60 text-[13px] font-black text-[#374151] hover:bg-[#F9FAFB] transition-colors"
+                className="flex-1 min-h-[48px] sm:min-h-0 py-2.5 rounded-xl border border-[#E5E7EB]/60 text-[13px] font-black text-[#374151] hover:bg-[#F9FAFB] transition-colors flex items-center justify-center cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={() => void handleUpload()}
-                className="flex-1 py-2.5 rounded-xl bg-[#111111] text-white text-[13px] font-black hover:bg-[#1e2817] transition-colors"
+                className="flex-1 min-h-[48px] sm:min-h-0 py-2.5 rounded-xl bg-[#111111] text-white text-[13px] font-black hover:bg-[#1e2817] transition-colors flex items-center justify-center cursor-pointer"
               >
                 Upload & Apply
               </button>

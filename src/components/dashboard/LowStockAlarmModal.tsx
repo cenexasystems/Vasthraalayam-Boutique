@@ -27,14 +27,14 @@ export const LowStockAlarmModal: React.FC = () => {
     <div
       onClick={handleWakeAudio}
       onTouchStart={handleWakeAudio}
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-in fade-in duration-200"
+      className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-200"
     >
       <div
         onClick={(e) => {
           e.stopPropagation()
           handleWakeAudio()
         }}
-        className="bg-white rounded-3xl max-w-lg w-full shadow-2xl overflow-hidden border-2 border-red-500 animate-in zoom-in-95 flex flex-col max-h-[90vh]"
+        className="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full shadow-2xl overflow-hidden border-2 border-red-500 animate-in zoom-in-95 flex flex-col max-h-[100dvh] sm:max-h-[90dvh]"
       >
         {/* Pulsing Alarm Header */}
         <div className="bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 text-white px-5 py-4 flex items-center justify-between shrink-0 shadow-sm">
@@ -169,17 +169,17 @@ export const LowStockAlarmModal: React.FC = () => {
           })}
         </div>
 
-        {/* Footer with Silence & Acknowledge CTA */}
-        <div className="p-4 sm:p-5 border-t border-gray-200 bg-white flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-2 text-gray-500 text-[11px] font-semibold">
-            <VolumeX className="w-4 h-4 text-red-500" />
+        {/* Sticky Footer with Silence & Acknowledge CTA */}
+        <div className="sticky bottom-0 z-20 p-4 sm:p-5 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-gray-200 bg-white flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
+          <div className="flex items-center gap-2 text-gray-500 text-[11px] font-semibold w-full sm:w-auto justify-center sm:justify-start">
+            <VolumeX className="w-4 h-4 text-red-500 shrink-0" />
             <span>Silences sound until next new low-stock item</span>
           </div>
 
           <button
             type="button"
             onClick={silenceAlarm}
-            className="w-full sm:w-auto h-11 px-6 rounded-2xl bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-700 hover:to-rose-800 text-white text-xs font-black tracking-wide shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full sm:w-auto min-h-[48px] sm:min-h-0 sm:h-11 px-6 rounded-2xl bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-700 hover:to-rose-800 text-white text-xs font-black tracking-wide shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             <VolumeX className="w-4 h-4" />
             <span>Silence Alarm &amp; Acknowledge</span>

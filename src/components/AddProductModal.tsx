@@ -123,20 +123,21 @@ export default function AddProductModal({ isOpen, onClose, onSuccess }: AddProdu
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-3xl w-full max-w-md flex flex-col shadow-2xl overflow-hidden border border-[#ead7b7] animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4">
+      <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md flex flex-col shadow-2xl overflow-hidden border border-[#ead7b7] max-h-[100dvh] sm:max-h-[90dvh] animate-in fade-in zoom-in-95 duration-200">
 
-        <div className="flex items-center justify-between p-6 border-b border-[#7daa8f]/30 bg-brand-black text-white">
+        <div className="flex items-center justify-between p-4 sm:p-6 border-b border-[#7daa8f]/30 bg-brand-black text-white shrink-0">
           <div>
-            <h2 className="text-lg font-black text-white">Add Product to {BRAND_EN}</h2>
-            <p className="text-xs text-[#7daa8f] font-semibold">Instantly available in Catalog &amp; Billing</p>
+            <h2 className="text-base sm:text-lg font-black text-white">Add Product to {BRAND_EN}</h2>
+            <p className="text-[11px] sm:text-xs text-[#7daa8f] font-semibold">Instantly available in Catalog &amp; Billing</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-xl hover:bg-white/10 text-white transition-colors cursor-pointer">
             <X size={18} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-4">
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          <div className="p-4 sm:p-6 overflow-y-auto flex-1 min-h-0 space-y-4">
           {error && <div className="text-red-600 text-xs font-bold bg-red-50 p-3 rounded-xl border border-red-200">{error}</div>}
 
           <div>
@@ -239,13 +240,25 @@ export default function AddProductModal({ isOpen, onClose, onSuccess }: AddProdu
             <span>Product will be immediately ready in POS search and catalog. Barcode generation is optional.</span>
           </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="mt-2 w-full py-3.5 bg-brand-black border border-[#7daa8f] hover:bg-[#1e2817] text-brand-onDark rounded-xl text-xs font-black tracking-wider transition-all disabled:opacity-50 shadow-md cursor-pointer"
-          >
-            {loading ? 'Creating...' : 'Save Product'}
-          </button>
+          </div>
+
+          {/* Sticky Action Bar */}
+          <div className="sticky bottom-0 z-20 shrink-0 bg-[#FBFAF6] border-t border-gray-200 p-4 sm:p-5 pb-[max(1rem,env(safe-area-inset-bottom))] flex items-center justify-end gap-2 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 sm:flex-none min-h-[48px] sm:min-h-0 sm:py-2.5 px-4 text-xs font-bold rounded-xl border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer flex items-center justify-center"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-[1.5] sm:flex-none min-h-[48px] sm:min-h-0 sm:py-2.5 px-5 bg-brand-black border border-[#7daa8f] hover:bg-[#1e2817] text-brand-onDark rounded-xl text-xs font-black tracking-wider transition-all disabled:opacity-50 shadow-md cursor-pointer flex items-center justify-center"
+            >
+              {loading ? 'Creating...' : 'Save Product'}
+            </button>
+          </div>
         </form>
       </div>
     </div>

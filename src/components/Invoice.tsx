@@ -36,9 +36,23 @@ export interface InvoiceProps {
   status?: string
   userId?: string
   paymentMode?: string
-  payments?: Array<{ mode: string; amount: number }>
+  payments?: Array<{ mode: string; amount: number; phase?: string; paid_at?: string; notes?: string }>
   changeGiven?: number
+  depositAmount?: number
+  remainingBalance?: number
+  advancePaid?: number
+  balancePaid?: number
+  balanceDue?: number
   onPrintReceipt?: () => void
+}
+
+const formatPaymentMode = (m?: string): string => {
+  if (!m) return 'Cash'
+  const lower = m.trim().toLowerCase()
+  if (lower === 'qr' || lower === 'upi') return 'QR / UPI'
+  if (lower === 'cash') return 'Cash'
+  if (lower === 'card') return 'Card'
+  return m.charAt(0).toUpperCase() + m.slice(1)
 }
 
 export const Invoice: React.FC<InvoiceProps> = ({
@@ -61,6 +75,11 @@ export const Invoice: React.FC<InvoiceProps> = ({
   paymentMode,
   payments,
   changeGiven,
+  depositAmount,
+  remainingBalance,
+  advancePaid,
+  balancePaid,
+  balanceDue,
 }) => {
   const formattedInvoiceNo = formatInvoiceNo(invoiceNo)
   const dateStr = (() => {
@@ -85,6 +104,15 @@ export const Invoice: React.FC<InvoiceProps> = ({
     manual_discount_amount: safeManualDiscountAmount,
   })
 
+  const activePayments = (payments || []).filter(p => toNumber(p.amount, 0) > 0)
+  const isDepositInvoice = (depositAmount != null && depositAmount > 0) || (remainingBalance != null)
+  const effectiveAdvancePaid = toNumber(depositAmount ?? advancePaid, 0)
+  const effectiveBalanceDue = toNumber(remainingBalance ?? balanceDue, 0)
+  const effectiveBalancePaid = toNumber(balancePaid, 0)
+  const safeChangeGiven = toNumber(changeGiven, 0)
+  const totalPaidAmount = activePayments.reduce((sum, p) => sum + toNumber(p.amount, 0), 0)
+  const cashAmount = activePayments.filter(p => p.mode.toLowerCase() === 'cash').reduce((sum, p) => sum + toNumber(p.amount, 0), 0)
+
   return (
     <div
       id="invoice-print-root"
@@ -96,19 +124,56 @@ export const Invoice: React.FC<InvoiceProps> = ({
       }}
     >
       {/* ── HEADER ────────────────────────────────────────────────── */}
-      <div className="invoice-header" style={{ textAlign: 'center', borderBottom: '1px solid #ead7b7', paddingBottom: 20, marginBottom: 20 }}>
-        <div style={{ width: 64, height: 64, margin: '0 auto 10px auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <img src={BRAND_ICON} alt={BRAND_EN} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+      <div
+        className="invoice-header"
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          gap: 16,
+          borderBottom: '1px solid #ead7b7',
+          paddingBottom: 16,
+          marginBottom: 16,
+        }}
+      >
+        {/* Left block (logo, business name, address, phone) with min-width: 0 taking remaining space */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, minWidth: 0, flex: 1 }}>
+          <div style={{ width: 56, height: 56, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <img src={BRAND_ICON} alt={BRAND_EN} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          </div>
+          <div style={{ minWidth: 0, flex: 1, wordBreak: 'break-word' }}>
+            <div style={{ fontSize: 20, fontWeight: 900, color: 'var(--invoice-primary, #1F3A2E)', letterSpacing: 1.5, textTransform: 'uppercase', lineHeight: 1.2 }}>
+              {BRAND_EN}
+            </div>
+            <div style={{ fontSize: 11, color: '#4b5563', marginTop: 4, fontWeight: 500, lineHeight: 1.4 }}>
+              {BRAND_ADDRESS}
+            </div>
+            <div style={{ fontSize: 11, color: '#4b5563', marginTop: 4, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <span>📞 {BRAND_PRIMARY_PHONE_DISPLAY}</span>
+              <span>📷 @{BRAND_INSTAGRAM}</span>
+            </div>
+          </div>
         </div>
-        <div style={{ fontSize: 24, fontWeight: 900, color: 'var(--invoice-primary, #1F3A2E)', letterSpacing: 2, textTransform: 'uppercase' }}>
-          {BRAND_EN}
-        </div>
-        <div style={{ fontSize: 11, color: '#4b5563', marginTop: 4, fontWeight: 500, paddingLeft: 8, paddingRight: 8 }}>
-          {BRAND_ADDRESS}
-        </div>
-        <div style={{ fontSize: 11, color: '#4b5563', marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <span>📞 {BRAND_PRIMARY_PHONE_DISPLAY}</span>
-          <span>📷 @{BRAND_INSTAGRAM}</span>
+
+        {/* Header right block: only Date and Invoice no. Right-aligned, max-width ~35%, white-space: nowrap for the date */}
+        <div
+          style={{
+            maxWidth: '35%',
+            minWidth: 'fit-content',
+            textAlign: 'right',
+            flexShrink: 0,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <div style={{ fontSize: 10, fontWeight: 800, color: '#888', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+            TAX INVOICE
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 900, color: 'var(--invoice-primary, #1F3A2E)', marginTop: 2 }}>
+            #{formattedInvoiceNo}
+          </div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#4b5563', marginTop: 3 }}>
+            Date: {dateStr}
+          </div>
         </div>
       </div>
 
@@ -151,25 +216,6 @@ export const Invoice: React.FC<InvoiceProps> = ({
           <div style={{ fontSize: 9, fontWeight: 800, color: '#888', textTransform: 'uppercase', letterSpacing: 0.7, marginTop: 6 }}>Mobile Number</div>
           <div style={{ fontSize: 12, color: '#555', lineHeight: 1.4, wordBreak: 'break-word' }}>{phone || '—'}</div>
           {address && <div style={{ fontSize: 11, color: '#777', marginTop: 4, lineHeight: 1.4, wordBreak: 'break-word' }}>{address}</div>}
-          {payments && payments.length > 0 ? (
-            <div style={{ fontSize: 10, color: '#444', marginTop: 6, borderTop: '1px dashed #ead7b7', paddingTop: 4 }}>
-              <div style={{ fontSize: 9, fontWeight: 800, color: '#888', textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 2 }}>Payment Breakdown</div>
-              {payments.map((p, idx) => (
-                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontWeight: 700, color: '#374151' }}>
-                  <span style={{ textTransform: 'capitalize' }}>{p.mode === 'qr' ? 'QR / UPI' : p.mode}:</span>
-                  <span>{formatCurrency(p.amount)}</span>
-                </div>
-              ))}
-              {changeGiven != null && changeGiven > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontWeight: 700, color: '#16a34a', marginTop: 2 }}>
-                  <span>Change Given:</span>
-                  <span>{formatCurrency(changeGiven)}</span>
-                </div>
-              )}
-            </div>
-          ) : paymentMode ? (
-            <div style={{ fontSize: 10, color: '#777', marginTop: 4 }}>Payment Mode: {paymentMode}</div>
-          ) : null}
         </div>
       </div>
 
@@ -258,22 +304,150 @@ export const Invoice: React.FC<InvoiceProps> = ({
               <span style={{ fontSize: 15, fontWeight: 900, color: 'var(--invoice-primary, #1F3A2E)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Total</span>
               <span style={{ fontSize: 20, fontWeight: 900, color: 'var(--invoice-primary, #1F3A2E)', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(safeTotal)}</span>
             </div>
-            {payments && payments.length > 0 && (
-              <div style={{ borderTop: '1px dashed #d0d0d0', marginTop: 8, paddingTop: 6 }}>
-                {payments.map((p, idx) => (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#555', marginBottom: 2 }}>
-                    <span style={{ textTransform: 'capitalize' }}>Paid ({p.mode === 'qr' ? 'QR' : p.mode})</span>
-                    <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(p.amount)}</span>
-                  </div>
-                ))}
-                {toNumber(changeGiven, 0) > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#16a34a' }}>
-                    <span>Change Given</span>
-                    <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(changeGiven)}</span>
-                  </div>
-                )}
+            {/* ── PAYMENT DETAILS BLOCK (under TOTAL row) ─────────── */}
+            <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 12, paddingTop: 10 }}>
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 800,
+                  color: 'var(--invoice-primary, #1F3A2E)',
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.8,
+                  marginBottom: 6,
+                  textAlign: 'left',
+                }}
+              >
+                PAYMENT DETAILS
               </div>
-            )}
+
+              {isDepositInvoice ? (
+                <div>
+                  {(() => {
+                    const advancePayments = activePayments.filter(p => p.phase === 'deposit' || p.phase === 'advance')
+                    const balancePayments = activePayments.filter(p => p.phase === 'remaining' || p.phase === 'balance')
+
+                    if (advancePayments.length > 0 || balancePayments.length > 0) {
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {advancePayments.length > 0 && (
+                            <div>
+                              <div style={{ fontSize: 9, fontWeight: 800, color: '#6b7280', textTransform: 'uppercase', marginBottom: 2 }}>
+                                Advance Paid {advancePayments[0]?.paid_at ? `(${new Date(advancePayments[0].paid_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })})` : ''}
+                              </div>
+                              {advancePayments.map((p, idx) => (
+                                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#4b5563', paddingLeft: 6, marginBottom: 2 }}>
+                                  <span>{formatPaymentMode(p.mode)}</span>
+                                  <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(p.amount)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {balancePayments.length > 0 && (
+                            <div>
+                              <div style={{ fontSize: 9, fontWeight: 800, color: '#6b7280', textTransform: 'uppercase', marginBottom: 2 }}>
+                                Balance Paid {balancePayments[0]?.paid_at ? `(${new Date(balancePayments[0].paid_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })})` : ''}
+                              </div>
+                              {balancePayments.map((p, idx) => (
+                                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#4b5563', paddingLeft: 6, marginBottom: 2 }}>
+                                  <span>{formatPaymentMode(p.mode)}</span>
+                                  <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(p.amount)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {effectiveBalanceDue > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--invoice-primary, #1F3A2E)', fontWeight: 700, marginTop: 2 }}>
+                              <span>Balance Due</span>
+                              <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(effectiveBalanceDue)}</span>
+                            </div>
+                          )}
+
+                          <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 4, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 800, color: 'var(--invoice-primary, #1F3A2E)' }}>
+                            <span>Total Paid</span>
+                            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(effectiveAdvancePaid + effectiveBalancePaid || totalPaidAmount)}</span>
+                          </div>
+                        </div>
+                      )
+                    }
+
+                    return (
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#4b5563', marginBottom: 3 }}>
+                          <span>Advance Paid</span>
+                          <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(effectiveAdvancePaid)}</span>
+                        </div>
+                        {effectiveBalancePaid > 0 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#4b5563', marginBottom: 3 }}>
+                            <span>Balance Paid</span>
+                            <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(effectiveBalancePaid)}</span>
+                          </div>
+                        )}
+                        {effectiveBalanceDue > 0 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--invoice-primary, #1F3A2E)', fontWeight: 700, marginBottom: 3 }}>
+                            <span>Balance Due</span>
+                            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(effectiveBalanceDue)}</span>
+                          </div>
+                        )}
+                        {paymentMode && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                            <span>Payment Mode:</span>
+                            <span style={{ fontWeight: 600 }}>{formatPaymentMode(paymentMode)}</span>
+                          </div>
+                        )}
+                        {(effectiveAdvancePaid + effectiveBalancePaid > 0) && (
+                          <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 6, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 800, color: 'var(--invoice-primary, #1F3A2E)' }}>
+                            <span>Total Paid</span>
+                            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(effectiveAdvancePaid + effectiveBalancePaid)}</span>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
+                </div>
+              ) : activePayments.length > 0 ? (
+                <div>
+                  {activePayments.map((p, idx) => (
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#4b5563', marginBottom: 3 }}>
+                      <span>{formatPaymentMode(p.mode)}</span>
+                      <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(p.amount)}</span>
+                    </div>
+                  ))}
+
+                  {safeChangeGiven > 0 && (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6b7280', marginBottom: 3 }}>
+                        <span>Change Returned</span>
+                        <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>−{formatCurrency(safeChangeGiven)}</span>
+                      </div>
+                      {cashAmount > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#4b5563', marginBottom: 3 }}>
+                          <span>Net Cash</span>
+                          <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(Math.max(0, cashAmount - safeChangeGiven))}</span>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 6, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 800, color: 'var(--invoice-primary, #1F3A2E)' }}>
+                    <span>Total Paid</span>
+                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(totalPaidAmount)}</span>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#4b5563', marginBottom: 3 }}>
+                    <span>Payment Mode:</span>
+                    <span style={{ fontWeight: 600 }}>{formatPaymentMode(paymentMode)}</span>
+                  </div>
+                  <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 6, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 800, color: 'var(--invoice-primary, #1F3A2E)' }}>
+                    <span>Total Paid</span>
+                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(safeTotal)}</span>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

@@ -103,19 +103,34 @@ async function put(req: VercelRequest, res: VercelResponse) {
 }
 
 async function del(req: VercelRequest, res: VercelResponse) {
-  if (!requireAuth(req, res)) return
+  const session = requireAuth(req, res, ['admin'])
+  if (!session) return
   const id = String(req.query.id)
-  // Soft delete, matching the existing deleteVariant() behavior.
-  const rows = await sql`
-    UPDATE public.product_variants SET is_active = false, updated_at = NOW()
-    WHERE id = ${id}
-    RETURNING id
-  `
-  if (rows.length === 0) {
-    res.status(404).json({ error: 'Variant not found' })
+  if (!id) {
+    res.status(400).json({ error: 'Variant ID is required' })
     return
   }
-  res.status(200).json({ data: { id } })
+
+  const businessId = String(req.query.business_id || '1').trim()
+  try {
+    const rows = await sql`
+      SELECT public.hard_delete_variant(
+        ${id}::uuid,
+        ${businessId},
+        ${session.portalId}
+      ) AS result
+    `
+    const result = rows[0]?.result as Record<string, unknown>
+    res.status(200).json({ data: result })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('not found')) {
+      res.status(404).json({ error: msg })
+      return
+    }
+    console.error('[variants.del] Hard delete failed:', err)
+    res.status(500).json({ error: msg || 'Failed to hard delete variant' })
+  }
 }
 
 export default methodRouter({ GET: get, POST: create, PUT: put, DELETE: del })

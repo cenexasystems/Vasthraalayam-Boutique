@@ -1428,18 +1428,18 @@ export const AddEditProductView: React.FC<{
           </div>
 
           {/* Pinned Bottom Actions */}
-          <div className="shrink-0 px-4 py-3 sm:px-6 sm:py-3.5 border-t border-gray-200 bg-white flex items-center justify-end gap-3">
+          <div className="sticky bottom-0 z-20 shrink-0 px-4 py-3 sm:px-6 sm:py-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-gray-200 bg-white flex items-center justify-end gap-2 sm:gap-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
             <button
               type="button"
               onClick={resetForm}
-              className="px-4 py-2 sm:px-5 sm:py-2.5 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
+              className="flex-1 sm:flex-none min-h-[48px] sm:min-h-0 px-4 py-2 sm:px-5 sm:py-2.5 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer flex items-center justify-center"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="px-5 py-2 sm:px-6 sm:py-2.5 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] transition-all shadow-md flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              className="flex-[1.5] sm:flex-none min-h-[48px] sm:min-h-0 px-5 py-2 sm:px-6 sm:py-2.5 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
             >
               {loading ? (
                 <>

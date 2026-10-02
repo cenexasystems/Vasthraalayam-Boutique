@@ -89,9 +89,9 @@ export const BarcodeSheetPreviewModal: React.FC<BarcodeSheetPreviewModalProps> =
   if (!isOpen) return null
 
   return createPortal(
-    <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-screen h-screen h-[100dvh] z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
+    <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-full h-full h-[100dvh] max-h-[100dvh] z-[9999] flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
       <div className="absolute inset-0" onClick={onClose} />
-      <div className="relative z-10 bg-white rounded-none sm:rounded-3xl max-w-4xl w-full h-screen h-[100dvh] sm:h-auto sm:max-h-[92vh] border-0 sm:border border-gray-200 shadow-2xl overflow-hidden flex flex-col">
+      <div className="relative z-10 bg-white rounded-t-3xl sm:rounded-3xl max-w-4xl w-full max-h-[100dvh] sm:max-h-[92dvh] border-0 sm:border border-gray-200 shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4 border-b border-gray-200 bg-brand-black text-white shrink-0">
           <div>
@@ -196,8 +196,8 @@ export const BarcodeSheetPreviewModal: React.FC<BarcodeSheetPreviewModalProps> =
           </div>
         </div>
 
-        {/* Footer Actions */}
-        <div className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4 border-t border-gray-200 bg-white shrink-0 gap-2 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
+        {/* Sticky Action Bar at the bottom */}
+        <div className="sticky bottom-0 z-20 flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4 border-t border-gray-200 bg-white shrink-0 gap-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
           <span className="text-[11px] sm:text-xs font-bold text-gray-600 truncate mr-2">
             Total {individualLabels.length} pages ready to print
           </span>
@@ -205,7 +205,7 @@ export const BarcodeSheetPreviewModal: React.FC<BarcodeSheetPreviewModalProps> =
             <button
               type="button"
               onClick={onClose}
-              className="px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer shrink-0"
+              className="min-h-[44px] sm:min-h-0 px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer shrink-0 flex items-center justify-center"
             >
               Close
             </button>
@@ -215,7 +215,7 @@ export const BarcodeSheetPreviewModal: React.FC<BarcodeSheetPreviewModalProps> =
                 onClose()
                 onPrint()
               }}
-              className="px-4 py-2 sm:px-6 sm:py-2.5 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] transition-all shadow-md flex items-center gap-1.5 sm:gap-2 cursor-pointer shrink-0"
+              className="min-h-[44px] sm:min-h-0 px-4 py-2 sm:px-6 sm:py-2.5 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] transition-all shadow-md flex items-center gap-1.5 sm:gap-2 cursor-pointer shrink-0"
             >
               <Printer size={15} /> Print Labels
             </button>

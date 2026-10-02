@@ -21,6 +21,8 @@ import { invoicePdfFile } from '../lib/invoicePdf'
 import { uploadInvoicePdf } from '../lib/storage'
 import { createOrderWithStock } from '../services/orderService'
 import { createAdvanceOrder, type AdvanceOrder, type AdvancePaymentMethod } from '../services/advanceOrderService'
+import { SplitPaymentSelector } from '../components/SplitPaymentSelector'
+import { type PaymentMode, type SplitPaymentValidationResult } from '../lib/splitPaymentUtils'
 import { printAdvanceReceipt } from '../lib/advanceReceipt'
 import { printThermalReceipt } from '../lib/thermalPrint'
 import {
@@ -181,6 +183,10 @@ export default function Pos(props: PosProps = {}) {
   const [depositOpen, setDepositOpen] = useState(false)
   const [depositCreated, setDepositCreated] = useState<AdvanceOrder | null>(null)
   const [depositForm, setDepositForm] = useState({ amount: '', expectedDeliveryDate: '', paymentMethod: 'cash' as AdvancePaymentMethod, address: '', remarks: '', referenceNumber: '' })
+  const [posDepositMethod, setPosDepositMethod] = useState<PaymentMode>('cash')
+  const [posDepositValidation, setPosDepositValidation] = useState<SplitPaymentValidationResult>({
+    isValid: false, totalPaid: 0, remaining: 0, changeGiven: 0, maxQrAllowed: 0, maxCardAllowed: 0, activePayments: []
+  })
   const [dbCategories, setDbCategories] = useState<string[]>([])
   const [priceEditModal, setPriceEditModal] = useState<{
     isOpen: boolean
@@ -807,14 +813,18 @@ export default function Pos(props: PosProps = {}) {
     const enteredAmount = Number(cashReceived) || 0
     const suggestedDeposit = enteredAmount > 0 && enteredAmount < total ? String(enteredAmount) : ''
     setDepositForm({ amount: suggestedDeposit, expectedDeliveryDate: '', paymentMethod: 'cash', address: customer.address || '', remarks: '', referenceNumber: '' })
+    setPosDepositMethod('cash')
     setError('')
     setDepositOpen(true)
   }
 
   const saveDepositOrder = async (event: FormEvent) => {
     event.preventDefault()
-    const depositAmount = Number(depositForm.amount)
-    if (!Number.isFinite(depositAmount) || depositAmount <= 0 || depositAmount >= total) { setError(`Deposit must be greater than ${formatCurrency(0)} and less than ${formatCurrency(total)}.`); return }
+    if (!posDepositValidation.isValid) {
+      setError(posDepositValidation.errorMessage || `Deposit must be greater than ${formatCurrency(0)} and less than or equal to ${formatCurrency(total)}.`)
+      return
+    }
+    const depositAmount = posDepositValidation.totalPaid
     if (!depositForm.expectedDeliveryDate) { setError('Select the expected delivery date.'); return }
     setSaving(true); setError('')
     try {
@@ -835,13 +845,20 @@ export default function Pos(props: PosProps = {}) {
           item_type: item.itemType === 'service' ? 'service' : 'product',
         }
       })
+
+      const effectiveDepositMode: AdvancePaymentMethod = posDepositMethod === 'split'
+        ? (posDepositValidation.activePayments.length > 1 ? 'split' : (posDepositValidation.activePayments[0]?.mode as AdvancePaymentMethod || 'cash'))
+        : (posDepositMethod as AdvancePaymentMethod)
+
       const created = await createAdvanceOrder({
         customerName: customer.name.trim(), phone: customer.phone.trim(), address: depositForm.address.trim(),
         productName: items.map(item => `${item.qty}× ${item.name}`).join(', '),
         category: Array.from(new Set(items.map(item => item.category).filter(Boolean))).join(', '),
         description: items.map(item => `${item.qty}× ${item.name}${item.note ? ` — ${item.note}` : ''}`).join('\n'),
         totalAmount: total, depositAmount, expectedDeliveryDate: depositForm.expectedDeliveryDate,
-        remarks: depositForm.remarks, referenceNumber: depositForm.referenceNumber, paymentMethod: depositForm.paymentMethod, createdByName: role || 'Staff',
+        remarks: depositForm.remarks, referenceNumber: depositForm.referenceNumber, paymentMethod: effectiveDepositMode,
+        payments: posDepositValidation.activePayments,
+        createdByName: role || 'Staff',
         products: productsSnapshot,
       })
       setDepositCreated(created)
@@ -2039,17 +2056,25 @@ export default function Pos(props: PosProps = {}) {
               <div className="flex justify-between text-sm"><span className="font-bold text-violet-700">Order total</span><span className="font-black text-violet-900">{formatCurrency(total)}</span></div>
               <div className="mt-2 max-h-24 space-y-1 overflow-y-auto border-t border-violet-200 pt-2">{items.map(item => <div key={item.id} className="flex justify-between gap-3 text-xs"><span className="truncate">{item.qty}× {item.name}</span><span className="font-bold">{formatCurrency(item.lineTotal)}</span></div>)}</div>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block"><span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-[#6B7280]">Deposit received *</span><input required autoFocus type="number" onWheel={(e) => (e.target as HTMLInputElement).blur()} min="0.01" max={Math.max(0, total - 0.01)} step="0.01" value={depositForm.amount} onChange={e => setDepositForm({...depositForm, amount:e.target.value})} className="w-full rounded-xl border px-3 py-2.5 text-sm font-bold outline-none focus:border-violet-600"/></label>
-              <label className="block"><span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-[#6B7280]">Remaining balance</span><div className="rounded-xl bg-red-50 px-3 py-2.5 text-sm font-black text-red-700">{formatCurrency(Math.max(0,total-Number(depositForm.amount||0)))}</div></label>
-              <label className="block"><span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-[#6B7280]">Expected delivery *</span><input required type="date" value={depositForm.expectedDeliveryDate} onChange={e => setDepositForm({...depositForm, expectedDeliveryDate:e.target.value})} className="w-full rounded-xl border px-3 py-2.5 text-sm font-bold outline-none focus:border-violet-600"/></label>
-              <label className="block"><span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-[#6B7280]">Payment method *</span><select value={depositForm.paymentMethod} onChange={e => setDepositForm({...depositForm,paymentMethod:e.target.value as AdvancePaymentMethod})} className="w-full rounded-xl border px-3 py-2.5 text-sm font-bold outline-none focus:border-violet-600"><option value="cash">Cash</option><option value="upi">QR</option><option value="card">Card</option></select></label>
-              <label className="block sm:col-span-2"><span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-[#6B7280]">Delivery address</span><textarea value={depositForm.address} onChange={e => setDepositForm({...depositForm,address:e.target.value})} className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-violet-600" rows={2}/></label>
-              <label className="block sm:col-span-2"><span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-[#6B7280]">Reference Number</span><input value={depositForm.referenceNumber} onChange={e => setDepositForm({...depositForm,referenceNumber:e.target.value})} className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-violet-600" placeholder="e.g. PO-001, booking ref (optional)"/></label>
-              <label className="block sm:col-span-2"><span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-[#6B7280]">Remarks</span><textarea value={depositForm.remarks} onChange={e => setDepositForm({...depositForm,remarks:e.target.value})} className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-violet-600" rows={2}/></label>
+            <div className="space-y-4">
+              <SplitPaymentSelector
+                type="deposit"
+                targetAmount={total}
+                method={posDepositMethod}
+                onMethodChange={setPosDepositMethod}
+                onChange={setPosDepositValidation}
+                disabled={saving}
+                initialSingleAmount={depositForm.amount}
+              />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block sm:col-span-2"><span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-[#6B7280]">Expected delivery *</span><input required type="date" value={depositForm.expectedDeliveryDate} onChange={e => setDepositForm({...depositForm, expectedDeliveryDate:e.target.value})} className="w-full rounded-xl border px-3 py-2.5 text-sm font-bold outline-none focus:border-violet-600"/></label>
+                <label className="block sm:col-span-2"><span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-[#6B7280]">Delivery address</span><textarea value={depositForm.address} onChange={e => setDepositForm({...depositForm,address:e.target.value})} className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-violet-600" rows={2}/></label>
+                <label className="block sm:col-span-2"><span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-[#6B7280]">Reference Number</span><input value={depositForm.referenceNumber} onChange={e => setDepositForm({...depositForm,referenceNumber:e.target.value})} className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-violet-600" placeholder="e.g. PO-001, booking ref (optional)"/></label>
+                <label className="block sm:col-span-2"><span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-[#6B7280]">Remarks</span><textarea value={depositForm.remarks} onChange={e => setDepositForm({...depositForm,remarks:e.target.value})} className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-violet-600" rows={2}/></label>
+              </div>
             </div>
             {error && <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-bold text-red-600">{error}</div>}
-            <div className="mt-5 flex gap-3"><button type="button" onClick={() => { setDepositOpen(false); setError('') }} className="flex-1 rounded-xl border py-3 text-sm font-black">Cancel</button><button disabled={saving} className="flex-[1.5] rounded-xl bg-violet-700 py-3 text-sm font-black text-white disabled:opacity-50">{saving ? 'Saving…' : 'Confirm Deposit Order'}</button></div>
+            <div className="mt-5 flex gap-3"><button type="button" onClick={() => { setDepositOpen(false); setError('') }} className="flex-1 rounded-xl border py-3 text-sm font-black">Cancel</button><button disabled={saving || !posDepositValidation.isValid} className="flex-[1.5] rounded-xl bg-violet-700 py-3 text-sm font-black text-white disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">{saving ? 'Saving…' : 'Confirm Deposit Order'}</button></div>
           </form>
         </div>
       )}

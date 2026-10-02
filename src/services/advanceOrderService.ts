@@ -8,7 +8,7 @@
 import { neonApi } from '../lib/neonApi'
 
 export type AdvanceStatus = 'pending_deposit' | 'ready_for_delivery' | 'waiting_final_payment' | 'completed' | 'cancelled'
-export type AdvancePaymentMethod = 'cash' | 'upi' | 'card'
+export type AdvancePaymentMethod = 'cash' | 'upi' | 'qr' | 'card' | 'split'
 
 export type AdvanceOrder = {
   id: string
@@ -34,6 +34,7 @@ export type AdvanceOrder = {
   completed_order_id: string | null
   invoice_number: string | null
   final_payment_method: string | null
+  advance_payment_method?: string | null
 }
 
 export type AdvanceTimeline = {
@@ -161,6 +162,7 @@ export async function createAdvanceOrder(input: {
   paymentMethod: AdvancePaymentMethod
   createdByName: string
   products?: Array<Record<string, unknown>>
+  payments?: Array<{ mode: string; amount: number; notes?: string }>
 }): Promise<AdvanceOrder> {
   const order = throwIfError(
     await neonApi.post<AdvanceOrder>('/advance-orders', {
@@ -178,6 +180,7 @@ export async function createAdvanceOrder(input: {
       p_created_by_name: input.createdByName,
       p_products: input.products || [],
       reference_number: input.referenceNumber,
+      payments: input.payments,
     }),
     'createAdvanceOrder'
   )
@@ -226,7 +229,9 @@ export async function completeAdvanceOrder(
   couponCode: string | null = null,
   couponPercentage = 0,
   manualDiscountAmount = 0,
-  remarks = ''
+  remarks = '',
+  payments?: Array<{ mode: string; amount: number; notes?: string }>,
+  changeGiven = 0
 ): Promise<{ order_id: string; invoice_no: string; completed_at: string }> {
   const result = throwIfError(
     await neonApi.patch<{ order_id: string; invoice_no: string; completed_at: string }>(
@@ -239,6 +244,8 @@ export async function completeAdvanceOrder(
         coupon_percentage: couponPercentage,
         manual_discount: manualDiscountAmount,
         remarks,
+        payments,
+        change_given: changeGiven,
       }
     ),
     'completeAdvanceOrder'

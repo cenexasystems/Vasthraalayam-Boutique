@@ -178,10 +178,22 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                     className="w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB]/60 rounded-xl focus:outline-none focus:border-[#7daa8f] text-[13px] font-bold text-right" placeholder="0" />
                 </div>
               </div>
-              <button type="submit" disabled={editLoading}
-                className="mt-4 w-full py-3.5 bg-[#7daa8f] hover:bg-[#065F46] text-white rounded-xl text-[13px] font-black uppercase tracking-wider transition-colors disabled:opacity-50">
-                {editLoading ? 'Saving...' : 'Save Changes'}
-              </button>
+              <div className="mt-4 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  className="flex-1 py-3.5 border border-gray-300 text-gray-700 hover:bg-gray-100 rounded-xl text-[13px] font-black uppercase tracking-wider transition-colors min-h-[48px] flex items-center justify-center cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editLoading}
+                  className="flex-[1.5] py-3.5 bg-[#7daa8f] hover:bg-[#065F46] text-white rounded-xl text-[13px] font-black uppercase tracking-wider transition-colors disabled:opacity-50 min-h-[48px] flex items-center justify-center cursor-pointer"
+                >
+                  {editLoading ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
             </form>
           </>
         ) : (
@@ -316,7 +328,7 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                         <div className="flex flex-col min-w-0">
                           <span className="text-[14px] font-black text-[#111111] tabular-nums">₹{product.price}</span>
                           <div className="flex items-center gap-1 mt-0.5">
-                            <span className="text-[9px] font-bold text-[#374151] uppercase tracking-wider bg-[#F9FAFB] px-1.5 py-0.5 rounded border border-[#E5E7EB]/40 truncate max-w-[80px]">
+                            <span className="text-[9px] font-bold text-[#374151] uppercase tracking-wider bg-[#F9FAFB] px-1.5 py-0.5 rounded border border-[#E5E7EB]/40 whitespace-nowrap">
                               {product.category}
                             </span>
                             {product.itemType === 'service' && (

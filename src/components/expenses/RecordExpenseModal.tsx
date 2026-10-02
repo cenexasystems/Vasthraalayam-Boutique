@@ -114,9 +114,9 @@ export const RecordExpenseModal: React.FC<RecordExpenseModalProps> = ({
   }
 
   return createPortal(
-    <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-screen h-screen h-[100dvh] z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-xs p-3 sm:p-4 overflow-hidden animate-in fade-in duration-150">
+    <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-full h-full h-[100dvh] max-h-[100dvh] z-[9999] flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-xs p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
       <div className="absolute inset-0" onClick={onClose} />
-      <div className="relative z-10 bg-white rounded-2xl sm:rounded-3xl max-w-md w-full max-h-[92vh] border border-[#ead7b7] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150">
+      <div className="relative z-10 bg-white rounded-t-3xl sm:rounded-3xl max-w-md w-full max-h-[100dvh] sm:max-h-[92dvh] border-0 sm:border border-[#ead7b7] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150">
         {/* Header */}
         <div className="shrink-0 px-5 py-3.5 border-b border-gray-100 flex items-center justify-between bg-[#FBFAF6]">
           <div className="flex items-center gap-2">
@@ -139,7 +139,8 @@ export const RecordExpenseModal: React.FC<RecordExpenseModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="overflow-y-auto min-h-0 flex-1 p-4 sm:p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden min-h-0">
+          <div className="overflow-y-auto min-h-0 flex-1 p-4 sm:p-6 space-y-4">
           {errorMsg && (
             <div className="flex items-center gap-2 text-xs font-bold text-rose-800 bg-rose-50 border border-rose-200 p-3 rounded-xl">
               <AlertCircle size={15} className="text-rose-600 shrink-0" />
@@ -218,19 +219,21 @@ export const RecordExpenseModal: React.FC<RecordExpenseModalProps> = ({
             />
           </div>
 
-          {/* Modal Actions */}
-          <div className="flex items-center gap-3 pt-2">
+          </div>
+
+          {/* Sticky Modal Actions */}
+          <div className="sticky bottom-0 z-20 shrink-0 bg-[#FBFAF6] px-4 py-3 sm:px-6 sm:py-3.5 border-t border-gray-100 flex items-center gap-2.5 sm:gap-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 h-11 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
+              className="flex-1 min-h-[48px] sm:min-h-0 sm:h-11 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer flex items-center justify-center shrink-0"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="flex-[1.5] h-11 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-xs font-bold hover:bg-[#1e2817] transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              className="flex-[1.5] min-h-[48px] sm:min-h-0 sm:h-11 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-xs font-bold hover:bg-[#1e2817] transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
             >
               {loading
                 ? expenseToEdit

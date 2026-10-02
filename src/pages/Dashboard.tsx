@@ -58,6 +58,8 @@ import AdvanceOrders from './AdvanceOrders'
 import type { AdvanceOrder } from '../services/advanceOrderService'
 import { InventoryTable } from '../components/inventory/InventoryTable'
 import { CategoryManagerView } from '../components/inventory/CategoryManagerView'
+import { inventoryService } from '../services/inventoryService'
+import { HardDeleteModal, type ImpactDetail } from '../components/common/HardDeleteModal'
 import { ExpensesView } from '../components/expenses/ExpensesView'
 import { SettingsView } from '../components/settings/SettingsView'
 import { expenseService, type ExpenseRecord } from '../services/expenseService'
@@ -671,6 +673,16 @@ export default function Dashboard() {
   }, [tab])
 
   const deletedOrderIds = React.useRef<Set<string>>(new Set())
+  const [deleteModalConfig, setDeleteModalConfig] = useState<{
+    isOpen: boolean
+    title: string
+    subtitle?: string
+    entityType: 'order' | 'advance_order' | 'product' | 'variant' | 'category' | 'coupon' | 'movement'
+    impactDetails: ImpactDetail[]
+    requireTypeDelete: boolean
+    warningText?: string
+    onConfirm: () => Promise<{ backupId?: string | number } | void>
+  } | null>(null)
 
   const toDashboardOrder = (row: Record<string, unknown>): DashboardOrder => ({
     id: String(row.id || ''), invoice_no: String(row.invoice_no || ''),
@@ -872,24 +884,44 @@ export default function Dashboard() {
   }
 
   const deleteOrder = async (orderId: string, invoiceNo: string) => {
-    // Order deletion is admin-only, enforced server-side (api/orders/[id].ts).
-    // This replaces the old client-side "enter admin password" prompt for
-    // staff — that password was a hardcoded string visible in the JS bundle,
-    // not a real permission check.
     if (role === 'staff') {
       alert('Deleting an order requires an admin account.')
       return
     }
-    if (!window.confirm(`Are you sure you want to completely delete order ${invoiceNo}? This cannot be undone.`)) return
-    const { error } = await neonApi.delete(`/orders/${orderId}`)
-    if (error) {
-      alert(`Error deleting order: ${error.message}`)
-      return
-    }
-    // Track deleted ID so re-searches don't bring it back
-    deletedOrderIds.current.add(orderId)
-    setOrders(prev => prev.filter(o => o.id !== orderId))
-    setSearchResults(prev => prev.filter(o => o.id !== orderId))
+
+    const order = orders.find(o => o.id === orderId) || searchResults.find(o => o.id === orderId)
+    const orderTotal = order ? getOrderTotal(order) : 0
+
+    const impactDetails: ImpactDetail[] = [
+      { label: 'Invoice Number', value: `#${formatInvoiceNo(invoiceNo)}` },
+      { label: 'Customer', value: order?.customer_name || 'Customer' },
+      { label: 'Bill Amount', value: `₹${formatCurrency(orderTotal)}`, color: 'danger' },
+      { label: 'Revenue Analytics', value: `-₹${formatCurrency(orderTotal)} (Instantly dropped)`, color: 'danger' },
+      { label: 'Inventory Stock', value: 'Stock quantities will be restored back to catalog', color: 'success' },
+      { label: 'Ledger & Payments', value: 'Stock movements and split payments permanently purged', color: 'warning' },
+    ]
+
+    setDeleteModalConfig({
+      isOpen: true,
+      title: `Permanently Delete Bill #${formatInvoiceNo(invoiceNo)}`,
+      subtitle: `Customer: ${order?.customer_name || 'Customer'} • Date: ${order ? new Date(order.created_at).toLocaleDateString('en-IN') : 'N/A'}`,
+      entityType: 'order',
+      impactDetails,
+      requireTypeDelete: true,
+      warningText: 'This bill, all its payments, inventory deductions, and ledger entries will be permanently deleted from the Neon database.',
+      onConfirm: async () => {
+        const { data, error } = await neonApi.delete<{ backup?: { id?: number }; success?: boolean }>(`/orders/${orderId}`)
+        if (error) throw new Error(error.message || 'Error deleting order')
+
+        deletedOrderIds.current.add(orderId)
+        setOrders(prev => prev.filter(o => o.id !== orderId))
+        setSearchResults(prev => prev.filter(o => o.id !== orderId))
+        await loadData()
+
+        const backupId = (data as any)?.backup_id || (data as any)?.backup?.id
+        return { backupId: backupId as string | number }
+      },
+    })
   }
 
   const getOrderWhatsAppPreview = (order: DashboardOrder) => {
@@ -906,6 +938,9 @@ export default function Dashboard() {
       phone: order.phone,
       invoiceNumber: order.invoice_no || order.id,
       invoiceDate: order.created_at,
+      paymentMode: order.payment_mode,
+      payments: order.payments,
+      changeGiven: order.change_given,
       items: items.map(item => ({
         name: item.name,
         qty: item.quantity,
@@ -916,7 +951,9 @@ export default function Dashboard() {
       })),
       subtotal,
       couponDiscount: order.discount_amount,
+      manualDiscountAmount: order.manual_discount_amount,
       shipping: order.delivery_charge,
+      gstAmount: order.total_gst,
       total: order.total,
     })
     return { items, subtotal, message, fileName: `Invoice-${order.invoice_no || order.id}.pdf` }
@@ -1068,9 +1105,30 @@ export default function Dashboard() {
   }
 
   const deleteCoupon = async (coupon: DashboardCoupon) => {
-    if (!window.confirm(`Delete coupon "${coupon.code}"? This cannot be undone.`)) return
-    await neonApi.delete(`/coupons/id/${coupon.id}`)
-    await loadCoupons()
+    if (role === 'staff') {
+      alert('Deleting a coupon requires an admin account.')
+      return
+    }
+
+    const impactDetails: ImpactDetail[] = [
+      { label: 'Coupon Code', value: coupon.code },
+      { label: 'Discount Rate', value: `${coupon.percentage}%` },
+      { label: 'Total Times Used', value: `${coupon.usage_count || 0} times` },
+    ]
+
+    setDeleteModalConfig({
+      isOpen: true,
+      title: `Permanently Delete Coupon "${coupon.code}"`,
+      entityType: 'coupon',
+      impactDetails,
+      requireTypeDelete: false,
+      warningText: 'This coupon will be permanently removed from the system. Previously generated invoices will retain their recorded discount amount.',
+      onConfirm: async () => {
+        const { error } = await neonApi.delete(`/coupons/id/${coupon.id}`)
+        if (error) throw error
+        await loadCoupons()
+      },
+    })
   }
 
   const toggleCoupon = async (coupon: DashboardCoupon) => {
@@ -1382,10 +1440,47 @@ export default function Dashboard() {
   }
 
   const handleDeleteProd = async (id: string | number) => {
-    if (!window.confirm('Permanently deactivate this product?')) return
-    const { error } = await neonApi.put(`/products/${id}`, { is_active: false })
-    if (error) { setProductNotice(error.message); return }
-    setProductNotice('Product deactivated'); await loadData()
+    if (role === 'staff') {
+      alert('Deleting a product requires an admin account.')
+      return
+    }
+
+    try {
+      const preview = await inventoryService.previewDeleteProduct(Number(id))
+      const impactDetails: ImpactDetail[] = [
+        { label: 'Product Name', value: preview.product_name },
+        { label: 'Current Stock', value: `${preview.stock_quantity} units`, color: 'warning' },
+        { label: 'Catalog Price', value: `₹${formatCurrency(preview.price)}` },
+        {
+          label: 'Past Bills Affected',
+          value: preview.orders_count > 0 ? `${preview.orders_count} bills (₹${formatCurrency(preview.total_amount_affected)})` : 'None',
+          color: preview.orders_count > 0 ? 'danger' : 'neutral',
+        },
+        {
+          label: 'Variants & Barcodes',
+          value: `${preview.variants_count} variants, ${preview.barcodes_count} barcodes`,
+        },
+      ]
+
+      setDeleteModalConfig({
+        isOpen: true,
+        title: `Permanently Delete "${preview.product_name}"`,
+        subtitle: `Type: ${preview.item_type} • ID: ${preview.product_id}`,
+        entityType: 'product',
+        impactDetails,
+        requireTypeDelete: true,
+        warningText: preview.orders_count > 0
+          ? `WARNING: This item appears in ${preview.orders_count} past bill(s). Those bills will have this line item removed and their totals recalculated. If a bill becomes empty, it will be deleted.`
+          : 'This item, along with its barcodes, stock levels, variants, and stock movement ledger entries, will be permanently purged.',
+        onConfirm: async () => {
+          await inventoryService.deleteInventoryItem(Number(id))
+          setProductNotice('Product permanently deleted')
+          await loadData()
+        },
+      })
+    } catch (err) {
+      alert(toErr(err, 'Failed to fetch product delete preview'))
+    }
   }
 
   const handleSaveVariant = async (e: import('react').FormEvent) => {
@@ -1434,11 +1529,33 @@ export default function Dashboard() {
   }
 
   const handleDeleteVariant = async (variantId: string) => {
-    if (!window.confirm('Remove this variant?')) return
-    const { error } = await deleteVariant(variantId)
-    if (error) { setVariantNotice(error); return }
-    setVariantNotice('Variant removed')
-    await refetchVariants()
+    if (role === 'staff') {
+      alert('Deleting a variant requires an admin account.')
+      return
+    }
+
+    const v = editingProd ? getVariants(String(editingProd.id)).find(item => item.id === variantId) : null
+    const impactDetails: ImpactDetail[] = [
+      { label: 'Variant Name', value: v?.variantName || variantId },
+      { label: 'Current Stock', value: `${v?.stock ?? 0} units` },
+      { label: 'Parent Product', value: editingProd?.name || 'Product' },
+    ]
+
+    setDeleteModalConfig({
+      isOpen: true,
+      title: `Permanently Delete Variant "${v?.variantName || ''}"`,
+      entityType: 'variant',
+      impactDetails,
+      requireTypeDelete: false,
+      warningText: 'This variant and its barcode/stock references will be permanently removed. The parent product stock will be updated.',
+      onConfirm: async () => {
+        const { error } = await deleteVariant(variantId)
+        if (error) throw new Error(error)
+        setVariantNotice('Variant removed')
+        await refetchVariants()
+        await loadData()
+      },
+    })
   }
 
   const handleSetDefault = async (variantId: string) => {
@@ -1485,32 +1602,43 @@ export default function Dashboard() {
   }
 
   const deleteCat = async (c: Category) => {
-    if (!window.confirm(`Delete "${c.name_en}"? This cannot be undone.`)) return
-    // Unlink any products still pointing at this category (by id, or by the
-    // legacy free-text category name) before deleting it — products.category_id
-    // has no ON DELETE behavior that does this for us.
-    const linkedProducts = products.filter(
-      (p) => p.categoryId === c.id || p.category === c.name_en,
-    )
-    for (const p of linkedProducts) {
-      const { error: linkedProductsError } = await neonApi.put(`/products/${p.id}`, {
-        category: 'Uncategorized', category_id: null,
-      })
-      if (linkedProductsError) {
-        setCategoryNotice({ type: 'error', text: linkedProductsError.message || 'Could not unlink products from category.' })
-        return
-      }
-    }
-    const { error } = await neonApi.delete(`/categories/${c.id}`)
-    if (error) {
-      setCategoryNotice({ type: 'error', text: error.message || 'Could not delete category.' })
+    if (role === 'staff') {
+      alert('Deleting a category requires an admin account.')
       return
     }
-    if (prodForm.categoryId === c.id || prodForm.category === c.name_en) {
-      setProdForm(form => ({ ...form, category: '', categoryId: null }))
-    }
-    setCategoryNotice({ type: 'success', text: `"${c.name_en}" deleted.` })
-    await loadData()
+
+    const linkedProducts = products.filter(
+      (p) => p.categoryId === c.id || p.category.toLowerCase() === c.name_en.toLowerCase(),
+    )
+
+    const impactDetails: ImpactDetail[] = [
+      { label: 'Category Name', value: c.name_en },
+      {
+        label: 'Products in Category',
+        value: linkedProducts.length > 0 ? `${linkedProducts.length} product(s) linked` : '0 products (Empty)',
+        color: linkedProducts.length > 0 ? 'danger' : 'success',
+      },
+    ]
+
+    setDeleteModalConfig({
+      isOpen: true,
+      title: `Permanently Delete Category "${c.name_en}"`,
+      entityType: 'category',
+      impactDetails,
+      requireTypeDelete: linkedProducts.length > 0,
+      warningText: linkedProducts.length > 0
+        ? `This category contains ${linkedProducts.length} product(s). Deleting it will permanently delete all ${linkedProducts.length} product(s) and their stock/barcodes.`
+        : 'This category will be permanently removed from the catalog.',
+      onConfirm: async () => {
+        const { error } = await neonApi.delete(`/categories/${c.id}?force=true`)
+        if (error) throw error
+        if (prodForm.categoryId === c.id || prodForm.category === c.name_en) {
+          setProdForm(form => ({ ...form, category: '', categoryId: null }))
+        }
+        setCategoryNotice({ type: 'success', text: `"${c.name_en}" deleted.` })
+        await loadData()
+      },
+    })
   }
 
   const toggleCat = async (c: Category) => {
@@ -4395,7 +4523,7 @@ export default function Dashboard() {
 
         return (
           <div
-            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-3 sm:p-6"
+            className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-6"
             role="dialog"
             aria-modal="true"
             aria-label={`Invoice ${invoicePreviewOrder.invoice_no || invoicePreviewOrder.id}`}
@@ -4403,38 +4531,46 @@ export default function Dashboard() {
               if (event.target === event.currentTarget) setInvoicePreviewOrder(null)
             }}
           >
-            <div className="flex max-h-[95vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-[#F9FAFB] shadow-2xl">
+            <div className="flex max-h-[100dvh] sm:max-h-[95dvh] w-full max-w-4xl flex-col overflow-hidden rounded-t-3xl sm:rounded-2xl bg-[#F9FAFB] shadow-2xl">
               <div className="flex shrink-0 items-center justify-between border-b border-[#E5E7EB]/60 bg-white px-4 py-3 sm:px-6">
                 <div>
                   <h2 className="text-base font-black text-[#111111]">Invoice Preview</h2>
                   <p className="text-xs font-semibold text-[#6B7280]">{formatInvoiceNo(invoicePreviewOrder.invoice_no || invoicePreviewOrder.id)}</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="hidden sm:flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => handlePrintReceipt(invoicePreviewOrder)}
-                    className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-[#E5E7EB]/70 px-3 text-xs font-black text-[#111111] hover:bg-[#F9FAFB]"
+                    className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-[#E5E7EB]/70 px-3 text-xs font-black text-[#111111] hover:bg-[#F9FAFB] cursor-pointer"
                   >
                     <Printer size={15} /> Print
                   </button>
                   <button
                     type="button"
                     onClick={() => void openOrderInvoice(invoicePreviewOrder, 'download')}
-                    className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-brand-black px-3 text-xs font-black text-white hover:bg-[#7daa8f]"
+                    className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-brand-black px-3 text-xs font-black text-white hover:bg-[#7daa8f] cursor-pointer"
                   >
                     <Download size={15} /> Download
                   </button>
                   <button
                     type="button"
                     onClick={() => setInvoicePreviewOrder(null)}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-[#6B7280] hover:bg-[#F9FAFB] hover:text-[#111111]"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-[#6B7280] hover:bg-[#F9FAFB] hover:text-[#111111] cursor-pointer"
                     aria-label="Close invoice preview"
                   >
                     <X size={19} />
                   </button>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setInvoicePreviewOrder(null)}
+                  className="sm:hidden p-2 rounded-xl text-[#6B7280] hover:bg-[#F9FAFB] hover:text-[#111111] cursor-pointer"
+                  aria-label="Close invoice preview"
+                >
+                  <X size={20} />
+                </button>
               </div>
-              <div className="overflow-y-auto p-2 sm:p-5">
+              <div className="overflow-y-auto p-2 sm:p-5 flex-1 min-h-0">
                 <div className="mx-auto max-w-3xl overflow-hidden rounded-xl bg-white shadow-sm">
                   <Invoice
                     invoiceNo={formatInvoiceNo(invoicePreviewOrder.invoice_no || invoicePreviewOrder.id)}
@@ -4457,6 +4593,24 @@ export default function Dashboard() {
                   />
                 </div>
               </div>
+
+              {/* Sticky bottom actions on mobile */}
+              <div className="sm:hidden sticky bottom-0 z-20 shrink-0 bg-white border-t border-[#E5E7EB]/60 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center gap-2 shadow-[0_-4px_12px_rgba(0,0,0,0.06)]">
+                <button
+                  type="button"
+                  onClick={() => handlePrintReceipt(invoicePreviewOrder)}
+                  className="flex-1 min-h-[48px] inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#E5E7EB]/70 px-3 text-xs font-black text-[#111111] hover:bg-[#F9FAFB] cursor-pointer"
+                >
+                  <Printer size={15} /> Print
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void openOrderInvoice(invoicePreviewOrder, 'download')}
+                  className="flex-1 min-h-[48px] inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-black px-3 text-xs font-black text-white hover:bg-[#7daa8f] cursor-pointer"
+                >
+                  <Download size={15} /> Download
+                </button>
+              </div>
             </div>
           </div>
         )
@@ -4464,6 +4618,21 @@ export default function Dashboard() {
 
       {/* Global Barcode Navigation Dialog */}
       <BarcodeRedirectDialog onNavigateToBilling={handleNavigateToBillingFromDialog} />
+
+      {/* Global Hard Delete Confirmation Modal */}
+      {deleteModalConfig && (
+        <HardDeleteModal
+          isOpen={deleteModalConfig.isOpen}
+          onClose={() => setDeleteModalConfig(null)}
+          onConfirm={deleteModalConfig.onConfirm}
+          title={deleteModalConfig.title}
+          subtitle={deleteModalConfig.subtitle}
+          entityType={deleteModalConfig.entityType}
+          impactDetails={deleteModalConfig.impactDetails}
+          requireTypeDelete={deleteModalConfig.requireTypeDelete}
+          warningText={deleteModalConfig.warningText}
+        />
+      )}
     </div>
   )
 }

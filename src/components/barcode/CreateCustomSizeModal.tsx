@@ -192,9 +192,9 @@ export const CreateCustomSizeModal: React.FC<CreateCustomSizeModalProps> = ({
   const singleLabelPreviewHeight = Math.max(16, (renderedH - (rows > 1 ? numGapY * (rows - 1) : 0)) / rows)
 
   return createPortal(
-    <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-screen h-screen h-[100dvh] z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-xs p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
+    <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-full h-full h-[100dvh] max-h-[100dvh] z-[9999] flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-xs p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
       <div className="absolute inset-0" onClick={onClose} />
-      <div className="relative z-10 bg-white rounded-none sm:rounded-2xl max-w-2xl w-full h-screen h-[100dvh] sm:h-auto sm:max-h-[90vh] border-0 sm:border border-[#E5E7EB] shadow-2xl overflow-hidden flex flex-col">
+      <div className="relative z-10 bg-white rounded-t-3xl sm:rounded-2xl max-w-2xl w-full max-h-[100dvh] sm:max-h-[90dvh] border-0 sm:border border-[#E5E7EB] shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-3.5 border-b border-gray-200 bg-brand-black text-white shrink-0">
           <h3 className="text-base font-black tracking-wide text-white">
@@ -416,23 +416,23 @@ export const CreateCustomSizeModal: React.FC<CreateCustomSizeModalProps> = ({
             </div>
           </div>
 
-          {/* Footer Action */}
-          <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-4 py-3 sm:px-6 sm:py-3.5 bg-gray-50/80 shrink-0 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
+          {/* Sticky Footer Action */}
+          <div className="sticky bottom-0 z-20 flex items-center justify-end gap-2.5 sm:gap-3 border-t border-gray-200 px-4 py-3 sm:px-6 sm:py-3.5 bg-gray-50/95 shrink-0 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
             <button
               type="button"
               onClick={onClose}
               disabled={saving}
-              className="px-4 py-2 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
+              className="flex-1 sm:flex-initial min-h-[48px] sm:min-h-0 px-4 py-2.5 sm:py-2 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer flex items-center justify-center"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="px-5 sm:px-6 py-2 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] transition-all shadow-md cursor-pointer flex items-center gap-1.5"
+              className="flex-[1.5] sm:flex-initial min-h-[48px] sm:min-h-0 px-5 sm:px-6 py-2.5 sm:py-2 rounded-xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] transition-all shadow-md cursor-pointer flex items-center justify-center gap-1.5"
             >
               {saving && <Loader2 size={13} className="animate-spin" />}
-              {isEditing ? 'Update Custom Size' : 'Save Custom Size'}
+              <span>{isEditing ? 'Update Custom Size' : 'Save Custom Size'}</span>
             </button>
           </div>
         </form>
