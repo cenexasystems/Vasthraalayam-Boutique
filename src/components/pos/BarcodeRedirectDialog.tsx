@@ -1,6 +1,8 @@
-import React from 'react'
+import React, { useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { AlertCircle, ShoppingCart, X, ScanBarcode } from 'lucide-react'
 import { useNavigationStore } from '../../store/navigationStore'
+import { useScrollLock } from '../../lib/scrollLock'
 
 export interface BarcodeRedirectDialogProps {
   onNavigateToBilling?: (barcode: string) => void
@@ -11,6 +13,19 @@ export const BarcodeRedirectDialog: React.FC<BarcodeRedirectDialogProps> = ({
 }) => {
   const { pendingBarcode, setPendingBarcode, setCurrentTab, setExternalScannedCode } =
     useNavigationStore()
+
+  // Lock body scroll while dialog is open
+  useScrollLock(!!pendingBarcode)
+
+  // Close on Escape key press
+  useEffect(() => {
+    if (!pendingBarcode) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPendingBarcode(null)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [pendingBarcode, setPendingBarcode])
 
   if (!pendingBarcode) return null
 
@@ -28,14 +43,28 @@ export const BarcodeRedirectDialog: React.FC<BarcodeRedirectDialogProps> = ({
     setPendingBarcode(null)
   }
 
-  return (
+  return createPortal(
     <div
+      role="dialog"
+      aria-modal="true"
+      style={{
+        paddingTop: 'max(16px, env(safe-area-inset-top))',
+        paddingRight: 'max(16px, env(safe-area-inset-right))',
+        paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+        paddingLeft: 'max(16px, env(safe-area-inset-left))',
+      }}
       onClick={(e) => {
         if (e.target === e.currentTarget) handleCancel()
       }}
-      className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-full h-full h-[100dvh] max-h-[100dvh] z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-xs p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs overflow-y-auto overscroll-contain animate-in fade-in duration-150"
     >
-      <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-sm max-h-[100dvh] sm:max-h-[92dvh] border-0 sm:border border-[#ead7b7] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150">
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          maxHeight: 'calc(100dvh - 32px)',
+        }}
+        className="bg-white rounded-3xl w-full max-w-sm my-auto border border-[#ead7b7] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150"
+      >
         {/* Header */}
         <div className="bg-brand-black p-4 border-b border-[#7daa8f]/30 flex items-center justify-between text-white shrink-0">
           <div className="flex items-center gap-3">
@@ -93,6 +122,7 @@ export const BarcodeRedirectDialog: React.FC<BarcodeRedirectDialogProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

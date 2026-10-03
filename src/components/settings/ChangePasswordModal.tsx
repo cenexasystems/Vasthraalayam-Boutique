@@ -1,6 +1,8 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { X, Lock } from 'lucide-react'
 import { useSettingsStore } from '../../store/store'
+import { useScrollLock } from '../../lib/scrollLock'
 
 export const ChangePasswordModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const changePassword = useSettingsStore((state) => state.changePassword)
@@ -10,6 +12,18 @@ export const ChangePasswordModal: React.FC<{ onClose: () => void }> = ({ onClose
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
+
+  // Lock scroll while modal is open
+  useScrollLock(true)
+
+  // Close on Escape key press
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -39,10 +53,28 @@ export const ChangePasswordModal: React.FC<{ onClose: () => void }> = ({ onClose
     setSuccess(true)
   }
 
-  return (
-    <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4">
-      <div className="absolute inset-0" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-sm bg-white rounded-t-3xl sm:rounded-2xl border border-gray-200 shadow-2xl overflow-hidden max-h-[100dvh] sm:max-h-[90dvh] flex flex-col">
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      style={{
+        paddingTop: 'max(16px, env(safe-area-inset-top))',
+        paddingRight: 'max(16px, env(safe-area-inset-right))',
+        paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+        paddingLeft: 'max(16px, env(safe-area-inset-left))',
+      }}
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm overflow-y-auto overscroll-contain animate-in fade-in duration-150"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          maxHeight: 'calc(100dvh - 32px)',
+        }}
+        className="w-full max-w-sm my-auto bg-white rounded-3xl border border-gray-200 shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150"
+      >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 shrink-0 bg-[#FBFAF6]">
           <h3 className="text-sm font-black text-[#111111] flex items-center gap-2">
             <Lock size={16} className="text-brand-black" /> Change Password
@@ -74,7 +106,7 @@ export const ChangePasswordModal: React.FC<{ onClose: () => void }> = ({ onClose
                   type="password"
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
-                  className="w-full h-10 px-3 rounded-xl border border-gray-300 bg-white text-[13px] font-bold text-[#111111] outline-none focus:border-brand-black"
+                  className="w-full h-10 px-3 rounded-xl border border-gray-300 bg-white text-[13px] font-bold text-[#111111] outline-none focus:border-brand-black box-border max-w-full min-w-0"
                   autoFocus
                 />
               </div>
@@ -84,7 +116,7 @@ export const ChangePasswordModal: React.FC<{ onClose: () => void }> = ({ onClose
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full h-10 px-3 rounded-xl border border-gray-300 bg-white text-[13px] font-bold text-[#111111] outline-none focus:border-brand-black"
+                  className="w-full h-10 px-3 rounded-xl border border-gray-300 bg-white text-[13px] font-bold text-[#111111] outline-none focus:border-brand-black box-border max-w-full min-w-0"
                 />
               </div>
               <div>
@@ -93,7 +125,7 @@ export const ChangePasswordModal: React.FC<{ onClose: () => void }> = ({ onClose
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full h-10 px-3 rounded-xl border border-gray-300 bg-white text-[13px] font-bold text-[#111111] outline-none focus:border-brand-black"
+                  className="w-full h-10 px-3 rounded-xl border border-gray-300 bg-white text-[13px] font-bold text-[#111111] outline-none focus:border-brand-black box-border max-w-full min-w-0"
                 />
               </div>
 
@@ -123,6 +155,7 @@ export const ChangePasswordModal: React.FC<{ onClose: () => void }> = ({ onClose
           </form>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

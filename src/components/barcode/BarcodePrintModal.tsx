@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Printer, Copy, Check } from 'lucide-react'
+import { useScrollLock } from '../../lib/scrollLock'
 import { BarcodeLabel } from './BarcodeLabel'
 import { BRAND_EN } from '../../lib/brand'
 import {
@@ -78,20 +79,17 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
     saveStoredBarcodeSettings({ ...current, printerType: type as any })
   }
 
-  // Close on Escape key & lock body scrolling when open
+  // Lock scroll while modal is open
+  useScrollLock(isOpen)
+
+  // Close on Escape key press
   useEffect(() => {
     if (!isOpen) return
-    const originalOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.body.style.overflow = originalOverflow
-      window.removeEventListener('keydown', handleKeyDown)
-    }
+    return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isOpen, onClose])
 
   if (!isOpen) return null
@@ -395,9 +393,27 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
 }
 
   return createPortal(
-    <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-full h-full h-[100dvh] max-h-[100dvh] z-[9999] flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
-      <div className="absolute inset-0" onClick={onClose} />
-      <div className="relative z-10 bg-white rounded-t-3xl sm:rounded-3xl max-w-2xl sm:max-w-3xl w-full max-h-[90dvh] sm:max-h-[92dvh] border-0 sm:border border-[#ead7b7] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150">
+    <div
+      role="dialog"
+      aria-modal="true"
+      style={{
+        paddingTop: 'max(16px, env(safe-area-inset-top))',
+        paddingRight: 'max(16px, env(safe-area-inset-right))',
+        paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+        paddingLeft: 'max(16px, env(safe-area-inset-left))',
+      }}
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm overflow-y-auto overscroll-contain animate-in fade-in duration-150"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          maxHeight: 'calc(100dvh - 32px)',
+        }}
+        className="relative z-10 bg-white rounded-3xl max-w-2xl sm:max-w-3xl w-full my-auto border border-[#ead7b7] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150"
+      >
         {/* Header */}
         <div className="bg-brand-black px-4 py-3 sm:px-6 sm:py-4 border-b border-[#7daa8f]/30 flex items-center justify-between text-white shrink-0">
           <div className="flex items-center gap-3">

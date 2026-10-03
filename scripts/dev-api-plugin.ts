@@ -91,6 +91,13 @@ function applyVercelRewrites(pathname: string): { rewrittenPath: string; extraPa
     return { rewrittenPath: '/coupons', extraParams }
   }
 
+  const publicOrderMatch = pathname.match(/^\/(?:api\/)?orders\/public\/([^/]+)$/)
+  if (publicOrderMatch) {
+    extraParams.action = 'public'
+    extraParams.id = decodeURIComponent(publicOrderMatch[1])
+    return { rewrittenPath: '/orders', extraParams }
+  }
+
   const orderMatch = pathname.match(/^\/orders\/([^/]+)$/)
   if (orderMatch) {
     extraParams.id = decodeURIComponent(orderMatch[1])

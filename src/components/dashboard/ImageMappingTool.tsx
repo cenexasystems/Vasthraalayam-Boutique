@@ -11,6 +11,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useScrollLock } from '../../lib/scrollLock'
 import {
   AlertTriangle, Check, CheckCircle2, ChevronDown, Download, FileJson,
   Image as ImageIcon, RefreshCw, Search, Tag, Trash2, Upload, X, XCircle,
@@ -77,6 +79,19 @@ export default function ImageMappingTool() {
   const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0, current: '' })
   const [notice, setNotice] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Lock scroll while upload confirmation modal is open
+  useScrollLock(confirmUpload)
+
+  // Close upload confirmation on Escape key
+  useEffect(() => {
+    if (!confirmUpload) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setConfirmUpload(false)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [confirmUpload])
 
   // ── Load manifest + products/variants ─────────────────────────────────────
   useEffect(() => {
@@ -877,65 +892,85 @@ export default function ImageMappingTool() {
       )}
 
       {/* ── CONFI₹ UPLOAD MODAL ── */}
-      {confirmUpload && (
-        <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setConfirmUpload(false)} />
-          <div className="relative z-10 w-full max-w-md bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-4 max-h-[100dvh] sm:max-h-[90dvh] flex flex-col">
-            <div className="flex items-start gap-3 shrink-0">
-              <div className="h-10 w-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
-                <AlertTriangle size={20} className="text-amber-500" />
-              </div>
-              <div>
-                <h3 className="text-[15px] font-black text-[#111111]">Confirm Upload & Apply</h3>
-                <p className="text-[12px] text-[#374151] mt-1">
-                  This will upload <strong>{Object.keys(mappings).length} images</strong> to Supabase Storage
-                  and update <strong>products.image_url</strong> in the database.
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-[#F7F8F5] rounded-xl p-3 space-y-1 text-[11px] font-bold text-[#374151] max-h-[200px] overflow-y-auto flex-1 min-h-0">
-              {Object.entries(mappings).map(([key, file]) => (
-                <div key={key} className="flex items-center gap-2">
-                  <span className="text-[#7daa8f]">→</span>
-                  <span className="text-[#111111] truncate">{labelForKey(key)}</span>
-                  <span className="shrink-0 opacity-60 truncate max-w-[120px]">{file}</span>
+      {confirmUpload &&
+        createPortal(
+          <div
+            role="dialog"
+            aria-modal="true"
+            style={{
+              paddingTop: 'max(16px, env(safe-area-inset-top))',
+              paddingRight: 'max(16px, env(safe-area-inset-right))',
+              paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+              paddingLeft: 'max(16px, env(safe-area-inset-left))',
+            }}
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-xs overflow-y-auto overscroll-contain animate-in fade-in duration-150"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setConfirmUpload(false)
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                maxHeight: 'calc(100dvh - 32px)',
+              }}
+              className="relative z-10 w-full max-w-md my-auto bg-white rounded-3xl shadow-2xl p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-4 flex flex-col border border-gray-200 animate-in zoom-in-95 duration-150"
+            >
+              <div className="flex items-start gap-3 shrink-0">
+                <div className="h-10 w-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
+                  <AlertTriangle size={20} className="text-amber-500" />
                 </div>
-              ))}
-            </div>
-
-            {duplicateFiles.size > 0 && (
-              <div className="flex items-center gap-2 px-3 py-2 bg-red-50 rounded-xl border border-red-200 shrink-0">
-                <AlertTriangle size={13} className="text-red-500 shrink-0" />
-                <p className="text-[11px] font-bold text-red-700">
-                  {duplicateFiles.size} duplicate image{duplicateFiles.size > 1 ? 's' : ''} — last mapping wins
-                </p>
+                <div>
+                  <h3 className="text-[15px] font-black text-[#111111]">Confirm Upload & Apply</h3>
+                  <p className="text-[12px] text-[#374151] mt-1">
+                    This will upload <strong>{Object.keys(mappings).length} images</strong> to Supabase Storage
+                    and update <strong>products.image_url</strong> in the database.
+                  </p>
+                </div>
               </div>
-            )}
 
-            <p className="text-[11px] text-[#9BAB9A] font-bold shrink-0">
-              ⚠ This action cannot be automatically undone. Existing image URLs will be overwritten.
-            </p>
+              <div className="bg-[#F7F8F5] rounded-xl p-3 space-y-1 text-[11px] font-bold text-[#374151] max-h-[200px] overflow-y-auto flex-1 min-h-0">
+                {Object.entries(mappings).map(([key, file]) => (
+                  <div key={key} className="flex items-center gap-2">
+                    <span className="text-[#7daa8f]">→</span>
+                    <span className="text-[#111111] truncate">{labelForKey(key)}</span>
+                    <span className="shrink-0 opacity-60 truncate max-w-[120px]">{file}</span>
+                  </div>
+                ))}
+              </div>
 
-            <div className="flex gap-2 pt-1 shrink-0">
-              <button
-                type="button"
-                onClick={() => setConfirmUpload(false)}
-                className="flex-1 min-h-[48px] sm:min-h-0 py-2.5 rounded-xl border border-[#E5E7EB]/60 text-[13px] font-black text-[#374151] hover:bg-[#F9FAFB] transition-colors flex items-center justify-center cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleUpload()}
-                className="flex-1 min-h-[48px] sm:min-h-0 py-2.5 rounded-xl bg-[#111111] text-white text-[13px] font-black hover:bg-[#1e2817] transition-colors flex items-center justify-center cursor-pointer"
-              >
-                Upload & Apply
-              </button>
+              {duplicateFiles.size > 0 && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-red-50 rounded-xl border border-red-200 shrink-0">
+                  <AlertTriangle size={13} className="text-red-500 shrink-0" />
+                  <p className="text-[11px] font-bold text-red-700">
+                    {duplicateFiles.size} duplicate image{duplicateFiles.size > 1 ? 's' : ''} — last mapping wins
+                  </p>
+                </div>
+              )}
+
+              <p className="text-[11px] text-[#9BAB9A] font-bold shrink-0">
+                ⚠ This action cannot be automatically undone. Existing image URLs will be overwritten.
+              </p>
+
+              <div className="flex gap-2 pt-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setConfirmUpload(false)}
+                  className="flex-1 min-h-[48px] sm:min-h-0 py-2.5 rounded-xl border border-[#E5E7EB]/60 text-[13px] font-black text-[#374151] hover:bg-[#F9FAFB] transition-colors flex items-center justify-center cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleUpload()}
+                  className="flex-1 min-h-[48px] sm:min-h-0 py-2.5 rounded-xl bg-[#111111] text-white text-[13px] font-black hover:bg-[#1e2817] transition-colors flex items-center justify-center cursor-pointer"
+                >
+                  Upload & Apply
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   )
 }

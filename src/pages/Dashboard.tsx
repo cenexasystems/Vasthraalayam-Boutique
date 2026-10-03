@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useState, useMemo, useRef, type FormEvent } from 'react'
+import { createPortal } from 'react-dom'
+import { useScrollLock } from '../lib/scrollLock'
 import {
   BarChart2, Trash2, Edit2, List, ShoppingCart, LayoutDashboard,
   Box, AlertCircle, ArrowUp, ArrowDown, Power, Download, TrendingUp, TrendingDown,
@@ -558,6 +560,21 @@ export default function Dashboard() {
   const [analyticsTab, setAnalyticsTab] = useState('revenue')
 
   const [invoicePreviewOrder, setInvoicePreviewOrder] = useState<DashboardOrder | null>(null)
+
+  // Lock body scroll while invoice preview modal is open
+  useScrollLock(!!invoicePreviewOrder)
+
+  // Close invoice preview on Escape key
+  useEffect(() => {
+    if (!invoicePreviewOrder) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setInvoicePreviewOrder(null)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [invoicePreviewOrder])
 
   // WA detail expansion
   const [waExpandedId, setWaExpandedId] = useState<string | null>(null)
@@ -4521,9 +4538,15 @@ export default function Dashboard() {
         const preview = getOrderWhatsAppPreview(invoicePreviewOrder)
         if (!preview) return null
 
-        return (
+        return createPortal(
           <div
-            className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-6"
+            style={{
+              paddingTop: 'max(16px, env(safe-area-inset-top))',
+              paddingRight: 'max(16px, env(safe-area-inset-right))',
+              paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+              paddingLeft: 'max(16px, env(safe-area-inset-left))',
+            }}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-xs overflow-y-auto overscroll-contain animate-in fade-in duration-150"
             role="dialog"
             aria-modal="true"
             aria-label={`Invoice ${invoicePreviewOrder.invoice_no || invoicePreviewOrder.id}`}
@@ -4531,7 +4554,12 @@ export default function Dashboard() {
               if (event.target === event.currentTarget) setInvoicePreviewOrder(null)
             }}
           >
-            <div className="flex max-h-[100dvh] sm:max-h-[95dvh] w-full max-w-4xl flex-col overflow-hidden rounded-t-3xl sm:rounded-2xl bg-[#F9FAFB] shadow-2xl">
+            <div
+              style={{
+                maxHeight: 'calc(100dvh - 32px)',
+              }}
+              className="my-auto flex w-full max-w-4xl flex-col overflow-hidden rounded-3xl bg-[#F9FAFB] shadow-2xl animate-in zoom-in-95 duration-150"
+            >
               <div className="flex shrink-0 items-center justify-between border-b border-[#E5E7EB]/60 bg-white px-4 py-3 sm:px-6">
                 <div>
                   <h2 className="text-base font-black text-[#111111]">Invoice Preview</h2>
@@ -4612,7 +4640,8 @@ export default function Dashboard() {
                 </button>
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
         )
       })()}
 

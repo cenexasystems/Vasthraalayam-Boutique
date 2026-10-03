@@ -38,6 +38,23 @@
     font-style: normal;
   }
 
+  /* Universal Input & Modal Responsive Constraints */
+  input, select, textarea {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  input[type="date"] {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+  }
+
   html {
     margin: 0;
     padding: 0;

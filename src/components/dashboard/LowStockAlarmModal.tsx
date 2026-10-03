@@ -1,13 +1,18 @@
 import React, { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { AlertTriangle, Volume2, VolumeX, Barcode, Package, ChevronRight } from 'lucide-react'
 import { useAlarmStore } from '../../store/alarmStore'
 import { alarmSound } from '../../lib/alarmAudio'
+import { useScrollLock } from '../../lib/scrollLock'
 
 export const LowStockAlarmModal: React.FC = () => {
   const isAlarmActive = useAlarmStore((state) => state.isAlarmActive)
   const lowStockItems = useAlarmStore((state) => state.lowStockItems)
   const silenceAlarm = useAlarmStore((state) => state.silenceAlarm)
   const [isAudioBlocked, setIsAudioBlocked] = useState(() => alarmSound.isBlocked())
+
+  const shouldShow = isAlarmActive && lowStockItems.length > 0
+  useScrollLock(shouldShow)
 
   useEffect(() => {
     setIsAudioBlocked(alarmSound.isBlocked())
@@ -21,20 +26,29 @@ export const LowStockAlarmModal: React.FC = () => {
     void alarmSound.unlock()
   }
 
-  if (!isAlarmActive || lowStockItems.length === 0) return null
+  if (!shouldShow) return null
 
-  return (
+  return createPortal(
     <div
       onClick={handleWakeAudio}
       onTouchStart={handleWakeAudio}
-      className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-200"
+      style={{
+        paddingTop: 'max(16px, env(safe-area-inset-top))',
+        paddingRight: 'max(16px, env(safe-area-inset-right))',
+        paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+        paddingLeft: 'max(16px, env(safe-area-inset-left))',
+      }}
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/75 backdrop-blur-xs overflow-y-auto overscroll-contain animate-in fade-in duration-200"
     >
       <div
         onClick={(e) => {
           e.stopPropagation()
           handleWakeAudio()
         }}
-        className="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full shadow-2xl overflow-hidden border-2 border-red-500 animate-in zoom-in-95 flex flex-col max-h-[100dvh] sm:max-h-[90dvh]"
+        style={{
+          maxHeight: 'calc(100dvh - 32px)',
+        }}
+        className="bg-white rounded-3xl max-w-lg w-full shadow-2xl overflow-hidden border-2 border-red-500 animate-in zoom-in-95 flex flex-col my-auto"
       >
         {/* Pulsing Alarm Header */}
         <div className="bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 text-white px-5 py-4 flex items-center justify-between shrink-0 shadow-sm">
@@ -102,11 +116,11 @@ export const LowStockAlarmModal: React.FC = () => {
         )}
 
         {/* Alarm Details Notice */}
-        <div className="px-5 py-3 bg-red-50 border-b border-red-100 flex items-center justify-between text-xs text-red-900">
-          <p className="font-medium text-[11px]">
+        <div className="px-4 sm:px-5 py-2.5 sm:py-3 bg-red-50 border-b border-red-100 flex items-center justify-between gap-2 flex-wrap text-xs text-red-900">
+          <p className="font-medium text-[11px] min-w-0 flex-1 break-words">
             The audible alarm and visual alert will sound until acknowledged.
           </p>
-          <span className="font-bold text-[11px] bg-red-200/80 px-2 py-0.5 rounded-lg">
+          <span className="font-bold text-[11px] bg-red-200/80 px-2 py-0.5 rounded-lg whitespace-nowrap shrink-0">
             Item Limits Active
           </span>
         </div>
@@ -170,7 +184,7 @@ export const LowStockAlarmModal: React.FC = () => {
         </div>
 
         {/* Sticky Footer with Silence & Acknowledge CTA */}
-        <div className="sticky bottom-0 z-20 p-4 sm:p-5 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-gray-200 bg-white flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
+        <div className="sticky bottom-0 z-20 p-4 sm:p-5 border-t border-gray-200 bg-white flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
           <div className="flex items-center gap-2 text-gray-500 text-[11px] font-semibold w-full sm:w-auto justify-center sm:justify-start">
             <VolumeX className="w-4 h-4 text-red-500 shrink-0" />
             <span>Silences sound until next new low-stock item</span>
@@ -187,6 +201,7 @@ export const LowStockAlarmModal: React.FC = () => {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

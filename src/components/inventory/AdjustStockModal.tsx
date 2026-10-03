@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { inventoryService, type InventoryStockItem } from '../../services/inventoryService'
 import { BRAND_EN } from '../../lib/brand'
+import { useScrollLock } from '../../lib/scrollLock'
 
 export interface AdjustStockModalProps {
   isOpen: boolean
@@ -52,17 +53,15 @@ export const AdjustStockModal: React.FC<AdjustStockModalProps> = ({
   }, [item, isOpen])
 
   // Close on Escape key & lock body scrolling when open
+  useScrollLock(isOpen)
   useEffect(() => {
     if (!isOpen) return
-    const originalOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => {
-      document.body.style.overflow = originalOverflow
       window.removeEventListener('keydown', handleKeyDown)
     }
   }, [isOpen, onClose])
@@ -150,9 +149,20 @@ export const AdjustStockModal: React.FC<AdjustStockModalProps> = ({
   }
 
   return createPortal(
-    <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-full h-full h-[100dvh] max-h-[100dvh] z-[9999] flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
-      <div className="absolute inset-0" onClick={onClose} />
-      <div className="relative z-10 bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full max-h-[100dvh] sm:max-h-[92dvh] border-0 sm:border border-[#ead7b7] shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+    <div
+      style={{
+        paddingTop: 'max(16px, env(safe-area-inset-top))',
+        paddingRight: 'max(16px, env(safe-area-inset-right))',
+        paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+        paddingLeft: 'max(16px, env(safe-area-inset-left))',
+      }}
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm overflow-y-auto overscroll-contain animate-in fade-in duration-150"
+    >
+      <div className="fixed inset-0" onClick={onClose} />
+      <div
+        style={{ maxHeight: 'calc(100dvh - 32px)' }}
+        className="relative z-10 bg-white rounded-3xl max-w-lg w-full border border-[#ead7b7] shadow-2xl overflow-hidden flex flex-col my-auto animate-in fade-in zoom-in-95 duration-200"
+      >
         {/* Header */}
         <div className="shrink-0 bg-brand-black px-4 py-3 sm:px-5 sm:py-3.5 border-b border-[#7daa8f]/30 flex items-center justify-between text-white">
           <div className="flex items-center gap-2.5">

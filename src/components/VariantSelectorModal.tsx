@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Minus, Plus, X, Check, ShoppingCart } from 'lucide-react'
+import { useScrollLock } from '../lib/scrollLock'
 import { useCartStore, useVariantStore, type Product } from '../store/store'
 import { formatCurrency, variantLineTotal } from '../lib/retail'
 import { getProductImage, onImgError } from '../lib/productImages'
@@ -88,43 +90,58 @@ export default function VariantSelectormodal({
     }, 500)
   }, [product, selected, qty, addItem, onClose])
 
+  // Lock scroll while modal is open
+  useScrollLock(open)
+
+  // Close on Escape key press
+  useEffect(() => {
+    if (!open) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [open, onClose])
+
   if (!product) return null
 
   const variants = getVariants(String(product.id))
   const haGSTock = selected ? selected.stock > 0 : false
   const totalPrice = selected ? variantLineTotal(selected.price, qty) : 0
 
-  return (
+  return createPortal(
     <AnimatePresence>
       {open && (
-        <>
-          {/* Backdrop */}
+        <motion.div
+          key="vsm-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          role="dialog"
+          aria-modal="true"
+          style={{
+            paddingTop: 'max(16px, env(safe-area-inset-top))',
+            paddingRight: 'max(16px, env(safe-area-inset-right))',
+            paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+            paddingLeft: 'max(16px, env(safe-area-inset-left))',
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs overflow-y-auto overscroll-contain"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) onClose()
+          }}
+        >
+          {/* Centered Modal Panel */}
           <motion.div
-            key="vsm-backdrop"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px]"
-            onClick={onClose}
-          />
-
-          {/* Bottom sheet */}
-          <motion.div
-            key="vsm-sheet"
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 30, stiffness: 400, mass: 0.9 }}
-            className="fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-[24px] bg-white shadow-2xl"
-            style={{ maxHeight: '92svh' }}
+            key="vsm-panel"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.15 }}
+            className="relative z-10 flex flex-col w-full max-w-md my-auto rounded-3xl bg-white shadow-2xl overflow-hidden border border-gray-200"
+            style={{ maxHeight: 'calc(100dvh - 32px)' }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Drag handle */}
-            <div className="flex justify-center pt-3 pb-1 shrink-0">
-              <div className="h-1 w-9 rounded-full bg-gray-200" />
-            </div>
-
             {/* Header: product image + name + close */}
             <div className="flex items-start gap-3 px-4 pt-2 pb-3 border-b border-gray-100 shrink-0">
               <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[#F0F2EE]">
@@ -309,8 +326,9 @@ export default function VariantSelectormodal({
               </div>
             </div>
           </motion.div>
-        </>
+        </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   )
 }

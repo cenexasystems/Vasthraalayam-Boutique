@@ -16,6 +16,7 @@ import {
 import { HardDeleteModal, type ImpactDetail } from '../components/common/HardDeleteModal'
 import { SplitPaymentSelector } from '../components/SplitPaymentSelector'
 import { type PaymentMode, type SplitPaymentValidationResult } from '../lib/splitPaymentUtils'
+import { useScrollLock } from '../lib/scrollLock'
 
 // Custom Malaysian Ringgit icon
 const RMIcon = ({ size = 20, className = '' }: { size?: number; className?: string }) => (
@@ -154,17 +155,7 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
   }, [selected, createOpen, paymentOrder])
 
   // Prevent background scroll when modal or drawer is open
-  useEffect(() => {
-    const isAnyOpen = !!(selected || createOpen || paymentOrder)
-    if (isAnyOpen) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
-    }
-    return () => {
-      document.body.style.overflow = ''
-    }
-  }, [selected, createOpen, paymentOrder])
+  useScrollLock(Boolean(selected || createOpen || paymentOrder))
 
   const openDetails = async (order: AdvanceOrder) => {
     setSelected(order); setTimeline([]); setPayments([])
@@ -515,9 +506,20 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
     </div>
 
     {createOpen && createPortal(
-      <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-full h-full h-[100dvh] max-h-[100dvh] z-[9999] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
-        <div className="absolute inset-0" onClick={() => setCreateOpen(false)} />
-        <div className="relative z-10 w-full max-w-4xl max-h-[100dvh] sm:max-h-[92dvh] rounded-t-3xl sm:rounded-3xl bg-white shadow-2xl border-0 sm:border border-[#ead7b7] overflow-hidden flex flex-col">
+      <div
+        style={{
+          paddingTop: 'max(16px, env(safe-area-inset-top))',
+          paddingRight: 'max(16px, env(safe-area-inset-right))',
+          paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+          paddingLeft: 'max(16px, env(safe-area-inset-left))',
+        }}
+        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-xs overflow-y-auto overscroll-contain animate-in fade-in duration-150"
+      >
+        <div className="fixed inset-0" onClick={() => setCreateOpen(false)} />
+        <div
+          style={{ maxHeight: 'calc(100dvh - 32px)' }}
+          className="relative z-10 w-full max-w-4xl rounded-3xl bg-white shadow-2xl border border-[#ead7b7] overflow-hidden flex flex-col my-auto"
+        >
           <div className="shrink-0 px-5 py-3.5 sm:px-6 sm:py-4 border-b border-gray-100 flex items-center justify-between bg-[#FBFAF6]">
             <div>
               <h3 className="text-lg sm:text-xl font-black text-brand-black">Create Advance Order</h3>
@@ -567,9 +569,20 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
     )}
 
     {paymentOrder && createPortal(
-      <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-full h-full h-[100dvh] max-h-[100dvh] z-[9999] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
-        <div className="absolute inset-0" onClick={()=>setPaymentOrder(null)} />
-        <div className="relative z-10 w-full max-w-md max-h-[100dvh] sm:max-h-[92dvh] rounded-t-3xl sm:rounded-3xl bg-white shadow-2xl border-0 sm:border border-[#ead7b7] overflow-hidden flex flex-col">
+      <div
+        style={{
+          paddingTop: 'max(16px, env(safe-area-inset-top))',
+          paddingRight: 'max(16px, env(safe-area-inset-right))',
+          paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+          paddingLeft: 'max(16px, env(safe-area-inset-left))',
+        }}
+        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-xs overflow-y-auto overscroll-contain animate-in fade-in duration-150"
+      >
+        <div className="fixed inset-0" onClick={()=>setPaymentOrder(null)} />
+        <div
+          style={{ maxHeight: 'calc(100dvh - 32px)' }}
+          className="relative z-10 w-full max-w-md rounded-3xl bg-white shadow-2xl border border-[#ead7b7] overflow-hidden flex flex-col my-auto"
+        >
           <div className="shrink-0 px-5 py-3.5 sm:px-6 sm:py-4 border-b border-gray-100 flex items-start justify-between bg-[#FBFAF6]">
             <div>
               <p className="text-xs font-black uppercase tracking-wider text-emerald-600 font-mono">{paymentOrder.deposit_id}</p>

@@ -5,7 +5,7 @@ export const BRAND_SUBTITLE = 'Retail Billing & Inventory'
 export const BRAND_LOGO = '/vasthraalayam-logo.jpeg'
 export const BRAND_ICON = '/vasthraalayam-icon.png'
 export const BRAND_FAVICON = '/vasthraalayam-favicon.png'
-export const BRAND_PRODUCTION_DOMAIN = 'https://cen-gen-pos.vercel.app'
+export const BRAND_PRODUCTION_DOMAIN = 'https://vasthraalayam-boutique.vercel.app'
 
 // Owner / Personal contact
 export const BRAND_OWNER_NAME = 'Vasthraalayam Boutique'

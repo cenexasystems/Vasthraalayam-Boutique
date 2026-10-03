@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { X, Sparkles } from 'lucide-react'
+import { useScrollLock } from '../lib/scrollLock'
 import { useProductStore } from '../store/store'
 import { supabase } from '../lib/supabase'
 import { BRAND_EN } from '../lib/brand'
@@ -122,9 +124,43 @@ export default function AddProductModal({ isOpen, onClose, onSuccess }: AddProdu
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4">
-      <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-md flex flex-col shadow-2xl overflow-hidden border border-[#ead7b7] max-h-[100dvh] sm:max-h-[90dvh] animate-in fade-in zoom-in-95 duration-200">
+  // Lock scroll while modal is open
+  useScrollLock(isOpen)
+
+  // Close on Escape key press
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
+
+  if (!isOpen) return null
+
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      style={{
+        paddingTop: 'max(16px, env(safe-area-inset-top))',
+        paddingRight: 'max(16px, env(safe-area-inset-right))',
+        paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+        paddingLeft: 'max(16px, env(safe-area-inset-left))',
+      }}
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm overflow-y-auto overscroll-contain animate-in fade-in duration-150"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          maxHeight: 'calc(100dvh - 32px)',
+        }}
+        className="bg-white rounded-3xl w-full max-w-md my-auto flex flex-col shadow-2xl overflow-hidden border border-[#ead7b7] animate-in zoom-in-95 duration-150"
+      >
 
         <div className="flex items-center justify-between p-4 sm:p-6 border-b border-[#7daa8f]/30 bg-brand-black text-white shrink-0">
           <div>
@@ -261,6 +297,7 @@ export default function AddProductModal({ isOpen, onClose, onSuccess }: AddProdu
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

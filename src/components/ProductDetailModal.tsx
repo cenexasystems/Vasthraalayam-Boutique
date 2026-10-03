@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Check, ChevronDown, Flower2, Heart, Leaf, Minus, Plus, ShieldCheck, ShoppingCart, Sparkles, Star, X } from 'lucide-react'
+import { useScrollLock } from '../lib/scrollLock'
 import { useCartStore, useFavStore, useVariantStore, type Product } from '../store/store'
 import { useLangStore } from '../store/langStore'
 import type { ProductVariant } from '../services/variantService'
@@ -83,6 +85,19 @@ export default function ProductDetailModal({
   const [selectedVariant, setSelectedVariant] = useState<ProductVariant | null>(null)
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null)
   const [desktopVariantQty, setDesktopVariantQty] = useState(1)
+
+  // Lock scroll while modal is open
+  useScrollLock(open && Boolean(product))
+
+  // Close on Escape key press
+  useEffect(() => {
+    if (!open || !product) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [open, product, onClose])
 
   useEffect(() => {
     if (!open) return
@@ -215,9 +230,16 @@ export default function ProductDetailModal({
     ?? resolveProductImage(product.name)
     ?? ''
 
-  return (
+  return createPortal(
     <AnimatePresence>
-      <motion.div className="fixed inset-0 z-[80]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      <motion.div
+        role="dialog"
+        aria-modal="true"
+        className="fixed inset-0 z-[80]"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
         <button
           type="button"
           aria-label="Close modal backdrop"
@@ -225,18 +247,24 @@ export default function ProductDetailModal({
           className="absolute inset-0 bg-[#0d140f]/45 backdrop-blur-[6px]"
         />
 
-        <div className="relative z-10 flex h-full min-h-0 items-end justify-center p-0 sm:p-3 lg:hidden">
+        <div
+          style={{
+            paddingTop: 'max(16px, env(safe-area-inset-top))',
+            paddingRight: 'max(16px, env(safe-area-inset-right))',
+            paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+            paddingLeft: 'max(16px, env(safe-area-inset-left))',
+          }}
+          className="relative z-10 flex h-full min-h-0 items-center justify-center overflow-y-auto overscroll-contain lg:hidden"
+        >
           <motion.div
-            initial={{ opacity: 0, scale: 0.985, y: 18 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.99, y: 18 }}
-            transition={{ type: 'spring', stiffness: 130, damping: 20, mass: 0.9 }}
-            className="relative flex h-full max-h-[100dvh] w-full max-w-xl flex-col overflow-hidden rounded-t-[28px] bg-[#fbfaf6] shadow-[0_-10px_42px_rgba(22,35,20,0.16)] sm:max-h-[min(94dvh,900px)] sm:rounded-[32px]"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.15 }}
+            style={{ maxHeight: 'calc(100dvh - 32px)' }}
+            className="relative my-auto flex w-full max-w-xl flex-col overflow-hidden rounded-[32px] bg-[#fbfaf6] shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex shrink-0 justify-center pt-2.5">
-              <div className="h-1 w-10 rounded-full bg-[#d4cfc6]" />
-            </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto pb-[calc(5rem+env(safe-area-inset-bottom))]">
               <section className="px-0 pt-2">
@@ -947,6 +975,7 @@ export default function ProductDetailModal({
           </motion.div>
         </div>
       </motion.div>
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   )
 }

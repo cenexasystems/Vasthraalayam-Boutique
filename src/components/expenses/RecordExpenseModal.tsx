@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Calendar, Tag, AlertCircle, Edit2 } from 'lucide-react'
 import { expenseService, type ExpenseCategory, type ExpenseRecord } from '../../services/expenseService'
+import { useScrollLock } from '../../lib/scrollLock'
 
 interface RecordExpenseModalProps {
   isOpen: boolean
@@ -53,17 +54,7 @@ export const RecordExpenseModal: React.FC<RecordExpenseModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isOpen, onClose])
 
-  // Lock background scrolling when open
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
-    }
-    return () => {
-      document.body.style.overflow = ''
-    }
-  }, [isOpen])
+  useScrollLock(isOpen)
 
   if (!isOpen) return null
 
@@ -114,9 +105,22 @@ export const RecordExpenseModal: React.FC<RecordExpenseModalProps> = ({
   }
 
   return createPortal(
-    <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-full h-full h-[100dvh] max-h-[100dvh] z-[9999] flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-xs p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
-      <div className="absolute inset-0" onClick={onClose} />
-      <div className="relative z-10 bg-white rounded-t-3xl sm:rounded-3xl max-w-md w-full max-h-[100dvh] sm:max-h-[92dvh] border-0 sm:border border-[#ead7b7] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150">
+    <div
+      role="dialog"
+      aria-modal="true"
+      style={{
+        paddingTop: 'max(16px, env(safe-area-inset-top))',
+        paddingRight: 'max(16px, env(safe-area-inset-right))',
+        paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+        paddingLeft: 'max(16px, env(safe-area-inset-left))',
+      }}
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-xs overflow-y-auto overscroll-contain animate-in fade-in duration-150"
+    >
+      <div className="fixed inset-0" onClick={onClose} />
+      <div
+        style={{ maxHeight: 'calc(100dvh - 32px)' }}
+        className="relative z-10 bg-white rounded-3xl max-w-md w-full border border-[#ead7b7] shadow-2xl overflow-hidden flex flex-col my-auto animate-in zoom-in-95 duration-150"
+      >
         {/* Header */}
         <div className="shrink-0 px-5 py-3.5 border-b border-gray-100 flex items-center justify-between bg-[#FBFAF6]">
           <div className="flex items-center gap-2">
@@ -159,7 +163,7 @@ export const RecordExpenseModal: React.FC<RecordExpenseModalProps> = ({
                 required
                 value={expenseDate}
                 onChange={(e) => setExpenseDate(e.target.value)}
-                className="w-full h-11 px-3 pl-9 rounded-xl border border-gray-300 bg-[#FAFAFA] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white transition-all"
+                className="w-full h-11 px-3 pl-9 rounded-xl border border-gray-300 bg-[#FAFAFA] text-xs font-bold text-gray-900 outline-none focus:border-brand-black focus:bg-white transition-all box-border max-w-full min-w-0"
               />
               <Calendar size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
             </div>

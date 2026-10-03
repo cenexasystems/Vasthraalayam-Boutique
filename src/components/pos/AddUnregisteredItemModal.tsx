@@ -1,5 +1,7 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { X, PlusCircle, AlertCircle } from 'lucide-react'
+import { useScrollLock } from '../../lib/scrollLock'
 import { useLangStore } from '../../store/langStore'
 
 interface Props {
@@ -23,6 +25,19 @@ export const AddUnregisteredItemModal: React.FC<Props> = ({ isOpen, onClose, onS
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // Lock scroll while modal is open
+  useScrollLock(isOpen)
+
+  // Close on Escape key press
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
 
   if (!isOpen) return null
 
@@ -69,9 +84,28 @@ export const AddUnregisteredItemModal: React.FC<Props> = ({ isOpen, onClose, onS
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4 backdrop-blur-xs">
-      <div className="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-md h-auto max-h-[100dvh] sm:max-h-[90dvh] flex flex-col shadow-2xl overflow-hidden border border-[#ead7b7]/50 animate-in fade-in zoom-in-95">
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      style={{
+        paddingTop: 'max(16px, env(safe-area-inset-top))',
+        paddingRight: 'max(16px, env(safe-area-inset-right))',
+        paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+        paddingLeft: 'max(16px, env(safe-area-inset-left))',
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs overflow-y-auto overscroll-contain animate-in fade-in duration-150"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          maxHeight: 'calc(100dvh - 32px)',
+        }}
+        className="bg-white rounded-3xl w-full max-w-md my-auto flex flex-col shadow-2xl overflow-hidden border border-[#ead7b7]/50 animate-in zoom-in-95 duration-150"
+      >
         {/* Header */}
         <div className="px-4 sm:px-5 py-3 border-b border-gray-200 flex items-center justify-between bg-[#FBFAF6] shrink-0">
           <div className="flex items-center gap-2">
@@ -206,6 +240,7 @@ export const AddUnregisteredItemModal: React.FC<Props> = ({ isOpen, onClose, onS
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

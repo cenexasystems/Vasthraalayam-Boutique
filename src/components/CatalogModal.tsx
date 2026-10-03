@@ -225,7 +225,7 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                   className="w-full pl-10 pr-4 py-3 bg-[#FAFAFA] border border-[#E5E7EB]/60 rounded-xl focus:outline-none focus:border-[#7daa8f] text-[13px] font-bold text-[#111111]" />
               </div>
               <div className="relative">
-                <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar pr-8 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar pr-8 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden sm:flex-wrap sm:overflow-visible sm:pr-0 sm:pb-0">
                   {categories.map(cat => (
                     <button key={cat} onClick={() => setActiveCategory(cat)}
                       className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-wider whitespace-nowrap shrink-0 transition-colors ${activeCategory === cat ? 'bg-[#7daa8f] text-white' : 'bg-[#FAFAFA] text-[#374151] hover:bg-[#F9FAFB] border border-[#E5E7EB]/60'}`}>
@@ -234,7 +234,7 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                   ))}
                 </div>
                 {/* Visual fade on right edge indicating scrollability */}
-                <div className="pointer-events-none absolute right-0 top-0 bottom-1 w-8 bg-gradient-to-l from-white via-white/80 to-transparent" />
+                <div className="pointer-events-none absolute right-0 top-0 bottom-1 w-8 bg-gradient-to-l from-white via-white/80 to-transparent sm:hidden" />
               </div>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-2.5 sm:p-4 bg-[#FAFAFA] relative">
@@ -254,7 +254,7 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                   <p className="text-[14px] font-bold">No products found</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 min-[360px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-3 items-stretch">
+                <div className="grid grid-cols-1 min-[360px]:grid-cols-2 sm:grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-2.5 sm:gap-4 items-stretch">
                   {filtered.map(product => (
                     <div
                       key={product.id}
@@ -323,38 +323,45 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                         </div>
                       </div>
 
-                      {/* DESKTOP (screens >= 640px): Kept exactly as it was */}
-                      <div className="hidden sm:flex pt-2 border-t border-[#E5E7EB]/40 items-center justify-between gap-1.5">
-                        <div className="flex flex-col min-w-0">
-                          <span className="text-[14px] font-black text-[#111111] tabular-nums">₹{product.price}</span>
-                          <div className="flex items-center gap-1 mt-0.5">
-                            <span className="text-[9px] font-bold text-[#374151] uppercase tracking-wider bg-[#F9FAFB] px-1.5 py-0.5 rounded border border-[#E5E7EB]/40 whitespace-nowrap">
-                              {product.category}
+                      {/* DESKTOP (screens >= 640px): 3-Row Layout */}
+                      <div className="hidden sm:flex flex-col gap-2.5 pt-2.5 border-t border-[#E5E7EB]/40 w-full">
+                        {/* Row 2: Price on left, edit & delete buttons on right */}
+                        <div className="flex items-center justify-between gap-2 w-full min-w-0">
+                          <div className="min-w-0 flex-1">
+                            <span className="text-[14px] font-black text-[#111111] tabular-nums block truncate">
+                              ₹{product.price}
                             </span>
-                            {product.itemType === 'service' && (
-                              <span className="text-[9px] font-black uppercase tracking-wider bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded border border-purple-200 shrink-0">
-                                Service
-                              </span>
-                            )}
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0 static" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); startEdit(product) }}
+                              title="Edit product"
+                              className="w-[35px] h-[35px] min-w-[35px] min-h-[35px] max-w-[35px] max-h-[35px] p-0 flex items-center justify-center rounded-xl bg-white border border-[#E5E7EB]/80 text-[#374151] hover:text-[#7daa8f] hover:border-[#7daa8f]/40 active:scale-95 shadow-xs transition-all cursor-pointer shrink-0 static"
+                            >
+                              <Edit2 size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); void handleDelete(product) }}
+                              title="Delete product"
+                              className="w-[35px] h-[35px] min-w-[35px] min-h-[35px] max-w-[35px] max-h-[35px] p-0 flex items-center justify-center rounded-xl bg-white border border-[#E5E7EB]/80 text-red-400 hover:text-red-600 hover:border-red-300 active:scale-95 shadow-xs transition-all cursor-pointer shrink-0 static"
+                            >
+                              <Trash2 size={14} />
+                            </button>
                           </div>
                         </div>
-                        <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); startEdit(product) }}
-                            title="Edit product"
-                            className="min-h-[44px] min-w-[44px] p-2.5 flex items-center justify-center rounded-xl bg-white border border-[#E5E7EB]/80 text-[#374151] hover:text-[#7daa8f] hover:border-[#7daa8f]/40 active:scale-95 shadow-xs transition-all cursor-pointer"
-                          >
-                            <Edit2 size={15} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); void handleDelete(product) }}
-                            title="Delete product"
-                            className="min-h-[44px] min-w-[44px] p-2.5 flex items-center justify-center rounded-xl bg-white border border-[#E5E7EB]/80 text-red-400 hover:text-red-600 hover:border-red-300 active:scale-95 shadow-xs transition-all cursor-pointer"
-                          >
-                            <Trash2 size={15} />
-                          </button>
+
+                        {/* Row 3: Badges full-width row with flex-wrap and 6px gap */}
+                        <div className="flex items-center gap-[6px] flex-wrap w-full">
+                          <span className="text-[10px] sm:text-[11px] font-bold text-[#374151] uppercase tracking-wider bg-[#F9FAFB] px-2 py-0.5 rounded border border-[#E5E7EB]/40 whitespace-nowrap">
+                            {product.category}
+                          </span>
+                          {product.itemType === 'service' && (
+                            <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider bg-purple-100 text-purple-800 px-2 py-0.5 rounded border border-purple-200 whitespace-nowrap">
+                              Service
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>

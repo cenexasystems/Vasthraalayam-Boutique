@@ -4,6 +4,7 @@ import { X, Tag, IndianRupee, AlertCircle, Barcode, Check } from 'lucide-react'
 import { updateItemPrice } from '../../services/productService'
 import type { InventoryStockItem } from '../../services/inventoryService'
 import { useProductStore } from '../../store/store'
+import { useScrollLock } from '../../lib/scrollLock'
 
 interface Props {
   isOpen: boolean
@@ -30,17 +31,15 @@ export const QuickPriceModal: React.FC<Props> = ({ isOpen, item, onClose, onSucc
   }, [item])
 
   // Close on Escape key & lock body scrolling when open
+  useScrollLock(isOpen)
   useEffect(() => {
     if (!isOpen) return
-    const originalOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => {
-      document.body.style.overflow = originalOverflow
       window.removeEventListener('keydown', handleKeyDown)
     }
   }, [isOpen, onClose])
@@ -90,9 +89,20 @@ export const QuickPriceModal: React.FC<Props> = ({ isOpen, item, onClose, onSucc
   }
 
   return createPortal(
-    <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-full h-full h-[100dvh] max-h-[100dvh] z-[9999] flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm p-0 sm:p-4 overflow-hidden animate-in fade-in duration-150">
-      <div className="absolute inset-0" onClick={onClose} />
-      <div className="relative z-10 bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-md max-h-[100dvh] sm:max-h-[92dvh] shadow-2xl overflow-hidden border-0 sm:border border-[#ead7b7]/50 animate-in fade-in zoom-in-95 flex flex-col">
+    <div
+      style={{
+        paddingTop: 'max(16px, env(safe-area-inset-top))',
+        paddingRight: 'max(16px, env(safe-area-inset-right))',
+        paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+        paddingLeft: 'max(16px, env(safe-area-inset-left))',
+      }}
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm overflow-y-auto overscroll-contain animate-in fade-in duration-150"
+    >
+      <div className="fixed inset-0" onClick={onClose} />
+      <div
+        style={{ maxHeight: 'calc(100dvh - 32px)' }}
+        className="relative z-10 bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden border border-[#ead7b7]/50 animate-in fade-in zoom-in-95 flex flex-col my-auto"
+      >
         {/* Header */}
         <div className="px-4 py-3 sm:px-5 sm:py-4 border-b border-gray-100 flex items-center justify-between bg-[#FBFAF6] shrink-0">
           <div className="flex items-center gap-2.5">

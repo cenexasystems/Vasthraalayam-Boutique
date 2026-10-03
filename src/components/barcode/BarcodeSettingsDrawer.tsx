@@ -1257,51 +1257,73 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
       )}
 
       {/* Save Profile Modal */}
-      {showSaveProfileModal && (
-        <div className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-100">
-          <div className="bg-white rounded-t-3xl sm:rounded-2xl border border-gray-200 shadow-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] max-w-sm w-full space-y-4">
-            <h4 className="text-sm font-black text-gray-900 uppercase tracking-wide">
-              Save as Printer Profile
-            </h4>
-            <p className="text-xs text-gray-500">
-              Save your current size, offsets, printer type and layout settings as a reusable profile synced across devices.
-            </p>
-            <div>
-              <label className="text-[11px] font-black uppercase tracking-wider text-gray-700 block mb-1">
-                Profile Name
-              </label>
-              <input
-                type="text"
-                autoFocus
-                placeholder="e.g. Counter TSC 50×25"
-                value={newProfileName}
-                onChange={(e) => setNewProfileName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void handleSaveAsNewProfile()
-                }}
-                className="w-full h-11 px-3 rounded-xl border border-gray-300 text-xs font-bold outline-none focus:border-brand-black"
-              />
+      {showSaveProfileModal &&
+        createPortal(
+          <div
+            role="dialog"
+            aria-modal="true"
+            style={{
+              paddingTop: 'max(16px, env(safe-area-inset-top))',
+              paddingRight: 'max(16px, env(safe-area-inset-right))',
+              paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+              paddingLeft: 'max(16px, env(safe-area-inset-left))',
+            }}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setShowSaveProfileModal(false)
+            }}
+            className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-xs overflow-y-auto overscroll-contain animate-in fade-in duration-100"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                maxHeight: 'calc(100dvh - 32px)',
+              }}
+              className="bg-white rounded-3xl border border-gray-200 shadow-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] max-w-sm w-full my-auto space-y-4 animate-in zoom-in-95 duration-100"
+            >
+              <h4 className="text-sm font-black text-gray-900 uppercase tracking-wide">
+                Save as Printer Profile
+              </h4>
+              <p className="text-xs text-gray-500">
+                Save your current size, offsets, printer type and layout settings as a reusable profile synced across devices.
+              </p>
+              <div>
+                <label className="text-[11px] font-black uppercase tracking-wider text-gray-700 block mb-1">
+                  Profile Name
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="e.g. Counter TSC 50×25"
+                  value={newProfileName}
+                  onChange={(e) => setNewProfileName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void handleSaveAsNewProfile()
+                    if (e.key === 'Escape') setShowSaveProfileModal(false)
+                  }}
+                  className="w-full h-11 px-3 rounded-xl border border-gray-300 text-xs font-bold outline-none focus:border-brand-black box-border max-w-full min-w-0"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSaveProfileModal(false)}
+                  className="flex-1 sm:flex-none min-h-[48px] sm:min-h-0 px-3 py-2 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 hover:bg-gray-100 cursor-pointer flex items-center justify-center"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveAsNewProfile}
+                  disabled={!newProfileName.trim()}
+                  className="flex-[1.5] sm:flex-none min-h-[48px] sm:min-h-0 px-4 py-2 rounded-xl bg-brand-black text-brand-onDark border border-[#7daa8f] text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] disabled:opacity-50 cursor-pointer flex items-center justify-center"
+                >
+                  Save Profile
+                </button>
+              </div>
             </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowSaveProfileModal(false)}
-                className="flex-1 sm:flex-none min-h-[48px] sm:min-h-0 px-3 py-2 rounded-xl border border-gray-300 text-xs font-bold text-gray-700 hover:bg-gray-100 cursor-pointer flex items-center justify-center"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveAsNewProfile}
-                disabled={!newProfileName.trim()}
-                className="flex-[1.5] sm:flex-none min-h-[48px] sm:min-h-0 px-4 py-2 rounded-xl bg-brand-black text-brand-onDark border border-[#7daa8f] text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] disabled:opacity-50 cursor-pointer flex items-center justify-center"
-              >
-                Save Profile
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
 
       {/* Custom Size Modal */}
       {showCustomModal && (
