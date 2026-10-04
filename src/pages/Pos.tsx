@@ -17,7 +17,9 @@ import { barcodeService } from '../services/barcodeService'
 import { normalizeBarcode } from '../lib/barcode'
 import { Invoice } from '../components/Invoice'
 import CatalogModal from '../components/CatalogModal'
+import { Modal } from '../components/common/Modal'
 import { invoicePdfFile } from '../lib/invoicePdf'
+
 import { uploadInvoicePdf } from '../lib/storage'
 import { createOrderWithStock } from '../services/orderService'
 import { createAdvanceOrder, type AdvanceOrder, type AdvancePaymentMethod } from '../services/advanceOrderService'
@@ -1288,9 +1290,10 @@ export default function Pos(props: PosProps = {}) {
     )
   }
 
-  // ══ MAIN POS SCREEN ══════════════════════════════════════════════════
   return (
-    <div data-embedded={embeddedMode} className={`flex flex-col bg-[#FAFAFA] print:hidden overflow-x-hidden ${embeddedMode ? '' : 'h-full overflow-y-auto hide-scrollbar'}`} style={embeddedMode ? undefined : { WebkitOverflowScrolling: 'touch' }}>
+    <div data-embedded={embeddedMode} className={`flex flex-col flex-1 bg-[#FAFAFA] print:hidden overflow-x-hidden ${embeddedMode ? 'w-full' : 'min-h-[100dvh] w-full overflow-y-auto hide-scrollbar'}`} style={embeddedMode ? undefined : { WebkitOverflowScrolling: 'touch' }}>
+
+
       {/* Header */}
       <div className="px-3 pt-3 pb-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 md:pb-4 shrink-0 flex flex-col gap-3 min-[480px]:flex-row min-[480px]:items-start min-[480px]:justify-between">
         <div className="min-w-0">
@@ -2041,21 +2044,40 @@ export default function Pos(props: PosProps = {}) {
 
       </div>
 
-      {depositOpen && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/55 p-4">
-          <form onSubmit={saveDepositOrder} className="max-h-[94vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
-            <div className="mb-5 flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[11px] font-black uppercase tracking-[.16em] text-violet-600">Advance payment only</p>
-                <h3 className="text-xl font-black text-[#111111]">Save as Deposit Order</h3>
-                <p className="mt-1 text-xs font-semibold text-amber-700">No sale or tax invoice will be created now.</p>
+      <Modal
+        isOpen={depositOpen}
+        onClose={() => { setDepositOpen(false); setError('') }}
+        maxWidth="max-w-lg"
+        zIndex={9999}
+      >
+        <div className="shrink-0 p-5 border-b border-gray-100 flex items-start justify-between bg-[#FBFAF6]">
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-[.16em] text-violet-600">Advance payment only</p>
+            <h3 className="text-xl font-black text-[#111111]">Save as Deposit Order</h3>
+            <p className="mt-1 text-xs font-semibold text-amber-700">No sale or tax invoice will be created now.</p>
+          </div>
+          <button type="button" onClick={() => { setDepositOpen(false); setError('') }} className="rounded-lg p-1 text-gray-500 hover:bg-gray-100 cursor-pointer">
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={saveDepositOrder} className="flex flex-col flex-1 overflow-hidden min-h-0">
+          <div className="overflow-y-auto flex-1 min-h-0 p-5 space-y-4" style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
+            <div className="rounded-2xl bg-violet-50 p-4">
+              <div className="flex justify-between text-sm">
+                <span className="font-bold text-violet-700">Order total</span>
+                <span className="font-black text-violet-900">{formatCurrency(total)}</span>
               </div>
-              <button type="button" onClick={() => { setDepositOpen(false); setError('') }} className="rounded-lg p-1 text-gray-500 hover:bg-gray-100"><X size={20}/></button>
+              <div className="mt-2 max-h-24 space-y-1 overflow-y-auto border-t border-violet-200 pt-2">
+                {items.map(item => (
+                  <div key={item.id} className="flex justify-between gap-3 text-xs">
+                    <span className="truncate">{item.qty}× {item.name}</span>
+                    <span className="font-bold">{formatCurrency(item.lineTotal)}</span>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="mb-4 rounded-2xl bg-violet-50 p-4">
-              <div className="flex justify-between text-sm"><span className="font-bold text-violet-700">Order total</span><span className="font-black text-violet-900">{formatCurrency(total)}</span></div>
-              <div className="mt-2 max-h-24 space-y-1 overflow-y-auto border-t border-violet-200 pt-2">{items.map(item => <div key={item.id} className="flex justify-between gap-3 text-xs"><span className="truncate">{item.qty}× {item.name}</span><span className="font-bold">{formatCurrency(item.lineTotal)}</span></div>)}</div>
-            </div>
+
             <div className="space-y-4">
               <SplitPaymentSelector
                 type="deposit"
@@ -2067,30 +2089,78 @@ export default function Pos(props: PosProps = {}) {
                 initialSingleAmount={depositForm.amount}
               />
               <div className="grid gap-4 sm:grid-cols-2">
-                <label className="block sm:col-span-2"><span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-[#6B7280]">Expected delivery *</span><input required type="date" value={depositForm.expectedDeliveryDate} onChange={e => setDepositForm({...depositForm, expectedDeliveryDate:e.target.value})} className="w-full rounded-xl border px-3 py-2.5 text-sm font-bold outline-none focus:border-violet-600"/></label>
-                <label className="block sm:col-span-2"><span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-[#6B7280]">Delivery address</span><textarea value={depositForm.address} onChange={e => setDepositForm({...depositForm,address:e.target.value})} className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-violet-600" rows={2}/></label>
-                <label className="block sm:col-span-2"><span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-[#6B7280]">Reference Number</span><input value={depositForm.referenceNumber} onChange={e => setDepositForm({...depositForm,referenceNumber:e.target.value})} className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-violet-600" placeholder="e.g. PO-001, booking ref (optional)"/></label>
-                <label className="block sm:col-span-2"><span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-[#6B7280]">Remarks</span><textarea value={depositForm.remarks} onChange={e => setDepositForm({...depositForm,remarks:e.target.value})} className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-violet-600" rows={2}/></label>
+                <label className="block sm:col-span-2">
+                  <span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-[#6B7280]">Expected delivery *</span>
+                  <input required type="date" value={depositForm.expectedDeliveryDate} onChange={e => setDepositForm({...depositForm, expectedDeliveryDate:e.target.value})} className="w-full rounded-xl border px-3 py-2.5 text-sm font-bold outline-none focus:border-violet-600"/>
+                </label>
+                <label className="block sm:col-span-2">
+                  <span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-[#6B7280]">Delivery address</span>
+                  <textarea value={depositForm.address} onChange={e => setDepositForm({...depositForm,address:e.target.value})} className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-violet-600" rows={2}/>
+                </label>
+                <label className="block sm:col-span-2">
+                  <span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-[#6B7280]">Reference Number</span>
+                  <input value={depositForm.referenceNumber} onChange={e => setDepositForm({...depositForm,referenceNumber:e.target.value})} className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-violet-600" placeholder="e.g. PO-001, booking ref (optional)"/>
+                </label>
+                <label className="block sm:col-span-2">
+                  <span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-[#6B7280]">Remarks</span>
+                  <textarea value={depositForm.remarks} onChange={e => setDepositForm({...depositForm,remarks:e.target.value})} className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-violet-600" rows={2}/>
+                </label>
               </div>
             </div>
-            {error && <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-bold text-red-600">{error}</div>}
-            <div className="mt-5 flex gap-3"><button type="button" onClick={() => { setDepositOpen(false); setError('') }} className="flex-1 rounded-xl border py-3 text-sm font-black">Cancel</button><button disabled={saving || !posDepositValidation.isValid} className="flex-[1.5] rounded-xl bg-violet-700 py-3 text-sm font-black text-white disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">{saving ? 'Saving…' : 'Confirm Deposit Order'}</button></div>
-          </form>
-        </div>
-      )}
+            {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-bold text-red-600">{error}</div>}
+          </div>
 
-      {depositCreated && (
-        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/55 p-4">
-          <div className="w-full max-w-md rounded-3xl bg-white p-6 text-center shadow-2xl">
+          <div className="sticky bottom-0 z-20 shrink-0 bg-[#FBFAF6] px-5 py-3.5 border-t border-gray-200 flex gap-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
+            <button type="button" onClick={() => { setDepositOpen(false); setError('') }} className="flex-1 min-h-[48px] rounded-xl border py-3 text-sm font-black cursor-pointer hover:bg-gray-50 transition">
+              Cancel
+            </button>
+            <button disabled={saving || !posDepositValidation.isValid} className="flex-[1.5] min-h-[48px] rounded-xl bg-violet-700 py-3 text-sm font-black text-white disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer hover:bg-violet-800 transition">
+              {saving ? 'Saving…' : 'Confirm Deposit Order'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(depositCreated)}
+        onClose={() => { setDepositCreated(null); searchRef.current?.focus() }}
+        maxWidth="max-w-md"
+        zIndex={9999}
+      >
+        {depositCreated && (
+          <div className="p-6 text-center">
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-2xl">✓</div>
             <p className="mt-4 text-[11px] font-black uppercase tracking-[.16em] text-violet-600">Deposit order saved</p>
             <h3 className="mt-1 text-2xl font-black text-[#111111]">{depositCreated.deposit_id}</h3>
-            <p className="mt-2 text-sm text-[#6B7280]">Deposit {formatCurrency(depositCreated.deposit_amount)} · Balance {formatCurrency(depositCreated.remaining_balance)}</p>
-            <div className="mt-5 grid grid-cols-2 gap-2"><button onClick={() => printAdvanceReceipt(depositCreated)} className="rounded-xl border border-violet-200 py-3 text-sm font-black text-violet-700"><Printer size={16} className="mr-1 inline"/>Print Receipt</button><button onClick={() => { const msg = buildAdvanceDepositWhatsAppMessage({ customerName: depositCreated.customer_name, depositId: depositCreated.deposit_id, productName: depositCreated.product_name, totalAmount: depositCreated.total_amount, depositAmount: depositCreated.deposit_amount, remainingBalance: depositCreated.remaining_balance, expectedDeliveryDate: depositCreated.expected_delivery_date }); window.open(toWhatsAppUrl(depositCreated.phone, msg), '_blank', 'noopener,noreferrer') }} className="rounded-xl bg-[#25D366] py-3 text-sm font-black text-white"><MessageCircle size={16} className="mr-1 inline -mt-0.5"/>WhatsApp</button></div>
-            <button onClick={() => { setDepositCreated(null); searchRef.current?.focus() }} className="mt-3 w-full rounded-xl bg-brand-black py-3 text-sm font-black text-white">Start New Order</button>
+            <p className="mt-2 text-sm text-[#6B7280]">
+              Deposit {formatCurrency(depositCreated.deposit_amount)} · Balance {formatCurrency(depositCreated.remaining_balance)}
+            </p>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button onClick={() => printAdvanceReceipt(depositCreated)} className="min-h-[44px] rounded-xl border border-violet-200 py-3 text-sm font-black text-violet-700 cursor-pointer hover:bg-violet-50">
+                <Printer size={16} className="mr-1 inline"/>Print Receipt
+              </button>
+              <button onClick={() => {
+                const msg = buildAdvanceDepositWhatsAppMessage({
+                  customerName: depositCreated.customer_name,
+                  depositId: depositCreated.deposit_id,
+                  productName: depositCreated.product_name,
+                  totalAmount: depositCreated.total_amount,
+                  depositAmount: depositCreated.deposit_amount,
+                  remainingBalance: depositCreated.remaining_balance,
+                  expectedDeliveryDate: depositCreated.expected_delivery_date
+                })
+                window.open(toWhatsAppUrl(depositCreated.phone, msg), '_blank', 'noopener,noreferrer')
+              }} className="min-h-[44px] rounded-xl bg-[#25D366] py-3 text-sm font-black text-white cursor-pointer hover:bg-[#20ba59]">
+                <MessageCircle size={16} className="mr-1 inline -mt-0.5"/>WhatsApp
+              </button>
+            </div>
+            <button onClick={() => { setDepositCreated(null); searchRef.current?.focus() }} className="mt-3 w-full min-h-[44px] rounded-xl bg-brand-black py-3 text-sm font-black text-white cursor-pointer hover:bg-[#1e2817]">
+              Start New Order
+            </button>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
+
 
       {catalogOpen && (
         <CatalogModal
@@ -2307,10 +2377,11 @@ export default function Pos(props: PosProps = {}) {
       )}
 
       {!embeddedMode && (
-        <footer className="shrink-0 border-t border-gray-200/80 bg-white/95 backdrop-blur-sm py-2 px-3 text-center text-[11px] sm:text-[12px] font-semibold text-[#7A8A78] tracking-wide print:hidden pb-[max(0.5rem,env(safe-area-inset-bottom))] mt-auto">
+        <footer className="shrink-0 border-t border-gray-200/80 bg-white/95 backdrop-blur-sm py-2 px-3 text-center text-[11px] sm:text-[12px] font-semibold text-[#7A8A78] tracking-wide print:hidden pb-[max(1rem,calc(env(safe-area-inset-bottom)+0.75rem))] mt-auto">
           Powered by Cenexa Systems © 2026
         </footer>
       )}
+
     </div>
   )
 }

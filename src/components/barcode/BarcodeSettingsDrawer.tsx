@@ -51,6 +51,8 @@ import {
   downloadTestLabelPdf,
 } from '../../lib/barcode'
 import { CreateCustomSizeModal } from './CreateCustomSizeModal'
+import { useScrollLock } from '../../lib/scrollLock'
+
 
 function checkProfileModified(current: PrinterProfile, saved: PrinterProfile | undefined): boolean {
   if (!saved) return false
@@ -105,6 +107,8 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
   onUpdateSettings,
   businessId,
 }) => {
+  useScrollLock(isOpen)
+
   const activeBizId = businessId || getCurrentBusinessId()
 
   // Profiles State
@@ -550,11 +554,11 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
   return (
     <>
       {createPortal(
-        <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 w-screen h-screen h-[100dvh] z-[9999] flex justify-end bg-black/65 backdrop-blur-xs animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-[9999] flex justify-end bg-black/65 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="absolute inset-0" onClick={onClose} />
-          <div className="relative z-10 w-full max-w-full sm:max-w-md bg-white h-screen h-[100dvh] shadow-2xl flex flex-col border-l border-gray-200 animate-in slide-in-from-right duration-200">
+          <div className="relative z-10 w-full max-w-full sm:max-w-md bg-white h-full max-h-[100dvh] shadow-2xl flex flex-col min-h-0 border-l border-gray-200 animate-in slide-in-from-right duration-200">
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 bg-brand-black text-white shrink-0">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 bg-brand-black text-white shrink-0" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}>
               <div className="flex items-center gap-2">
                 <Sliders className="text-[#7daa8f]" size={16} />
                 <h3 className="text-sm font-black tracking-wide text-white">Barcode &amp; Printer Settings</h3>
@@ -596,7 +600,8 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
             )}
 
             {/* Drawer Body (Scrollable Accordion) */}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-4" style={{ WebkitOverflowScrolling: 'touch' }}>
+
               {/* SECTION 1: PRINTER & PROFILES */}
               <div className="border border-gray-200 rounded-2xl overflow-hidden shadow-xs bg-[#FBFAF6]">
                 <button
@@ -1242,15 +1247,16 @@ export const BarcodeSettingsDrawer: React.FC<BarcodeSettingsDrawerProps> = ({
             </div>
 
             {/* Drawer Footer */}
-            <div className="sticky bottom-0 z-20 shrink-0 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-gray-200 bg-white shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
+            <div className="shrink-0 p-4 pb-[max(1rem,calc(env(safe-area-inset-bottom)+0.75rem))] border-t border-gray-200 bg-white shadow-[0_-4px_12px_rgba(0,0,0,0.06)]">
               <button
                 type="button"
                 onClick={onClose}
-                className="w-full min-h-[48px] sm:min-h-0 sm:py-2.5 rounded-xl bg-brand-black text-brand-onDark border border-[#7daa8f] font-black text-xs uppercase tracking-wider hover:bg-[#1e2817] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                className="w-full min-h-[48px] rounded-xl bg-brand-black text-brand-onDark border border-[#7daa8f] font-black text-xs uppercase tracking-wider hover:bg-[#1e2817] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
               >
                 <Check size={14} /> Done
               </button>
             </div>
+
           </div>
         </div>,
         document.body

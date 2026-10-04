@@ -149,8 +149,9 @@ function AppShell() {
   }, [fetchProducts, fetchVariants])
 
   return (
-    <div className="ios-app-shell w-full max-w-[100vw] bg-bgMain print:block print:h-auto print:overflow-visible">
-      <main className="h-full print:block print:h-auto print:min-h-0 print:overflow-visible">
+    <div className="ios-app-shell w-full max-w-[100vw] min-h-[100vh] min-h-[100dvh] flex flex-col flex-1 bg-bgMain print:block print:h-auto print:overflow-visible">
+      <main className="flex-1 flex flex-col min-h-0 print:block print:h-auto print:min-h-0 print:overflow-visible">
+
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route

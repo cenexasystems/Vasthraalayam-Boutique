@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react'
-import { createPortal } from 'react-dom'
 import { AlertTriangle, Volume2, VolumeX, Barcode, Package, ChevronRight } from 'lucide-react'
 import { useAlarmStore } from '../../store/alarmStore'
 import { alarmSound } from '../../lib/alarmAudio'
-import { useScrollLock } from '../../lib/scrollLock'
+import { Modal } from '../common/Modal'
 
 export const LowStockAlarmModal: React.FC = () => {
   const isAlarmActive = useAlarmStore((state) => state.isAlarmActive)
@@ -12,7 +11,6 @@ export const LowStockAlarmModal: React.FC = () => {
   const [isAudioBlocked, setIsAudioBlocked] = useState(() => alarmSound.isBlocked())
 
   const shouldShow = isAlarmActive && lowStockItems.length > 0
-  useScrollLock(shouldShow)
 
   useEffect(() => {
     setIsAudioBlocked(alarmSound.isBlocked())
@@ -22,34 +20,35 @@ export const LowStockAlarmModal: React.FC = () => {
     return unsubscribe
   }, [])
 
+  // Stop alarm sound if tab/page is hidden or modal unmounts
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        alarmSound.stopAlert()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      alarmSound.stopAlert()
+    }
+  }, [])
+
   const handleWakeAudio = () => {
     void alarmSound.unlock()
   }
 
   if (!shouldShow) return null
 
-  return createPortal(
-    <div
-      onClick={handleWakeAudio}
-      onTouchStart={handleWakeAudio}
-      style={{
-        paddingTop: 'max(16px, env(safe-area-inset-top))',
-        paddingRight: 'max(16px, env(safe-area-inset-right))',
-        paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
-        paddingLeft: 'max(16px, env(safe-area-inset-left))',
-      }}
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/75 backdrop-blur-xs overflow-y-auto overscroll-contain animate-in fade-in duration-200"
+  return (
+    <Modal
+      isOpen={shouldShow}
+      onClose={silenceAlarm}
+      maxWidth="max-w-lg"
+      zIndex={9999}
+      className="border-2 border-red-500 overflow-hidden"
     >
-      <div
-        onClick={(e) => {
-          e.stopPropagation()
-          handleWakeAudio()
-        }}
-        style={{
-          maxHeight: 'calc(100dvh - 32px)',
-        }}
-        className="bg-white rounded-3xl max-w-lg w-full shadow-2xl overflow-hidden border-2 border-red-500 animate-in zoom-in-95 flex flex-col my-auto"
-      >
+
         {/* Pulsing Alarm Header */}
         <div className="bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 text-white px-5 py-4 flex items-center justify-between shrink-0 shadow-sm">
           <div className="flex items-center gap-3">
@@ -200,8 +199,7 @@ export const LowStockAlarmModal: React.FC = () => {
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
         </div>
-      </div>
-    </div>,
-    document.body
+    </Modal>
   )
 }
+

@@ -65,7 +65,19 @@ export function useLowStockMonitor(enabled: boolean = true, role?: string | null
     }
 
     setLowStockItems(flagged)
+
+    if (flagged.length > 0) {
+      try {
+        if (sessionStorage.getItem('just_logged_in') === '1') {
+          sessionStorage.removeItem('just_logged_in')
+          useAlarmStore.getState().triggerAlarm('login')
+        }
+      } catch {
+        // ignore sessionStorage errors
+      }
+    }
   }, [enabled, products, variantsMap, defaultThreshold, setLowStockItems])
+
 
   // Periodic refresh of the underlying data (no realtime subscriptions on
   // this Neon-backed setup) so stock changes made elsewhere still surface

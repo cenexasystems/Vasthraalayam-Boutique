@@ -51,6 +51,18 @@ export const InventoryTable: React.FC = () => {
       return next
     }, { replace: true })
   }
+
+  useEffect(() => {
+    if (activeTab === 'stock') {
+      useAlarmStore.getState().triggerAlarm('stock_management')
+    } else {
+      alarmSound.stopAlert()
+    }
+    return () => {
+      alarmSound.stopAlert()
+    }
+  }, [activeTab])
+
   const { products: storeProducts, fetchProducts } = useProductStore()
   const [items, setItems] = useState<InventoryStockItem[]>([])
   const [loading, setLoading] = useState(true)

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { neonApi } from '../lib/neonApi'
 import { Invoice } from '../components/Invoice'
-import { Printer, ArrowLeft, MessageCircle } from 'lucide-react'
+import { Printer, ArrowLeft, MessageCircle, AlertCircle, X, ExternalLink } from 'lucide-react'
 import { printThermalReceipt } from '../lib/thermalPrint'
 import { invoicePdfFile, invoicePdfFileFromElement } from '../lib/invoicePdf'
 import { uploadInvoicePdf } from '../lib/storage'
@@ -10,6 +10,8 @@ import { normalizeStructuredOrderItem, toNumber, computeOrderTotal, roundTo } fr
 import { buildProfessionalWhatsAppMessage } from '../lib/whatsappMessage'
 import { toWhatsAppUrl } from '../lib/phone'
 import { applyInvoiceTheme } from '../lib/invoiceTheme'
+import { BRAND_EN } from '../lib/brand'
+
 
 export default function DigitalInvoice() {
   const { id } = useParams()
@@ -110,46 +112,55 @@ export default function DigitalInvoice() {
     manual_discount_amount: manualDiscountAmount,
   })
 
+  const [pdfToast, setPdfToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null)
+  const [fallbackPdfUrl, setFallbackPdfUrl] = useState<string | null>(null)
+
   const downloadPdf = async () => {
     if (!invoiceElementRef.current || downloadingPdf) return
 
-    // iOS detection: Safari on iOS requires window.open to be called synchronously inside user gesture
-    const isIOS =
-      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    setDownloadingPdf(true)
+    setPdfToast(null)
+    setFallbackPdfUrl(null)
+
+    const isMobile =
+      /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
 
-    let pdfWindow: Window | null = null
-    if (isIOS) {
-      pdfWindow = window.open('about:blank', '_blank')
-      if (pdfWindow) {
-        try {
-          pdfWindow.document.title = `Invoice #${invoice.invoice_no}`
-          pdfWindow.document.body.innerHTML = `
-            <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#FBFAF6;color:#111;">
-              <div style="text-align:center;padding:20px;">
-                <div style="width:36px;height:36px;border:3px solid #ead7b7;border-top-color:var(--brand-black);border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px auto;"></div>
-                <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
-                <h3 style="margin:0 0 6px 0;font-size:17px;font-weight:700;">Generating PDF Invoice...</h3>
-                <p style="margin:0;font-size:13px;color:#666;">Please wait a moment</p>
-              </div>
-            </div>
-          `
-        } catch { /* ignore cross-origin */ }
-      }
-    }
-
-    setDownloadingPdf(true)
     try {
       const file = await invoicePdfFileFromElement(invoiceElementRef.current, invoice.invoice_no)
       const url = URL.createObjectURL(file)
 
-      if (isIOS) {
-        if (pdfWindow && !pdfWindow.closed) {
-          pdfWindow.location.href = url
-        } else {
-          window.location.href = url
+      // Path A: iOS / Android with Web Share file support
+      if (isMobile && typeof navigator.share === 'function') {
+        const canShare = typeof navigator.canShare === 'function' ? navigator.canShare({ files: [file] }) : true
+        if (canShare) {
+          try {
+            await navigator.share({
+              files: [file],
+              title: `Invoice #${invoice.invoice_no}`,
+              text: `Invoice #${invoice.invoice_no} from ${BRAND_EN}`,
+            })
+            setDownloadingPdf(false)
+            setTimeout(() => URL.revokeObjectURL(url), 60000)
+            return
+          } catch (shareErr: unknown) {
+            if (shareErr instanceof Error && shareErr.name === 'AbortError') {
+              // User dismissed the native share sheet
+              setDownloadingPdf(false)
+              setTimeout(() => URL.revokeObjectURL(url), 60000)
+              return
+            }
+            console.warn('Web Share failed, attempting mobile fallback URL:', shareErr)
+          }
         }
+      }
+
+      // Path B: Mobile fallback (open blob URL directly and provide visible tap-to-open link)
+      if (isMobile) {
+        setFallbackPdfUrl(url)
+        window.location.href = url
       } else {
+        // Path C: Desktop — trigger instant standard download
         const link = document.createElement('a')
         link.href = url
         link.download = file.name
@@ -161,13 +172,12 @@ export default function DigitalInvoice() {
       setTimeout(() => URL.revokeObjectURL(url), 60000)
     } catch (err) {
       console.error('Failed to download invoice PDF:', err)
-      if (pdfWindow && !pdfWindow.closed) {
-        pdfWindow.close()
-      }
+      setPdfToast({ message: 'Unable to generate PDF invoice. Please try again.', type: 'error' })
     } finally {
       setDownloadingPdf(false)
     }
   }
+
 
   const shareViaWhatsApp = () => {
     // Synchronously prepare message to guarantee execution within user click gesture
@@ -271,8 +281,39 @@ export default function DigitalInvoice() {
         </div>
       </div>
 
+      {/* Notification Toast or Mobile PDF fallback link */}
+      {pdfToast && (
+        <div className="fixed top-16 left-4 right-4 max-w-md mx-auto z-50 p-3 rounded-xl bg-red-600 text-white font-bold text-xs shadow-lg flex items-center justify-between animate-in fade-in slide-in-from-top duration-200">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={15} className="shrink-0" />
+            <span>{pdfToast.message}</span>
+          </div>
+          <button onClick={() => setPdfToast(null)} className="p-1 hover:bg-white/20 rounded-lg cursor-pointer">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {fallbackPdfUrl && (
+        <div className="fixed top-16 left-4 right-4 max-w-md mx-auto z-50 p-3 rounded-xl bg-brand-black text-white font-bold text-xs shadow-lg flex items-center justify-between border border-[#7daa8f] animate-in fade-in slide-in-from-top duration-200">
+          <a
+            href={fallbackPdfUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 text-white hover:text-[#7daa8f] underline"
+          >
+            <ExternalLink size={15} className="text-[#7daa8f] shrink-0" />
+            <span>Tap here to open the PDF</span>
+          </a>
+          <button onClick={() => setFallbackPdfUrl(null)} className="p-1 hover:bg-white/20 rounded-lg cursor-pointer">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Spacer to push content below fixed bar */}
       <div className="h-16 print:hidden" style={{ height: 'max(64px, calc(64px + env(safe-area-inset-top)))' }} />
+
 
       <div className="max-w-3xl mx-auto pb-12 print:mt-0 print:mb-0 print:p-0 print:max-w-full px-2 sm:px-0">
         <div ref={invoiceElementRef} className="bg-white shadow-xl rounded-2xl print:shadow-none print:rounded-none border border-sand/20 print:border-none print:m-0 print:p-0">

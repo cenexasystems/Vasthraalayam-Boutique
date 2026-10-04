@@ -38,6 +38,34 @@ export function unlockScroll() {
   }
 }
 
+export function forceResetScrollLock() {
+  if (typeof document === 'undefined') return
+  lockCount = 0
+  document.body.style.overflow = originalOverflow || ''
+  document.body.style.paddingRight = originalPaddingRight || ''
+  document.body.style.touchAction = ''
+}
+
+
+// Safety reset on window focus, pageshow, and visibilitychange
+if (typeof window !== 'undefined') {
+  const checkSafetyReset = () => {
+    // If no dialog or modal overlay is in the DOM, ensure scroll is never stuck
+    const hasOpenModal = document.querySelector('[role="dialog"], [aria-modal="true"]')
+    if (!hasOpenModal && lockCount > 0) {
+      forceResetScrollLock()
+    }
+  }
+
+  window.addEventListener('focus', checkSafetyReset)
+  window.addEventListener('pageshow', checkSafetyReset)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      checkSafetyReset()
+    }
+  })
+}
+
 /**
  * React hook to lock scroll while component is mounted / condition is true
  */
@@ -53,3 +81,4 @@ export function useScrollLock(active: boolean = true) {
     }
   }, [active])
 }
+

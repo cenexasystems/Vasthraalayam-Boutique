@@ -30,15 +30,24 @@ export default function AdminLogin() {
     setLoading(true)
     const role = await login(portalId.trim(), password)
     setLoading(false)
-    if (role === 'admin') {
-      const destination = from === '/pos' ? '/dashboard' : from
-      navigate(destination, { replace: true })
-    } else if (role === 'staff') {
-      navigate('/dashboard', { replace: true })
+    if (role === 'admin' || role === 'staff') {
+      try {
+        sessionStorage.setItem('just_logged_in', '1')
+      } catch {
+        // ignore sessionStorage errors
+      }
+      void alarmSound.unlock()
+      if (role === 'admin') {
+        const destination = from === '/pos' ? '/dashboard' : from
+        navigate(destination, { replace: true })
+      } else {
+        navigate('/dashboard', { replace: true })
+      }
     } else {
       setError(l('Invalid Admin or Staff credentials', 'தவறான நிர்வாகி அல்லது பணியாளர் விவரங்கள்'))
     }
   }
+
 
   return (
     <div className="relative h-screen max-h-screen min-h-screen overflow-y-auto lg:overflow-hidden bg-white p-3 sm:p-5 lg:p-6 font-sans flex items-center justify-center">

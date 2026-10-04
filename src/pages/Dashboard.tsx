@@ -1864,7 +1864,8 @@ export default function Dashboard() {
 
       {/* Main */}
       <main className="flex-grow flex flex-col overflow-hidden min-h-0 min-w-0">
-        <div className="flex-1 min-h-0 p-4 sm:p-6 lg:p-8 overflow-x-hidden overflow-y-auto">
+        <div className="flex-1 min-h-0 p-4 sm:p-6 lg:p-8 overflow-x-hidden overflow-y-auto flex flex-col">
+          <div className="flex-1 shrink-0 space-y-6">
 
         {/* ΓöÇΓöÇ ANALYTICS TAB ΓöÇΓöÇ */}
 
@@ -4526,12 +4527,15 @@ export default function Dashboard() {
 
         {/* ── SETTINGS TAB ── */}
         {tab === 'settings' && <SettingsView onOpenInventory={() => setTab('inventory')} />}
-        </div>
-        {/* Footer */}
-        <div className="shrink-0 border-t border-gray-200/80 bg-white/95 backdrop-blur-sm py-2 px-3 text-center text-[11px] sm:text-[12px] font-semibold text-[#7A8A78] tracking-wide print:hidden pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          Powered by Cenexa Systems © 2026
+          </div>
+
+          {/* Footer - at the very end of content, mt-auto on short pages, bottom of scroll on long pages */}
+          <footer className="shrink-0 mt-auto pt-6 pb-[max(1rem,calc(env(safe-area-inset-bottom)+0.75rem))] border-t border-gray-200/80 bg-transparent text-center text-[11px] sm:text-[12px] font-semibold text-[#7A8A78] tracking-wide print:hidden">
+            Powered by Cenexa Systems © 2026
+          </footer>
         </div>
       </main>
+
 
 
       {invoicePreviewOrder && (() => {

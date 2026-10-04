@@ -1,7 +1,10 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { X, Search, ShoppingBag, Edit2, Trash2, Check } from 'lucide-react'
 import { useProductStore, type Product } from '../store/store'
 import { neonApi } from '../lib/neonApi'
+import { useScrollLock } from '../lib/scrollLock'
+
 
 interface CatalogModalProps {
   isOpen: boolean
@@ -136,11 +139,28 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
     await fetchProducts(true)
   }
 
+  useScrollLock(isOpen)
+
   if (!isOpen) return null
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-2 min-[360px]:p-3 sm:p-4">
-      <div className="bg-white rounded-2xl sm:rounded-3xl w-full max-w-5xl flex min-h-0 flex-col shadow-2xl overflow-hidden border border-[#E5E7EB]/40 max-h-[calc(100dvh-1rem)] sm:max-h-[85vh]">
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      style={{
+        paddingTop: 'max(16px, env(safe-area-inset-top))',
+        paddingRight: 'max(16px, env(safe-area-inset-right))',
+        paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+        paddingLeft: 'max(16px, env(safe-area-inset-left))',
+      }}
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-xs overflow-y-auto overscroll-contain animate-in fade-in duration-150"
+    >
+      <div className="fixed inset-0" onClick={onClose} />
+      <div
+        style={{ maxHeight: 'calc(100dvh - 32px)' }}
+        className="relative z-10 bg-white rounded-3xl w-full max-w-5xl flex min-h-0 flex-col shadow-2xl overflow-hidden border border-[#ead7b7] my-auto animate-in zoom-in-95 duration-150"
+      >
+
 
         {editingProduct ? (
           <>
@@ -380,6 +400,8 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
         )}
 
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
+

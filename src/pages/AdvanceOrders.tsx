@@ -95,6 +95,9 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
     onConfirm: () => Promise<{ backupId?: string | number } | void>
   } | null>(null)
 
+  useScrollLock(Boolean(createOpen || paymentOrder || selected || deleteModalConfig?.isOpen))
+
+
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try { setOrders(await listAdvanceOrders()) } catch (err) { setError(err instanceof Error ? err.message : 'Unable to load advance orders') } finally { setLoading(false) }

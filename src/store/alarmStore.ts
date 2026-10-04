@@ -14,8 +14,10 @@ export interface LowStockItem {
 interface AlarmState {
   lowStockItems: LowStockItem[]
   isAlarmActive: boolean
-  silencedItemIds: Set<string | number>
+  hasAcknowledgedForVisit: boolean
+  hasTriggeredOnLogin: boolean
   setLowStockItems: (items: LowStockItem[]) => void
+  triggerAlarm: (reason: 'login' | 'stock_management') => void
   silenceAlarm: () => void
   resetSilencedState: () => void
 }
@@ -23,48 +25,58 @@ interface AlarmState {
 export const useAlarmStore = create<AlarmState>((set, get) => ({
   lowStockItems: [],
   isAlarmActive: false,
-  silencedItemIds: new Set<string | number>(),
+  hasAcknowledgedForVisit: false,
+  hasTriggeredOnLogin: false,
 
   setLowStockItems: (items) => {
-    const { silencedItemIds, lowStockItems: previousItems } = get()
-    
-    // Alarm triggers only if there is at least one low-stock item that has not been acknowledged
-    const hasUnsilencedLowStock = items.some(
-      (item) => !silencedItemIds.has(String(item.id)) && !silencedItemIds.has(item.id)
-    )
-
-    if (items.length > 0 && hasUnsilencedLowStock) {
-      // Check if alarm was already active - if not, make sure to start it
-      const wasAlarmActive = get().isAlarmActive
-      
-      // Always start/restart the alert to ensure sound plays
-      alarmSound.startAlert()
-      set({ lowStockItems: items, isAlarmActive: true })
-      
-      // If alarm wasn't active before, this is a new alert - log it for debugging
-      if (!wasAlarmActive) {
-        console.log('[Low Stock Alert] New low stock items detected:', items.length)
-      }
-    } else {
-      // If no items or all items are acknowledged/silenced, ensure alert is stopped
+    // Only update the items array. Never trigger sounds on data polling/re-renders.
+    set({ lowStockItems: items })
+    if (items.length === 0) {
       alarmSound.stopAlert()
-      set({ lowStockItems: items, isAlarmActive: false })
-      if (items.length === 0) {
-        set({ silencedItemIds: new Set() })
-      }
+      set({ isAlarmActive: false })
     }
   },
 
+  triggerAlarm: (reason: 'login' | 'stock_management') => {
+    const { lowStockItems, isAlarmActive, hasAcknowledgedForVisit, hasTriggeredOnLogin } = get()
+
+    // 1. Must have at least 1 low-stock item
+    if (lowStockItems.length === 0) return
+
+    // 2. Never play two sounds or stack popups if already active
+    if (isAlarmActive) return
+
+    // 3. For login: only once per login session, and not if already acknowledged
+    if (reason === 'login') {
+      if (hasTriggeredOnLogin || hasAcknowledgedForVisit) return
+      set({ hasTriggeredOnLogin: true })
+    }
+
+    // 4. For stock_management: play again as requested
+    if (reason === 'stock_management') {
+      set({ hasAcknowledgedForVisit: false })
+    }
+
+    // Play alarm sound and activate visual popup
+    alarmSound.startAlert()
+    set({ isAlarmActive: true })
+  },
+
   silenceAlarm: () => {
-    const currentItemIds = get().lowStockItems.map((i) => String(i.id))
     alarmSound.stopAlert()
     set({
       isAlarmActive: false,
-      silencedItemIds: new Set(currentItemIds),
+      hasAcknowledgedForVisit: true,
     })
   },
 
   resetSilencedState: () => {
-    set({ silencedItemIds: new Set() })
+    alarmSound.stopAlert()
+    set({
+      isAlarmActive: false,
+      hasAcknowledgedForVisit: false,
+      hasTriggeredOnLogin: false,
+    })
   },
 }))
+
