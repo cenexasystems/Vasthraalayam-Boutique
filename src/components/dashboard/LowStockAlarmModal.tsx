@@ -80,10 +80,10 @@ export const LowStockAlarmModal: React.FC = () => {
                 handleWakeAudio()
               }}
               className="flex items-center gap-1.5 bg-yellow-300 hover:bg-yellow-400 text-yellow-950 px-3 py-1.5 rounded-full text-[11px] font-black tracking-wide animate-bounce shadow-md cursor-pointer transition-transform active:scale-95 shrink-0"
-              title="Tap to enable sound on iOS"
+              title="Tap to enable sound"
             >
               <Volume2 className="w-3.5 h-3.5 text-yellow-950 animate-pulse" />
-              <span>Tap for Sound 🔊</span>
+              <span>Tap to enable alert sound 🔊</span>
             </button>
           ) : (
             <div className="flex items-center gap-1.5 bg-white/20 px-2.5 py-1 rounded-full text-[10px] font-black tracking-wide animate-pulse shrink-0">
@@ -105,7 +105,7 @@ export const LowStockAlarmModal: React.FC = () => {
             <div className="flex items-center gap-2 min-w-0 pr-2">
               <Volume2 className="w-4 h-4 text-amber-700 animate-pulse shrink-0" />
               <span className="font-bold text-[11px] truncate">
-                Mobile browser sound paused. Tap here to enable audio!
+                Mobile browser sound paused. Tap to enable alert sound!
               </span>
             </div>
             <span className="bg-amber-800 text-white text-[10px] px-2.5 py-0.5 rounded-full font-black uppercase shrink-0">

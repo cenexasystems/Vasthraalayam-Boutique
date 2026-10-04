@@ -5,6 +5,7 @@ import { useAdminAuthStore, useSettingsStore } from '../store/store'
 import { BRAND_EN, BRAND_TA, BRAND_SUBTITLE, BRAND_LOGO } from '../lib/brand'
 import { useLangStore } from '../store/langStore'
 import { alarmSound } from '../lib/alarmAudio'
+import { useAlarmStore } from '../store/alarmStore'
 
 export default function AdminLogin() {
   const navigate = useNavigate()
@@ -36,6 +37,7 @@ export default function AdminLogin() {
       } catch {
         // ignore sessionStorage errors
       }
+      useAlarmStore.getState().clearAcknowledged()
       void alarmSound.unlock()
       if (role === 'admin') {
         const destination = from === '/pos' ? '/dashboard' : from

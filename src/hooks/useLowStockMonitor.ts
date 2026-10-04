@@ -10,6 +10,8 @@ export function useLowStockMonitor(enabled: boolean = true, role?: string | null
   const products = useProductStore((state) => state.products)
   const fetchProducts = useProductStore((state) => state.fetchProducts)
   const variantsMap = useVariantStore((state) => state.variantsMap)
+  const productsFetched = useProductStore((state) => state.lastFetch > 0)
+  const variantsFetched = useVariantStore((state) => state.fetched)
   const refetchVariants = useVariantStore((state) => state.refetchVariants)
   const defaultThreshold = useSettingsStore((state) => state.settings?.lowStockThreshold ?? 5)
 
@@ -70,20 +72,28 @@ export function useLowStockMonitor(enabled: boolean = true, role?: string | null
       try {
         if (sessionStorage.getItem('just_logged_in') === '1') {
           sessionStorage.removeItem('just_logged_in')
-          useAlarmStore.getState().triggerAlarm('login')
+          useAlarmStore.getState().triggerLowStockAlert(true)
         }
       } catch {
         // ignore sessionStorage errors
       }
+    } else if (productsFetched && variantsFetched) {
+      try {
+        // Consumed fresh login check only after both products and variants have finished fetching
+        sessionStorage.removeItem('just_logged_in')
+      } catch {
+        // ignore sessionStorage errors
+      }
     }
-  }, [enabled, products, variantsMap, defaultThreshold, setLowStockItems])
+  }, [enabled, products, variantsMap, defaultThreshold, productsFetched, variantsFetched, setLowStockItems])
 
 
-  // Periodic refresh of the underlying data (no realtime subscriptions on
-  // this Neon-backed setup) so stock changes made elsewhere still surface
-  // here within ~15s.
+  // Refresh data on enablement (e.g. immediately after login) and periodic refresh
+  // so stock changes made elsewhere still surface within ~15s.
   useEffect(() => {
     if (!enabled) return
+    void fetchProducts(true)
+    void refetchVariants()
     const interval = setInterval(() => {
       void fetchProducts(true)
       void refetchVariants()

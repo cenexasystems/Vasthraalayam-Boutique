@@ -646,17 +646,13 @@ export default function Dashboard() {
       if (!staffAllowedTabs.includes(tabKey)) return
     }
     if (tabKey === 'inventory') {
-      // Reset silenced state and trigger alarm for inventory/barcode view
-      useAlarmStore.getState().resetSilencedState()
-      const lowItems = useAlarmStore.getState().lowStockItems
-      if (lowItems.length > 0) {
-        // Re-trigger the alarm with proper sound
-        alarmSound.stopAlert() // Clear any existing alert first
-        setTimeout(() => {
-          useAlarmStore.getState().setLowStockItems(lowItems)
-          alarmSound.startAlert()
-        }, 100)
-      }
+      // Tap gesture: unlock mobile audio and trigger low stock alert (sound + popup together)
+      void alarmSound.unlock()
+      useAlarmStore.getState().clearAcknowledged()
+      useAlarmStore.getState().triggerLowStockAlert(true)
+    } else {
+      // Leaving Stock Management: stop sound immediately & clear acknowledged state
+      useAlarmStore.getState().dismissAlert()
     }
     setTab(tabKey)
     setCurrentTab(tabKey)
@@ -672,22 +668,6 @@ export default function Dashboard() {
       navigate('/dashboard', { replace: true })
     }
   }
-
-  useEffect(() => {
-    if (tab === 'inventory') {
-      // Reset silenced state and trigger alarm when inventory tab becomes active
-      useAlarmStore.getState().resetSilencedState()
-      const lowItems = useAlarmStore.getState().lowStockItems
-      if (lowItems.length > 0) {
-        // Small delay to ensure the UI is ready and sound can play
-        const timer = setTimeout(() => {
-          useAlarmStore.getState().setLowStockItems(lowItems)
-          alarmSound.startAlert()
-        }, 50)
-        return () => clearTimeout(timer)
-      }
-    }
-  }, [tab])
 
   const deletedOrderIds = React.useRef<Set<string>>(new Set())
   const [deleteModalConfig, setDeleteModalConfig] = useState<{
@@ -1166,18 +1146,38 @@ export default function Dashboard() {
 
     // Products/coupons now live in Neon, which has no Realtime service —
     // poll for changes made from elsewhere (e.g. a POS sale in another tab).
-    // Every mutation this page makes itself already calls loadData() directly.
     const pollId = window.setInterval(() => debouncedLoadRef.current?.(), 30000)
 
-    if (!isSupabaseConfigured) return () => window.clearInterval(pollId)
+    const handleExpenseSync = () => debouncedLoadRef.current?.()
+    window.addEventListener('expense_record_updated', handleExpenseSync)
+    window.addEventListener('storage', handleExpenseSync)
+
+    if (!isSupabaseConfigured) {
+      return () => {
+        window.clearInterval(pollId)
+        window.removeEventListener('expense_record_updated', handleExpenseSync)
+        window.removeEventListener('storage', handleExpenseSync)
+      }
+    }
     const handleChange = () => debouncedLoadRef.current?.()
     const ch = supabase.channel('dashboard-live')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, handleChange)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, handleChange)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, handleChange)
       .subscribe()
-    return () => { window.clearInterval(pollId); void supabase.removeChannel(ch) }
+    return () => {
+      window.clearInterval(pollId)
+      window.removeEventListener('expense_record_updated', handleExpenseSync)
+      window.removeEventListener('storage', handleExpenseSync)
+      void supabase.removeChannel(ch)
+    }
   }, [isAdmin, loadData])
+
+  useEffect(() => {
+    if (tab === 'pos_analytics' || tab === 'expenses') {
+      debouncedLoadRef.current?.()
+    }
+  }, [tab])
 
   useEffect(() => {
     if (tab === 'users') void loadUsers()
@@ -4522,11 +4522,11 @@ export default function Dashboard() {
 
         {/* ── EXPENSES TAB ── */}
         {tab === 'expenses' && (
-          <ExpensesView />
+          <ExpensesView onExpenseChange={() => debouncedLoadRef.current?.()} />
         )}
 
         {/* ── SETTINGS TAB ── */}
-        {tab === 'settings' && <SettingsView onOpenInventory={() => setTab('inventory')} />}
+        {tab === 'settings' && <SettingsView onOpenInventory={() => handleTabClick('inventory')} />}
           </div>
 
           {/* Footer - at the very end of content, mt-auto on short pages, bottom of scroll on long pages */}

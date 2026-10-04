@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Calendar, Tag, AlertCircle, Edit2 } from 'lucide-react'
-import { expenseService, type ExpenseCategory, type ExpenseRecord } from '../../services/expenseService'
+import { expenseService, getLocalTodayDate, type ExpenseCategory, type ExpenseRecord } from '../../services/expenseService'
 import { useScrollLock } from '../../lib/scrollLock'
 
 interface RecordExpenseModalProps {
@@ -19,7 +19,7 @@ export const RecordExpenseModal: React.FC<RecordExpenseModalProps> = ({
   categories,
   expenseToEdit,
 }) => {
-  const [expenseDate, setExpenseDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [expenseDate, setExpenseDate] = useState(() => getLocalTodayDate())
   const [categoryId, setCategoryId] = useState<number | string>(() => categories[0]?.id || '')
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
@@ -35,7 +35,7 @@ export const RecordExpenseModal: React.FC<RecordExpenseModalProps> = ({
         setAmount(String(expenseToEdit.amount))
         setDescription(expenseToEdit.description || '')
       } else {
-        setExpenseDate(new Date().toISOString().slice(0, 10))
+        setExpenseDate(getLocalTodayDate())
         setCategoryId(categories[0]?.id || '')
         setAmount('')
         setDescription('')
@@ -62,21 +62,27 @@ export const RecordExpenseModal: React.FC<RecordExpenseModalProps> = ({
     e.preventDefault()
     setErrorMsg('')
 
-    const numAmount = parseFloat(amount)
+    const cleanedAmount = String(amount).replace(/[^0-9.]/g, '')
+    const numAmount = parseFloat(cleanedAmount)
     if (isNaN(numAmount) || numAmount <= 0) {
       setErrorMsg('Please enter a valid positive amount.')
       return
     }
 
-    const selectedCategory = categories.find((c) => String(c.id) === String(categoryId))
+    let targetCatId = categoryId
+    if ((targetCatId === '' || targetCatId === null || targetCatId === undefined) && categories.length > 0) {
+      targetCatId = categories[0].id
+    }
+    const selectedCategory = categories.find((c) => String(c.id) === String(targetCatId))
     const categoryName = selectedCategory ? selectedCategory.name : 'Other'
+    const categoryIdVal = selectedCategory ? selectedCategory.id : (typeof targetCatId === 'number' ? targetCatId : null)
 
     setLoading(true)
     try {
       if (expenseToEdit) {
         const updated = await expenseService.updateExpense(expenseToEdit.id, {
           expense_date: expenseDate,
-          category_id: selectedCategory ? selectedCategory.id : null,
+          category_id: categoryIdVal,
           category_name: categoryName,
           amount: numAmount,
           description: description.trim(),
@@ -85,7 +91,7 @@ export const RecordExpenseModal: React.FC<RecordExpenseModalProps> = ({
       } else {
         const created = await expenseService.createExpense({
           expense_date: expenseDate,
-          category_id: selectedCategory ? selectedCategory.id : null,
+          category_id: categoryIdVal,
           category_name: categoryName,
           amount: numAmount,
           description: description.trim(),

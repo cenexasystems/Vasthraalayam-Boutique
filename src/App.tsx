@@ -7,6 +7,7 @@ import { clearLocalOrders } from './lib/ordersFallback'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
 import { LowStockAlarmModal } from './components/dashboard/LowStockAlarmModal'
 import { useLowStockMonitor } from './hooks/useLowStockMonitor'
+import { useAlarmStore } from './store/alarmStore'
 import { applyCachedThemeColor } from './lib/theme'
 
 // Paint the last-known theme color immediately, before the settings API call

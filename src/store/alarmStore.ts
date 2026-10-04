@@ -14,19 +14,22 @@ export interface LowStockItem {
 interface AlarmState {
   lowStockItems: LowStockItem[]
   isAlarmActive: boolean
-  hasAcknowledgedForVisit: boolean
-  hasTriggeredOnLogin: boolean
+  isAcknowledged: boolean
   setLowStockItems: (items: LowStockItem[]) => void
-  triggerAlarm: (reason: 'login' | 'stock_management') => void
+  triggerLowStockAlert: (force?: boolean) => void
   silenceAlarm: () => void
+  clearAcknowledged: () => void
+  dismissAlert: () => void
+  // Backward compatibility aliases
+  triggerAlarm: (reason?: 'login' | 'stock_management') => void
   resetSilencedState: () => void
 }
 
 export const useAlarmStore = create<AlarmState>((set, get) => ({
   lowStockItems: [],
   isAlarmActive: false,
-  hasAcknowledgedForVisit: false,
-  hasTriggeredOnLogin: false,
+  // On fresh app start or reload while logged in, default isAcknowledged to true so reload never fires alert
+  isAcknowledged: typeof window !== 'undefined' && sessionStorage.getItem('just_logged_in') !== '1',
 
   setLowStockItems: (items) => {
     // Only update the items array. Never trigger sounds on data polling/re-renders.
@@ -37,46 +40,51 @@ export const useAlarmStore = create<AlarmState>((set, get) => ({
     }
   },
 
-  triggerAlarm: (reason: 'login' | 'stock_management') => {
-    const { lowStockItems, isAlarmActive, hasAcknowledgedForVisit, hasTriggeredOnLogin } = get()
+  triggerLowStockAlert: (force = false) => {
+    const { lowStockItems, isAlarmActive, isAcknowledged } = get()
 
     // 1. Must have at least 1 low-stock item
-    if (lowStockItems.length === 0) return
+    if (!lowStockItems || lowStockItems.length === 0) return
 
     // 2. Never play two sounds or stack popups if already active
     if (isAlarmActive) return
 
-    // 3. For login: only once per login session, and not if already acknowledged
-    if (reason === 'login') {
-      if (hasTriggeredOnLogin || hasAcknowledgedForVisit) return
-      set({ hasTriggeredOnLogin: true })
-    }
+    // 3. Do not re-trigger if already acknowledged for this visit (unless explicitly forced)
+    if (!force && isAcknowledged) return
 
-    // 4. For stock_management: play again as requested
-    if (reason === 'stock_management') {
-      set({ hasAcknowledgedForVisit: false })
-    }
-
-    // Play alarm sound and activate visual popup
+    // Start alarm sound and activate visual popup TOGETHER in the same call
     alarmSound.startAlert()
-    set({ isAlarmActive: true })
+    set({ isAlarmActive: true, isAcknowledged: false })
   },
 
   silenceAlarm: () => {
+    // Only stops sound and closes popup for this visit; does not block future logins/entries
     alarmSound.stopAlert()
     set({
       isAlarmActive: false,
-      hasAcknowledgedForVisit: true,
+      isAcknowledged: true,
     })
   },
 
-  resetSilencedState: () => {
+  clearAcknowledged: () => {
+    set({ isAcknowledged: false })
+  },
+
+  dismissAlert: () => {
     alarmSound.stopAlert()
     set({
       isAlarmActive: false,
-      hasAcknowledgedForVisit: false,
-      hasTriggeredOnLogin: false,
+      isAcknowledged: false,
     })
+  },
+
+  // Backward compatibility aliases
+  triggerAlarm: () => {
+    get().triggerLowStockAlert(true)
+  },
+
+  resetSilencedState: () => {
+    get().dismissAlert()
   },
 }))
 

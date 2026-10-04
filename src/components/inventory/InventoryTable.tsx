@@ -52,14 +52,18 @@ export const InventoryTable: React.FC = () => {
     }, { replace: true })
   }
 
+  const viewParam = searchParams.get('view')
   useEffect(() => {
-    if (activeTab === 'stock') {
-      useAlarmStore.getState().triggerAlarm('stock_management')
-    } else {
-      alarmSound.stopAlert()
-    }
-    return () => {
-      alarmSound.stopAlert()
+    const desiredTab: InventoryTab =
+      viewParam === 'products' || viewParam === 'categories' || viewParam === 'analytics'
+        ? viewParam
+        : 'stock'
+    setActiveTabState(desiredTab)
+  }, [viewParam])
+
+  useEffect(() => {
+    if (activeTab !== 'stock') {
+      useAlarmStore.getState().dismissAlert()
     }
   }, [activeTab])
 
@@ -85,25 +89,6 @@ export const InventoryTable: React.FC = () => {
       void fetchProducts(true)
       const data = await inventoryService.fetchInventoryItems()
       setItems(data)
-
-      // Alert sound and modal when viewing inventory with low stock
-      const lowStockFlagged = data
-        .filter((i) => i.is_active && i.stock <= (i.low_stock_threshold || 5))
-        .map((i) => ({
-          id: i.variant_id ? `v-${i.variant_id}` : `p-${i.product_id}`,
-          name: i.name,
-          variantName: i.variant_name || undefined,
-          stock: i.stock,
-          alertThreshold: i.low_stock_threshold || 5,
-          barcode: i.barcode || undefined,
-          category: i.category || undefined,
-        }))
-
-      if (lowStockFlagged.length > 0) {
-        useAlarmStore.getState().resetSilencedState()
-        useAlarmStore.getState().setLowStockItems(lowStockFlagged)
-        alarmSound.startAlert()
-      }
     } catch (err) {
       console.error('Failed to load inventory items:', err)
     } finally {
@@ -220,7 +205,12 @@ export const InventoryTable: React.FC = () => {
         <div className="flex items-center gap-1.5 p-1 bg-[#FBFAF6] border border-gray-200 rounded-xl shrink-0">
           <button
             type="button"
-            onClick={() => setActiveTab('stock')}
+            onClick={() => {
+              void alarmSound.unlock()
+              useAlarmStore.getState().clearAcknowledged()
+              useAlarmStore.getState().triggerLowStockAlert(true)
+              setActiveTab('stock')
+            }}
             className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
               activeTab === 'stock'
                 ? 'bg-brand-black text-brand-onDark shadow-sm'
@@ -232,7 +222,10 @@ export const InventoryTable: React.FC = () => {
 
           <button
             type="button"
-            onClick={() => setActiveTab('products')}
+            onClick={() => {
+              useAlarmStore.getState().dismissAlert()
+              setActiveTab('products')
+            }}
             className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
               activeTab === 'products'
                 ? 'bg-brand-black text-brand-onDark shadow-sm'
@@ -244,7 +237,10 @@ export const InventoryTable: React.FC = () => {
 
           <button
             type="button"
-            onClick={() => setActiveTab('categories')}
+            onClick={() => {
+              useAlarmStore.getState().dismissAlert()
+              setActiveTab('categories')
+            }}
             className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
               activeTab === 'categories'
                 ? 'bg-brand-black text-brand-onDark shadow-sm'
@@ -256,7 +252,10 @@ export const InventoryTable: React.FC = () => {
 
           <button
             type="button"
-            onClick={() => setActiveTab('analytics')}
+            onClick={() => {
+              useAlarmStore.getState().dismissAlert()
+              setActiveTab('analytics')
+            }}
             className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
               activeTab === 'analytics'
                 ? 'bg-brand-black text-brand-onDark shadow-sm'

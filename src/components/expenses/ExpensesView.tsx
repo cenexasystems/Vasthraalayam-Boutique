@@ -18,6 +18,7 @@ import {
 import {
   expenseService,
   exportExpensesToCSV,
+  getLocalTodayDate,
   type ExpenseCategory,
   type ExpenseRecord,
   type ExpenseSummaryMetrics,
@@ -25,7 +26,11 @@ import {
 import { RecordExpenseModal } from './RecordExpenseModal'
 import { ExpenseCategoriesView } from './ExpenseCategoriesView'
 
-export const ExpensesView: React.FC = () => {
+export interface ExpensesViewProps {
+  onExpenseChange?: () => void
+}
+
+export const ExpensesView: React.FC<ExpensesViewProps> = ({ onExpenseChange }) => {
   const [activeTab, setActiveTab] = useState<'expenses' | 'categories'>('expenses')
   const [isRecordModalOpen, setIsRecordModalOpen] = useState(false)
   const [editingExpense, setEditingExpense] = useState<ExpenseRecord | null>(null)
@@ -94,6 +99,19 @@ export const ExpensesView: React.FC = () => {
     void refreshAll()
   }, [refreshAll])
 
+  // Listen for external expense changes (e.g. from background sync or other tabs)
+  useEffect(() => {
+    const handleSync = () => {
+      void refreshAll()
+    }
+    window.addEventListener('expense_record_updated', handleSync)
+    window.addEventListener('storage', handleSync)
+    return () => {
+      window.removeEventListener('expense_record_updated', handleSync)
+      window.removeEventListener('storage', handleSync)
+    }
+  }, [refreshAll])
+
   // Calculate count of active filters (excluding keyword search)
   const activeFiltersCount = useMemo(() => {
     let count = 0
@@ -116,11 +134,11 @@ export const ExpensesView: React.FC = () => {
     )
   }, [expenses, searchQuery])
 
-  // Handle Preset Clicks (Synchronizes FROM and TO dates)
+  // Handle Preset Clicks (Synchronizes FROM and TO dates in local time)
   const applyDatePreset = (preset: 'all' | 'today' | 'week' | 'month' | 'custom') => {
     setActivePreset(preset)
-    const today = new Date()
-    const todayStr = today.toISOString().slice(0, 10)
+    const now = new Date()
+    const todayStr = getLocalTodayDate()
 
     if (preset === 'all') {
       setFromDate('')
@@ -129,15 +147,18 @@ export const ExpensesView: React.FC = () => {
       setFromDate(todayStr)
       setToDate(todayStr)
     } else if (preset === 'week') {
-      const dayOfWeek = (today.getDay() + 6) % 7
-      const monday = new Date(today)
-      monday.setDate(today.getDate() - dayOfWeek)
-      setFromDate(monday.toISOString().slice(0, 10))
+      const dayOfWeek = (now.getDay() + 6) % 7
+      const monday = new Date(now)
+      monday.setDate(now.getDate() - dayOfWeek)
+      const mondayStr = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`
+      setFromDate(mondayStr)
       setToDate(todayStr)
     } else if (preset === 'month') {
-      const monthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`
+      const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+      const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+      const monthEnd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(lastDayOfMonth).padStart(2, '0')}`
       setFromDate(monthStart)
-      setToDate(todayStr)
+      setToDate(monthEnd)
     } else if (preset === 'custom') {
       setShowAdvancedFilters(true)
     }
@@ -152,13 +173,13 @@ export const ExpensesView: React.FC = () => {
     setShowAdvancedFilters(false)
   }
 
-
   const handleDeleteExpense = async (id: string) => {
     if (!window.confirm('Delete this expense record?')) return
     try {
       await expenseService.deleteExpense(id)
       setExpenses((prev) => prev.filter((e) => e.id !== id))
       void loadMetrics()
+      onExpenseChange?.()
     } catch (err) {
       console.error('Failed to delete expense:', err)
       alert('Could not delete expense record')
@@ -166,6 +187,19 @@ export const ExpensesView: React.FC = () => {
   }
 
   const handleExpenseSaved = (savedExpense: ExpenseRecord) => {
+    // If the newly added/edited expense would be hidden by active filters, clear them so it's guaranteed visible!
+    const isFilteredByDate = (fromDate && savedExpense.expense_date < fromDate) || (toDate && savedExpense.expense_date > toDate)
+    const isFilteredByCat = selectedCategoryId !== 'all' && String(savedExpense.category_id) !== String(selectedCategoryId)
+    const isFilteredBySearch = searchQuery.trim() !== ''
+
+    if (isFilteredByDate || isFilteredByCat || isFilteredBySearch) {
+      setFromDate('')
+      setToDate('')
+      setActivePreset('all')
+      setSelectedCategoryId('all')
+      setSearchQuery('')
+    }
+
     setExpenses((prev) => {
       const exists = prev.some((e) => e.id === savedExpense.id)
       if (exists) {
@@ -176,6 +210,7 @@ export const ExpensesView: React.FC = () => {
     setIsRecordModalOpen(false)
     setEditingExpense(null)
     void loadMetrics()
+    onExpenseChange?.()
   }
 
   const handleEditExpense = (exp: ExpenseRecord) => {

@@ -508,7 +508,8 @@ export const useVariantStore = create<VariantStoreState>()((set, get) => ({
   fetched: false,
   fetchVariants: async () => {
     if (get().fetched) return
-    const { data } = await fetchAllVariants()
+    const { data, error } = await fetchAllVariants()
+    if (error || !data) return
     const map: Record<string, ProductVariant[]> = {}
     for (const v of data) {
       if (!map[v.productId]) map[v.productId] = []
@@ -517,8 +518,8 @@ export const useVariantStore = create<VariantStoreState>()((set, get) => ({
     set({ variantsMap: map, fetched: true })
   },
   refetchVariants: async () => {
-    set({ fetched: false })
-    const { data } = await fetchAllVariants()
+    const { data, error } = await fetchAllVariants()
+    if (error || !data) return
     const map: Record<string, ProductVariant[]> = {}
     for (const v of data) {
       if (!map[v.productId]) map[v.productId] = []
@@ -665,7 +666,8 @@ export const useAdminAuthStore = create<AdminAuthState>()(
         const { data, error } = await authLogin(trimmedId, trimmedPass)
         if (error || !data) return false
 
-        useAlarmStore.getState().resetSilencedState()
+        useAlarmStore.getState().dismissAlert()
+        setNeonSessionToken(data.token)
         set({
           isLoggedIn: true,
           role: data.role,
@@ -673,11 +675,18 @@ export const useAdminAuthStore = create<AdminAuthState>()(
           sessionToken: data.token,
           sessionExpiresAt: data.expiresAt,
         })
+        void useProductStore.getState().fetchProducts(true)
+        void useVariantStore.getState().refetchVariants()
         return data.role
       },
       logout: () => {
         alarmSound.stopAlert()
-        useAlarmStore.getState().resetSilencedState()
+        useAlarmStore.getState().dismissAlert()
+        try {
+          sessionStorage.removeItem('just_logged_in')
+        } catch {
+          // ignore
+        }
         set({ isLoggedIn: false, role: null, adminId: null, sessionToken: null, sessionExpiresAt: null })
       },
     }),

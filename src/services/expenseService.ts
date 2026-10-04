@@ -52,10 +52,34 @@ export const DEFAULT_EXPENSE_CATEGORIES: string[] = [
 let remoteExpensesAvailable: boolean | null = null
 let remoteCategoriesAvailable: boolean | null = null
 
+export const getLocalTodayDate = (): string => {
+  const d = new Date()
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+export const notifyExpenseChanged = () => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('expense_record_updated'))
+  }
+}
+
 const loadLocalExpenses = (): ExpenseRecord[] => {
   try {
     const raw = localStorage.getItem(STORAGE_EXPENSES_KEY)
-    return raw ? (JSON.parse(raw) as ExpenseRecord[]) : []
+    if (raw) return JSON.parse(raw) as ExpenseRecord[]
+    // Migration fallback from previous store key if available
+    const legacy = localStorage.getItem('chaji_expenses_records_v1')
+    if (legacy) {
+      const parsed = JSON.parse(legacy) as ExpenseRecord[]
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        saveLocalExpenses(parsed)
+        return parsed
+      }
+    }
+    return []
   } catch {
     return []
   }
@@ -73,6 +97,14 @@ const loadLocalCategories = (): ExpenseCategory[] => {
   try {
     const raw = localStorage.getItem(STORAGE_CATEGORIES_KEY)
     if (raw) return JSON.parse(raw) as ExpenseCategory[]
+    const legacy = localStorage.getItem('chaji_expense_categories_v1')
+    if (legacy) {
+      const parsed = JSON.parse(legacy) as ExpenseCategory[]
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        saveLocalCategories(parsed)
+        return parsed
+      }
+    }
   } catch {
     // fallback
   }
@@ -94,14 +126,19 @@ const saveLocalCategories = (cats: ExpenseCategory[]) => {
 }
 
 function calculateMetricsFromList(expenses: ExpenseRecord[]): ExpenseSummaryMetrics {
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayStr = getLocalTodayDate()
   const now = new Date()
   const dayOfWeek = (now.getDay() + 6) % 7 // Monday = 0
   const monday = new Date(now)
   monday.setDate(now.getDate() - dayOfWeek)
-  const weekStartStr = monday.toISOString().slice(0, 10)
+  const weekStartStr = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`
+
   const monthStartStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+  const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+  const monthEndStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(lastDayOfMonth).padStart(2, '0')}`
+
   const yearStartStr = `${now.getFullYear()}-01-01`
+  const yearEndStr = `${now.getFullYear()}-12-31`
 
   let today = 0
   let this_week = 0
@@ -114,8 +151,8 @@ function calculateMetricsFromList(expenses: ExpenseRecord[]): ExpenseSummaryMetr
     total_all_time += amt
     if (exp.expense_date === todayStr) today += amt
     if (exp.expense_date >= weekStartStr && exp.expense_date <= todayStr) this_week += amt
-    if (exp.expense_date >= monthStartStr && exp.expense_date <= todayStr) this_month += amt
-    if (exp.expense_date >= yearStartStr && exp.expense_date <= todayStr) this_year += amt
+    if (exp.expense_date >= monthStartStr && exp.expense_date <= monthEndStr) this_month += amt
+    if (exp.expense_date >= yearStartStr && exp.expense_date <= yearEndStr) this_year += amt
   }
 
   return { today, this_week, this_month, this_year, total_all_time }
@@ -255,6 +292,7 @@ export const expenseService = {
           remoteExpensesAvailable = true
           const local = loadLocalExpenses()
           saveLocalExpenses([data as ExpenseRecord, ...local])
+          notifyExpenseChanged()
           return data as ExpenseRecord
         }
         if (error && (error.code === 'PGRST205' || error.message?.includes('not find'))) {
@@ -269,6 +307,7 @@ export const expenseService = {
     const current = loadLocalExpenses()
     const updated = [newRecord, ...current]
     saveLocalExpenses(updated)
+    notifyExpenseChanged()
     return newRecord
   },
 
@@ -307,6 +346,7 @@ export const expenseService = {
           const local = loadLocalExpenses()
           const updated = local.map((e) => (e.id === id ? (data as ExpenseRecord) : e))
           saveLocalExpenses(updated)
+          notifyExpenseChanged()
           return data as ExpenseRecord
         }
         if (error && (error.code === 'PGRST205' || error.message?.includes('not find'))) {
@@ -335,6 +375,7 @@ export const expenseService = {
     if (!updatedRecord) {
       throw new Error('Expense record not found')
     }
+    notifyExpenseChanged()
     return updatedRecord
   },
 
@@ -356,6 +397,7 @@ export const expenseService = {
     const current = loadLocalExpenses()
     const filtered = current.filter((e) => e.id !== id)
     saveLocalExpenses(filtered)
+    notifyExpenseChanged()
   },
 
   // 5. Category Operations
