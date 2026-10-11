@@ -144,16 +144,18 @@ export const BarcodeScannerInput: React.FC<BarcodeScannerInputProps> = ({
 
       const effectiveStock = varnt ? (Number(varnt.stock) || 0) : 999
 
-      const price = varnt?.price ? Number(varnt.price) : Number(prod.price)
+      const price = varnt?.price != null && !isNaN(Number(varnt.price))
+        ? Number(varnt.price)
+        : Number(prod.price || 0)
 
       const payload: ScannedItemPayload = {
         product_id: record.product_id,
-        variant_id: record.variant_id || null,
+        variant_id: record.variant_id || varnt?.id || null,
         product_name: prod.name,
         name_ta: prod.name_ta,
         variant_name: varnt?.variant_name,
         price: price,
-        offer_price: prod.offer_price ? Number(prod.offer_price) : undefined,
+        offer_price: varnt?.price != null ? undefined : (prod.offer_price ? Number(prod.offer_price) : undefined),
         stock: effectiveStock,
         barcode: clean,
         image_url: prod.image_url,

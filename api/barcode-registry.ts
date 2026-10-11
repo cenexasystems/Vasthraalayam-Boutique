@@ -23,11 +23,17 @@ function shape(row: Row) {
     created_at: row.created_at,
     updated_at: row.updated_at,
     product: row.p_id != null ? {
-      id: row.p_id, name: row.p_name, name_ta: row.p_name_ta, price: row.p_price,
-      offer_price: row.p_offer_price, image_url: row.p_image_url, category: row.p_category,
+      id: row.p_id, name: row.p_name, name_ta: row.p_name_ta,
+      price: row.p_price != null ? Number(row.p_price) : 0,
+      offer_price: row.p_offer_price != null ? Number(row.p_offer_price) : null,
+      image_url: row.p_image_url, category: row.p_category,
+      has_variants: Boolean(row.p_has_variants),
     } : null,
     variant: row.v_id != null ? {
-      id: row.v_id, variant_name: row.v_variant_name, price: row.v_price, stock: row.v_stock, sku: row.v_sku,
+      id: row.v_id, variant_name: row.v_variant_name,
+      price: row.v_price != null ? Number(row.v_price) : 0,
+      stock: row.v_stock != null ? Number(row.v_stock) : 0,
+      sku: row.v_sku,
     } : null,
   }
 }
@@ -47,6 +53,7 @@ async function list(req: VercelRequest, res: VercelResponse) {
       br.created_by_name, br.created_at, br.updated_at,
       p.id AS p_id, p.name AS p_name, p.name_ta AS p_name_ta, p.price AS p_price,
       p.offer_price AS p_offer_price, p.image_url AS p_image_url, p.category AS p_category,
+      p.has_variants AS p_has_variants,
       v.id AS v_id, v.variant_name AS v_variant_name, v.price AS v_price, v.stock AS v_stock, v.sku AS v_sku,
       COUNT(*) OVER()::int AS total_count
     FROM public.barcode_registry br
@@ -79,6 +86,7 @@ async function lookup(req: VercelRequest, res: VercelResponse) {
       br.created_by_name, br.created_at, br.updated_at,
       p.id AS p_id, p.name AS p_name, p.name_ta AS p_name_ta, p.price AS p_price,
       p.offer_price AS p_offer_price, p.image_url AS p_image_url, p.category AS p_category,
+      p.has_variants AS p_has_variants,
       v.id AS v_id, v.variant_name AS v_variant_name, v.price AS v_price, v.stock AS v_stock, v.sku AS v_sku
     FROM public.barcode_registry br
     LEFT JOIN public.products p ON p.id = br.product_id
@@ -100,12 +108,16 @@ async function lookup(req: VercelRequest, res: VercelResponse) {
         updated_at: registryRow.updated_at,
         product: registryRow.p_id != null ? {
           id: registryRow.p_id, name: registryRow.p_name, name_ta: registryRow.p_name_ta,
-          price: registryRow.p_price, offer_price: registryRow.p_offer_price,
+          price: registryRow.p_price != null ? Number(registryRow.p_price) : 0,
+          offer_price: registryRow.p_offer_price != null ? Number(registryRow.p_offer_price) : undefined,
           image_url: registryRow.p_image_url, category: registryRow.p_category,
+          has_variants: Boolean(registryRow.p_has_variants),
         } : null,
         variant: registryRow.v_id != null ? {
           id: registryRow.v_id, variant_name: registryRow.v_variant_name,
-          price: registryRow.v_price, stock: registryRow.v_stock, sku: registryRow.v_sku,
+          price: registryRow.v_price != null ? Number(registryRow.v_price) : 0,
+          stock: registryRow.v_stock != null ? Number(registryRow.v_stock) : 0,
+          sku: registryRow.v_sku,
         } : null,
       },
     })
@@ -115,7 +127,8 @@ async function lookup(req: VercelRequest, res: VercelResponse) {
   const [variantRow] = await sql`
     SELECT v.id, v.product_id, v.variant_name, v.price, v.stock, v.sku,
            p.id AS p_id, p.name AS p_name, p.name_ta AS p_name_ta, p.price AS p_price,
-           p.offer_price AS p_offer_price, p.image_url AS p_image_url, p.category AS p_category
+           p.offer_price AS p_offer_price, p.image_url AS p_image_url, p.category AS p_category,
+           p.has_variants AS p_has_variants
     FROM public.product_variants v
     LEFT JOIN public.products p ON p.id = v.product_id
     WHERE UPPER(v.barcode) = ${code}
@@ -128,15 +141,26 @@ async function lookup(req: VercelRequest, res: VercelResponse) {
         id: `var-${variantRow.id}`, barcode_value: code, entity_type: 'variant',
         product_id: variantRow.product_id, variant_id: variantRow.id, is_active: true,
         created_by_name: 'System', created_at: now, updated_at: now,
-        product: { id: variantRow.p_id, name: variantRow.p_name, name_ta: variantRow.p_name_ta, price: variantRow.p_price, offer_price: variantRow.p_offer_price, image_url: variantRow.p_image_url, category: variantRow.p_category },
-        variant: { id: variantRow.id, variant_name: variantRow.variant_name, price: variantRow.price, stock: variantRow.stock, sku: variantRow.sku },
+        product: {
+          id: variantRow.p_id, name: variantRow.p_name, name_ta: variantRow.p_name_ta,
+          price: variantRow.p_price != null ? Number(variantRow.p_price) : 0,
+          offer_price: variantRow.p_offer_price != null ? Number(variantRow.p_offer_price) : undefined,
+          image_url: variantRow.p_image_url, category: variantRow.p_category,
+          has_variants: Boolean(variantRow.p_has_variants),
+        },
+        variant: {
+          id: variantRow.id, variant_name: variantRow.variant_name,
+          price: variantRow.price != null ? Number(variantRow.price) : 0,
+          stock: variantRow.stock != null ? Number(variantRow.stock) : 0,
+          sku: variantRow.sku,
+        },
       },
     })
     return
   }
 
   const [productRow] = await sql`
-    SELECT id, name, name_ta, price, offer_price, image_url, category, barcode, stock_quantity
+    SELECT id, name, name_ta, price, offer_price, image_url, category, barcode, stock_quantity, has_variants
     FROM public.products WHERE UPPER(barcode) = ${code} LIMIT 1
   `
   if (productRow) {
@@ -146,7 +170,13 @@ async function lookup(req: VercelRequest, res: VercelResponse) {
         id: `prod-${productRow.id}`, barcode_value: code, entity_type: 'product',
         product_id: productRow.id, variant_id: null, is_active: true,
         created_by_name: 'System', created_at: now, updated_at: now,
-        product: productRow, variant: null,
+        product: {
+          ...productRow,
+          price: productRow.price != null ? Number(productRow.price) : 0,
+          offer_price: productRow.offer_price != null ? Number(productRow.offer_price) : undefined,
+          has_variants: Boolean(productRow.has_variants),
+        },
+        variant: null,
       },
     })
     return

@@ -67,8 +67,26 @@ async function create(req: VercelRequest, res: VercelResponse) {
 
   const rows = await sql`
     INSERT INTO public.product_variants ${sql(insertData)}
-    RETURNING id, product_id, variant_name, size_label, price, stock
+    RETURNING id, product_id, variant_name, size_label, price, stock, barcode
   `
+  const createdVariant = rows[0] as { id: string; product_id: number; barcode?: string | null }
+  if (createdVariant?.barcode && typeof createdVariant.barcode === 'string' && createdVariant.barcode.trim()) {
+    const bcode = createdVariant.barcode.trim()
+    try {
+      await sql`
+        INSERT INTO public.barcode_registry (barcode_value, entity_type, product_id, variant_id, is_active, created_by_name)
+        VALUES (${bcode}, 'variant', ${createdVariant.product_id}, ${createdVariant.id}, true, 'System')
+        ON CONFLICT (barcode_value) DO UPDATE
+        SET product_id = EXCLUDED.product_id,
+            variant_id = EXCLUDED.variant_id,
+            entity_type = EXCLUDED.entity_type,
+            is_active = true,
+            updated_at = NOW()
+      `
+    } catch (e) {
+      console.error('Failed to sync variant barcode to barcode_registry:', e)
+    }
+  }
   res.status(201).json({ data: rows[0] })
 }
 
@@ -93,11 +111,29 @@ async function put(req: VercelRequest, res: VercelResponse) {
     UPDATE public.product_variants
     SET ${sql(updates)}, updated_at = NOW()
     WHERE id = ${id}
-    RETURNING id
+    RETURNING id, product_id, barcode
   `
   if (rows.length === 0) {
     res.status(404).json({ error: 'Variant not found' })
     return
+  }
+  const updatedVariant = rows[0] as { id: string; product_id: number; barcode?: string | null }
+  if (updatedVariant?.barcode && typeof updatedVariant.barcode === 'string' && updatedVariant.barcode.trim()) {
+    const bcode = updatedVariant.barcode.trim()
+    try {
+      await sql`
+        INSERT INTO public.barcode_registry (barcode_value, entity_type, product_id, variant_id, is_active, created_by_name)
+        VALUES (${bcode}, 'variant', ${updatedVariant.product_id}, ${updatedVariant.id}, true, 'System')
+        ON CONFLICT (barcode_value) DO UPDATE
+        SET product_id = EXCLUDED.product_id,
+            variant_id = EXCLUDED.variant_id,
+            entity_type = EXCLUDED.entity_type,
+            is_active = true,
+            updated_at = NOW()
+      `
+    } catch (e) {
+      console.error('Failed to sync variant barcode to barcode_registry:', e)
+    }
   }
   res.status(200).json({ data: rows[0] })
 }

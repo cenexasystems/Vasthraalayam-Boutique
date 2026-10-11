@@ -158,26 +158,9 @@ export const InventoryTable: React.FC = () => {
     has_variants?: boolean
   }
 
-  // Combined product options for Barcode Generator intake
+  // Combined product options for Barcode Generator intake (storeProducts takes priority over flat items)
   const distinctProducts: ProductOptionType[] = Array.from(
     new Map<number, ProductOptionType>([
-      ...storeProducts
-        .filter((p) => p.isActive !== false && p.category?.trim().toLowerCase() !== 'unregistered')
-        .map(
-          (p): [number, ProductOptionType] => [
-            Number(p.id),
-            {
-              id: Number(p.id),
-              name: p.name,
-              price: p.price,
-              cost_price: p.purchasePrice || 0,
-              barcode: p.barcode,
-              stock_quantity: p.stockQuantity ?? p.stock ?? 0,
-              category: p.category,
-              has_variants: p.hasVariants,
-            },
-          ]
-        ),
       ...items
         .filter((i) => i.category?.trim().toLowerCase() !== 'unregistered')
         .map(
@@ -192,6 +175,23 @@ export const InventoryTable: React.FC = () => {
               stock_quantity: i.stock,
               category: i.category || undefined,
               has_variants: !!i.variant_id,
+            },
+          ]
+        ),
+      ...storeProducts
+        .filter((p) => p.isActive !== false && p.category?.trim().toLowerCase() !== 'unregistered')
+        .map(
+          (p): [number, ProductOptionType] => [
+            Number(p.id),
+            {
+              id: Number(p.id),
+              name: p.name,
+              price: p.price,
+              cost_price: p.purchasePrice || 0,
+              barcode: p.barcode,
+              stock_quantity: p.stockQuantity ?? p.stock ?? 0,
+              category: p.category,
+              has_variants: p.hasVariants,
             },
           ]
         ),

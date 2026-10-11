@@ -461,6 +461,13 @@ export default function Pos(props: PosProps = {}) {
   // Barcode scanner item handler (Consecutive scan increments cart quantity)
   const handleScannedItem = (scanned: ScannedItemPayload) => {
     setError('')
+    if (!scanned.variant_id) {
+      const catalogProd = products.find(p => Number(p.id) === Number(scanned.product_id))
+      if (catalogProd?.hasVariants) {
+        void addItem(catalogProd)
+        return
+      }
+    }
     const targetId = scanned.variant_id ? scanned.variant_id : scanned.product_id
 
     setItems(cur => {
@@ -468,13 +475,13 @@ export default function Pos(props: PosProps = {}) {
       if (!ex) {
         const item = makePosItem({
           id: targetId,
-          name: scanned.product_name,
+          name: scanned.variant_name ? `${scanned.product_name} - ${scanned.variant_name}` : scanned.product_name,
           nameTa: scanned.name_ta || undefined,
           tamilName: scanned.name_ta || undefined,
           category: scanned.category || 'Apparel',
           remedy: [],
           price: scanned.price,
-          offerPrice: scanned.offer_price || null,
+          offerPrice: scanned.variant_id ? null : (scanned.offer_price || null),
           stock: scanned.stock,
           stockQuantity: scanned.stock,
           hasVariants: false,
@@ -527,16 +534,18 @@ export default function Pos(props: PosProps = {}) {
       const prod = record.product
       const varnt = record.variant
       const effectiveStock = varnt ? (Number(varnt.stock) || 0) : 999
-      const price = varnt?.price ? Number(varnt.price) : Number(prod.price)
+      const price = varnt?.price != null && !isNaN(Number(varnt.price))
+        ? Number(varnt.price)
+        : Number(prod.price || 0)
 
       const payload: ScannedItemPayload = {
         product_id: record.product_id,
-        variant_id: record.variant_id || null,
+        variant_id: record.variant_id || varnt?.id || null,
         product_name: prod.name,
         name_ta: prod.name_ta,
         variant_name: varnt?.variant_name,
         price: price,
-        offer_price: prod.offer_price ? Number(prod.offer_price) : undefined,
+        offer_price: varnt?.price != null ? undefined : (prod.offer_price ? Number(prod.offer_price) : undefined),
         stock: effectiveStock,
         barcode: clean,
         image_url: prod.image_url,

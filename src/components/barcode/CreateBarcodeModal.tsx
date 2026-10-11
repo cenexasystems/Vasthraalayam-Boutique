@@ -154,11 +154,14 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
           const matched = targetVariantId ? vars.find(v => v.id === targetVariantId) : vars[0]
           const chosen = matched || vars[0]
           setSelectedVariant(chosen)
-          if (chosen.barcode) setItemCode(chosen.barcode)
-          setLine2(`Size: ${chosen.variantName}`)
-          if (chosen.price) {
-            setLine3(settings.showDiscount ? 'Discount: 0%' : `Price: ₹${chosen.price}`)
+          if (chosen.barcode && chosen.barcode.trim()) {
+            setItemCode(chosen.barcode.trim())
+          } else {
+            setItemCode(`VASTHRAALAYAM${Math.floor(1000000 + Math.random() * 9000000)}`)
           }
+          setLine2(`Size: ${chosen.variantName}`)
+          const chosenPrice = chosen.price != null && Number(chosen.price) > 0 ? Number(chosen.price) : prod.price
+          setLine3(settings.showDiscount ? 'Discount: 0%' : `Price: ₹${chosenPrice}`)
         }
       } catch (err) {
         console.error('Failed to load variants:', err)
@@ -241,11 +244,14 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
     const v = variants.find((item) => item.id === varId)
     if (!v) return
     setSelectedVariant(v)
-    if (v.barcode) setItemCode(v.barcode)
-    setLine2(`Size: ${v.variantName}`)
-    if (v.price) {
-      setLine3(settings.showDiscount ? 'Discount: 0%' : `Price: ₹${v.price}`)
+    if (v.barcode && v.barcode.trim()) {
+      setItemCode(v.barcode.trim())
+    } else {
+      setItemCode('VASTHRAALAYAM' + Math.floor(1000000 + Math.random() * 9000000))
     }
+    setLine2(`Size: ${v.variantName}`)
+    const varPrice = v.price != null && Number(v.price) > 0 ? Number(v.price) : (selectedProduct ? selectedProduct.price : 0)
+    setLine3(settings.showDiscount ? 'Discount: 0%' : `Price: ₹${varPrice}`)
   }
 
   const handleAssignCode = () => {
@@ -288,6 +294,10 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
       return
     }
 
+    const itemPrice = selectedVariant?.price != null && Number(selectedVariant.price) > 0
+      ? Number(selectedVariant.price)
+      : selectedProduct.price
+
     const newItem: BarcodeQueueItem = {
       id: `queue_${Date.now()}_${Math.random()}`,
       productId: selectedProduct.id,
@@ -295,7 +305,7 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
       variantId: selectedVariant?.id || null,
       variantName: selectedVariant?.variantName || undefined,
       barcodeValue: itemCode.trim(),
-      price: selectedVariant?.price || selectedProduct.price,
+      price: itemPrice,
       costPrice: selectedProduct.cost_price || 0,
       noOfLabels: finalLabels,
       header: header.trim(),
