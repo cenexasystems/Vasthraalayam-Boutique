@@ -35,6 +35,16 @@ export type AdvanceOrder = {
   invoice_number: string | null
   final_payment_method: string | null
   advance_payment_method?: string | null
+  subtotal?: number
+  discount_amount?: number
+  manual_discount_amount?: number
+  coupon_code?: string | null
+  coupon_percentage?: number
+  total_gst?: number
+  gst_amount?: number
+  gst_rate?: number
+  gst_enabled?: boolean
+  payments?: Array<{ mode: string; amount: number; phase?: string; paid_at?: string; notes?: string }>
 }
 
 export type AdvanceTimeline = {
@@ -163,6 +173,14 @@ export async function createAdvanceOrder(input: {
   createdByName: string
   products?: Array<Record<string, unknown>>
   payments?: Array<{ mode: string; amount: number; notes?: string }>
+  subtotal?: number
+  discountAmount?: number
+  manualDiscountAmount?: number
+  couponCode?: string | null
+  couponPercentage?: number
+  totalGst?: number
+  gstRate?: number
+  gstEnabled?: boolean
 }): Promise<AdvanceOrder> {
   const order = throwIfError(
     await neonApi.post<AdvanceOrder>('/advance-orders', {
@@ -181,6 +199,14 @@ export async function createAdvanceOrder(input: {
       p_products: input.products || [],
       reference_number: input.referenceNumber,
       payments: input.payments,
+      subtotal: input.subtotal,
+      discount_amount: input.discountAmount,
+      manual_discount_amount: input.manualDiscountAmount,
+      coupon_code: input.couponCode,
+      coupon_percentage: input.couponPercentage,
+      total_gst: input.totalGst,
+      gst_rate: input.gstRate,
+      gst_enabled: input.gstEnabled,
     }),
     'createAdvanceOrder'
   )
@@ -231,7 +257,10 @@ export async function completeAdvanceOrder(
   manualDiscountAmount = 0,
   remarks = '',
   payments?: Array<{ mode: string; amount: number; notes?: string }>,
-  changeGiven = 0
+  changeGiven = 0,
+  totalGst = 0,
+  gstRate = 0,
+  gstEnabled = false
 ): Promise<{ order_id: string; invoice_no: string; completed_at: string }> {
   const result = throwIfError(
     await neonApi.patch<{ order_id: string; invoice_no: string; completed_at: string }>(
@@ -246,6 +275,9 @@ export async function completeAdvanceOrder(
         remarks,
         payments,
         change_given: changeGiven,
+        total_gst: totalGst,
+        gst_rate: gstRate,
+        gst_enabled: gstEnabled,
       }
     ),
     'completeAdvanceOrder'

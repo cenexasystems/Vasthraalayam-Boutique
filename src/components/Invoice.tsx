@@ -1,6 +1,7 @@
 import React from 'react'
 import { BRAND_ADDRESS, BRAND_EN, BRAND_INSTAGRAM, BRAND_PRIMARY_PHONE_DISPLAY, BRAND_ICON } from '../lib/brand'
-import { formatCurrency, formatQuantityDisplay, normalizeStructuredOrderItem, formatInvoiceNo, toNumber, computeOrderTotal } from '../lib/retail'
+import { formatCurrency, formatQuantityDisplay, normalizeStructuredOrderItem, formatInvoiceNo, toNumber } from '../lib/retail'
+import { computeInvoiceBreakdown, formatPaymentModeName } from '../lib/invoiceBreakdown'
 
 export interface InvoiceItem {
   id: string | number
@@ -30,8 +31,14 @@ export interface InvoiceProps {
   deliveryCharge?: number
   discountAmount?: number
   manualDiscountAmount?: number
+  manualDiscountType?: string
+  manualDiscountValue?: number
   gstAmount?: number
+  totalGst?: number
+  gstRate?: number
   couponCode?: string
+  couponPercentage?: number
+  roundOff?: number
   total: number
   status?: string
   userId?: string
@@ -46,15 +53,6 @@ export interface InvoiceProps {
   onPrintReceipt?: () => void
 }
 
-const formatPaymentMode = (m?: string): string => {
-  if (!m) return 'Cash'
-  const lower = m.trim().toLowerCase()
-  if (lower === 'qr' || lower === 'upi') return 'QR / UPI'
-  if (lower === 'cash') return 'Cash'
-  if (lower === 'card') return 'Card'
-  return m.charAt(0).toUpperCase() + m.slice(1)
-}
-
 export const Invoice: React.FC<InvoiceProps> = ({
   invoiceNo,
   date,
@@ -67,8 +65,14 @@ export const Invoice: React.FC<InvoiceProps> = ({
   deliveryCharge = 0,
   discountAmount = 0,
   manualDiscountAmount = 0,
+  manualDiscountType,
+  manualDiscountValue,
   gstAmount = 0,
+  totalGst,
+  gstRate,
   couponCode,
+  couponPercentage,
+  roundOff,
   total,
   status = 'completed',
   userId,
@@ -88,30 +92,30 @@ export const Invoice: React.FC<InvoiceProps> = ({
   })()
 
   const statusColor = status === 'completed' ? 'var(--invoice-primary, #1F3A2E)' : status === 'cancelled' ? '#dc2626' : '#d97706'
-  const safeSubtotal = toNumber(subtotal, 0)
-  const safeShipping = toNumber(shipping, 0)
-  const safeDeliveryCharge = toNumber(deliveryCharge, 0)
-  const effectiveDelivery = safeDeliveryCharge || safeShipping
-  const safeDiscountAmount = toNumber(discountAmount, 0)
-  const safeManualDiscountAmount = toNumber(manualDiscountAmount, 0)
-  const safeGstAmount = toNumber(gstAmount, 0)
-  const safeTotal = computeOrderTotal({
-    total,
-    subtotal: safeSubtotal,
-    delivery_charge: effectiveDelivery,
-    total_gst: safeGstAmount,
-    discount_amount: safeDiscountAmount,
-    manual_discount_amount: safeManualDiscountAmount,
-  })
-
-  const activePayments = (payments || []).filter(p => toNumber(p.amount, 0) > 0)
-  const isDepositInvoice = (depositAmount != null && depositAmount > 0) || (remainingBalance != null)
-  const effectiveAdvancePaid = toNumber(depositAmount ?? advancePaid, 0)
-  const effectiveBalanceDue = toNumber(remainingBalance ?? balanceDue, 0)
-  const effectiveBalancePaid = toNumber(balancePaid, 0)
   const safeChangeGiven = toNumber(changeGiven, 0)
-  const totalPaidAmount = activePayments.reduce((sum, p) => sum + toNumber(p.amount, 0), 0)
-  const cashAmount = activePayments.filter(p => p.mode.toLowerCase() === 'cash').reduce((sum, p) => sum + toNumber(p.amount, 0), 0)
+
+  const breakdown = computeInvoiceBreakdown({
+    subtotal,
+    total,
+    discountAmount,
+    manualDiscountAmount,
+    manualDiscountType,
+    manualDiscountValue,
+    couponCode,
+    couponPercentage,
+    totalGst: totalGst ?? gstAmount,
+    gstRate,
+    deliveryCharge,
+    shipping,
+    roundOff,
+    paymentMode,
+    payments,
+    depositAmount,
+    remainingBalance,
+    advancePaid,
+    balancePaid,
+    balanceDue,
+  })
 
   return (
     <div
@@ -264,46 +268,48 @@ export const Invoice: React.FC<InvoiceProps> = ({
       {/* ── TOTALS ───────────────────────────────────────────────── */}
       <div className="invoice-totals" style={{ marginTop: 24, borderTop: '2px solid var(--invoice-primary, #1F3A2E)', paddingTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <div style={{ minWidth: 240, width: '100%', maxWidth: 300 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontSize: 12, color: '#666' }}>Subtotal</span>
-              <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(safeSubtotal)}</span>
-            </div>
-            {safeDiscountAmount > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontSize: 12, color: 'var(--invoice-primary, #1F3A2E)' }}>
-                  Coupon{couponCode ? ` (${couponCode})` : ''}
-                </span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--invoice-primary, #1F3A2E)', fontVariantNumeric: 'tabular-nums' }}>−{formatCurrency(safeDiscountAmount)}</span>
-              </div>
-            )}
-            {safeManualDiscountAmount > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontSize: 12, color: 'var(--invoice-primary, #1F3A2E)' }}>Manual Discount</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--invoice-primary, #1F3A2E)', fontVariantNumeric: 'tabular-nums' }}>−{formatCurrency(safeManualDiscountAmount)}</span>
-              </div>
-            )}
-            {safeGstAmount > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontSize: 12, color: '#666' }}>GST</span>
-                <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>+{formatCurrency(safeGstAmount)}</span>
-              </div>
-            )}
-            {effectiveDelivery > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontSize: 12, color: '#666' }}>Delivery</span>
-                <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(effectiveDelivery)}</span>
-              </div>
-            )}
-            <div
-              style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                borderTop: '2px solid var(--invoice-primary, #1F3A2E)', paddingTop: 10, marginTop: 4,
-              }}
-            >
-              <span style={{ fontSize: 15, fontWeight: 900, color: 'var(--invoice-primary, #1F3A2E)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Total</span>
-              <span style={{ fontSize: 20, fontWeight: 900, color: 'var(--invoice-primary, #1F3A2E)', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(safeTotal)}</span>
-            </div>
+          <div style={{ minWidth: 260, width: '100%', maxWidth: 320 }}>
+            {breakdown.rows.map(row => {
+              if (row.type === 'total') {
+                return (
+                  <div
+                    key={row.key}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      borderTop: '2px solid var(--invoice-primary, #1F3A2E)',
+                      paddingTop: 10,
+                      marginTop: 6,
+                    }}
+                  >
+                    <span style={{ fontSize: 15, fontWeight: 900, color: 'var(--invoice-primary, #1F3A2E)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      TOTAL
+                    </span>
+                    <span style={{ fontSize: 20, fontWeight: 900, color: 'var(--invoice-primary, #1F3A2E)', fontVariantNumeric: 'tabular-nums' }}>
+                      {formatCurrency(row.amount)}
+                    </span>
+                  </div>
+                )
+              }
+
+              const isDiscount = row.type === 'discount'
+              const color = isDiscount ? 'var(--invoice-primary, #1F3A2E)' : '#555'
+              const valColor = isDiscount ? 'var(--invoice-primary, #1F3A2E)' : '#111'
+              const sign = row.prefix ? `${row.prefix}` : ''
+
+              return (
+                <div key={row.key} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontSize: 12, color, fontWeight: row.type === 'taxable' ? 600 : 500 }}>
+                    {row.label}
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: valColor, fontVariantNumeric: 'tabular-nums' }}>
+                    {sign}{formatCurrency(row.amount)}
+                  </span>
+                </div>
+              )
+            })}
+
             {/* ── PAYMENT DETAILS BLOCK (under TOTAL row) ─────────── */}
             <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 12, paddingTop: 10 }}>
               <div
@@ -320,130 +326,89 @@ export const Invoice: React.FC<InvoiceProps> = ({
                 PAYMENT DETAILS
               </div>
 
-              {isDepositInvoice ? (
+              {breakdown.isDepositInvoice ? (
                 <div>
-                  {(() => {
-                    const advancePayments = activePayments.filter(p => p.phase === 'deposit' || p.phase === 'advance')
-                    const balancePayments = activePayments.filter(p => p.phase === 'remaining' || p.phase === 'balance')
-
-                    if (advancePayments.length > 0 || balancePayments.length > 0) {
-                      return (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          {advancePayments.length > 0 && (
-                            <div>
-                              <div style={{ fontSize: 9, fontWeight: 800, color: '#6b7280', textTransform: 'uppercase', marginBottom: 2 }}>
-                                Advance Paid {advancePayments[0]?.paid_at ? `(${new Date(advancePayments[0].paid_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })})` : ''}
-                              </div>
-                              {advancePayments.map((p, idx) => (
-                                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#4b5563', paddingLeft: 6, marginBottom: 2 }}>
-                                  <span>{formatPaymentMode(p.mode)}</span>
-                                  <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(p.amount)}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          {balancePayments.length > 0 && (
-                            <div>
-                              <div style={{ fontSize: 9, fontWeight: 800, color: '#6b7280', textTransform: 'uppercase', marginBottom: 2 }}>
-                                Balance Paid {balancePayments[0]?.paid_at ? `(${new Date(balancePayments[0].paid_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })})` : ''}
-                              </div>
-                              {balancePayments.map((p, idx) => (
-                                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#4b5563', paddingLeft: 6, marginBottom: 2 }}>
-                                  <span>{formatPaymentMode(p.mode)}</span>
-                                  <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(p.amount)}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          {effectiveBalanceDue > 0 && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--invoice-primary, #1F3A2E)', fontWeight: 700, marginTop: 2 }}>
-                              <span>Balance Due</span>
-                              <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(effectiveBalanceDue)}</span>
-                            </div>
-                          )}
-
-                          <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 4, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 800, color: 'var(--invoice-primary, #1F3A2E)' }}>
-                            <span>Total Paid</span>
-                            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(effectiveAdvancePaid + effectiveBalancePaid || totalPaidAmount)}</span>
-                          </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {breakdown.paymentDisplay.advancePayments.length > 0 ? (
+                      breakdown.paymentDisplay.advancePayments.map((p, idx) => (
+                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#4b5563' }}>
+                          <span>{p.label}</span>
+                          <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(p.amount)}</span>
                         </div>
-                      )
-                    }
-
-                    return (
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#4b5563', marginBottom: 3 }}>
-                          <span>Advance Paid</span>
-                          <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(effectiveAdvancePaid)}</span>
-                        </div>
-                        {effectiveBalancePaid > 0 && (
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#4b5563', marginBottom: 3 }}>
-                            <span>Balance Paid</span>
-                            <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(effectiveBalancePaid)}</span>
-                          </div>
-                        )}
-                        {effectiveBalanceDue > 0 && (
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--invoice-primary, #1F3A2E)', fontWeight: 700, marginBottom: 3 }}>
-                            <span>Balance Due</span>
-                            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(effectiveBalanceDue)}</span>
-                          </div>
-                        )}
-                        {paymentMode && (
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-                            <span>Payment Mode:</span>
-                            <span style={{ fontWeight: 600 }}>{formatPaymentMode(paymentMode)}</span>
-                          </div>
-                        )}
-                        {(effectiveAdvancePaid + effectiveBalancePaid > 0) && (
-                          <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 6, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 800, color: 'var(--invoice-primary, #1F3A2E)' }}>
-                            <span>Total Paid</span>
-                            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(effectiveAdvancePaid + effectiveBalancePaid)}</span>
-                          </div>
-                        )}
+                      ))
+                    ) : (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#4b5563' }}>
+                        <span>Advance Paid</span>
+                        <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(breakdown.advancePaid)}</span>
                       </div>
-                    )
-                  })()}
-                </div>
-              ) : activePayments.length > 0 ? (
-                <div>
-                  {activePayments.map((p, idx) => (
-                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#4b5563', marginBottom: 3 }}>
-                      <span>{formatPaymentMode(p.mode)}</span>
-                      <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(p.amount)}</span>
+                    )}
+
+                    {breakdown.paymentDisplay.balancePayments.length > 0 ? (
+                      breakdown.paymentDisplay.balancePayments.map((p, idx) => (
+                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#4b5563' }}>
+                          <span>{p.label}</span>
+                          <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(p.amount)}</span>
+                        </div>
+                      ))
+                    ) : breakdown.balancePaid > 0 ? (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#4b5563' }}>
+                        <span>Balance Paid</span>
+                        <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(breakdown.balancePaid)}</span>
+                      </div>
+                    ) : null}
+
+                    {breakdown.balanceDue > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--invoice-primary, #1F3A2E)', fontWeight: 700 }}>
+                        <span>Balance Due</span>
+                        <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(breakdown.balanceDue)}</span>
+                      </div>
+                    )}
+
+                    <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 4, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 800, color: 'var(--invoice-primary, #1F3A2E)' }}>
+                      <span>Total Paid</span>
+                      <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(breakdown.paymentDisplay.totalPaid)}</span>
                     </div>
-                  ))}
+                  </div>
+                </div>
+              ) : breakdown.paymentDisplay.isSplit ? (
+                <div>
+                  <div style={{ fontSize: 11, color: '#4b5563', fontWeight: 600, marginBottom: 4 }}>Payment:</div>
+                  <div style={{ paddingLeft: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    {breakdown.paymentDisplay.splitPayments.map((p, idx) => (
+                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#4b5563' }}>
+                        <span>{p.label}:</span>
+                        <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(p.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
 
                   {safeChangeGiven > 0 && (
-                    <>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6b7280', marginBottom: 3 }}>
-                        <span>Change Returned</span>
-                        <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>−{formatCurrency(safeChangeGiven)}</span>
-                      </div>
-                      {cashAmount > 0 && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#4b5563', marginBottom: 3 }}>
-                          <span>Net Cash</span>
-                          <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(Math.max(0, cashAmount - safeChangeGiven))}</span>
-                        </div>
-                      )}
-                    </>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+                      <span>Change Returned</span>
+                      <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>−{formatCurrency(safeChangeGiven)}</span>
+                    </div>
                   )}
 
                   <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 6, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 800, color: 'var(--invoice-primary, #1F3A2E)' }}>
                     <span>Total Paid</span>
-                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(totalPaidAmount)}</span>
+                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(breakdown.paymentDisplay.totalPaid)}</span>
                   </div>
                 </div>
               ) : (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#4b5563', marginBottom: 3 }}>
-                    <span>Payment Mode:</span>
-                    <span style={{ fontWeight: 600 }}>{formatPaymentMode(paymentMode)}</span>
+                    <span>Payment:</span>
+                    <span style={{ fontWeight: 600 }}>{breakdown.paymentDisplay.singleModeLabel}</span>
                   </div>
+                  {safeChangeGiven > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6b7280', marginBottom: 3 }}>
+                      <span>Change Returned</span>
+                      <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>−{formatCurrency(safeChangeGiven)}</span>
+                    </div>
+                  )}
                   <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 6, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 800, color: 'var(--invoice-primary, #1F3A2E)' }}>
                     <span>Total Paid</span>
-                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(safeTotal)}</span>
+                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(breakdown.total)}</span>
                   </div>
                 </div>
               )}

@@ -1,9 +1,10 @@
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
 import { BRAND_ADDRESS, BRAND_EN, BRAND_PHONE_DISPLAY } from './brand'
-import { formatCurrency, formatQuantityDisplay, normalizeStructuredOrderItem, formatInvoiceNo, toNumber, computeOrderTotal } from './retail'
+import { formatCurrency, formatQuantityDisplay, normalizeStructuredOrderItem, formatInvoiceNo, toNumber } from './retail'
 import { LOGO_BASE64 } from './logoBase64'
 import { getInvoiceTheme } from './invoiceTheme'
+import { computeInvoiceBreakdown } from './invoiceBreakdown'
 
 export type InvoicePdfData = {
   invoiceNo: string
@@ -14,13 +15,20 @@ export type InvoicePdfData = {
   items: Array<Record<string, unknown>>
   subtotal: number
   shipping: number
+  deliveryCharge?: number
   total: number
   discountAmount?: number
   manualDiscountAmount?: number
+  manualDiscountType?: string
+  manualDiscountValue?: number
   gstAmount?: number
+  totalGst?: number
+  gstRate?: number
   couponCode?: string | null
+  couponPercentage?: number
+  roundOff?: number
   paymentMode?: string
-  payments?: Array<{ mode: string; amount: number }>
+  payments?: Array<{ mode: string; amount: number; phase?: string; paid_at?: string; notes?: string }>
   changeGiven?: number
   primaryColor?: string
   depositAmount?: number
@@ -36,15 +44,6 @@ export type InvoicePdfData = {
 const money = (value: unknown): string => {
   const formatted = formatCurrency(toNumber(value, 0)).replace(/\s+/g, ' ')
   return formatted.replace(/^[₹\u20b9]\s*/, 'Rs. ')
-}
-
-const formatMode = (m?: string): string => {
-  if (!m) return 'Cash'
-  const lower = m.trim().toLowerCase()
-  if (lower === 'qr' || lower === 'upi') return 'QR / UPI'
-  if (lower === 'cash') return 'Cash'
-  if (lower === 'card') return 'Card'
-  return m.charAt(0).toUpperCase() + m.slice(1)
 }
 
 /** Creates a compact A4 invoice that can be attached as a file to WhatsApp. */
@@ -184,36 +183,54 @@ export function createInvoicePdf(data: InvoicePdfData): Blob {
   })
 
   y = Math.max(y + 6, 150)
-  const safeSubtotal = toNumber(data.subtotal, 0)
-  const safeShipping = toNumber(data.shipping, 0)
-  const safeDiscountAmount = toNumber(data.discountAmount, 0)
-  const safeManualDiscountAmount = toNumber(data.manualDiscountAmount, 0)
-  const safeGstAmount = toNumber(data.gstAmount, 0)
-  const safeTotal = computeOrderTotal({
+
+  const breakdown = computeInvoiceBreakdown({
+    subtotal: data.subtotal,
     total: data.total,
-    subtotal: safeSubtotal,
-    delivery_charge: safeShipping,
-    total_gst: safeGstAmount,
-    discount_amount: safeDiscountAmount,
-    manual_discount_amount: safeManualDiscountAmount,
+    discountAmount: data.discountAmount,
+    manualDiscountAmount: data.manualDiscountAmount,
+    manualDiscountType: data.manualDiscountType,
+    manualDiscountValue: data.manualDiscountValue,
+    couponCode: data.couponCode,
+    couponPercentage: data.couponPercentage,
+    totalGst: data.totalGst ?? data.gstAmount,
+    gstRate: data.gstRate,
+    deliveryCharge: data.deliveryCharge ?? data.shipping,
+    shipping: data.shipping,
+    roundOff: data.roundOff,
+    paymentMode: data.paymentMode,
+    payments: data.payments,
+    depositAmount: data.depositAmount,
+    remainingBalance: data.remainingBalance,
+    advancePaid: data.advancePaid,
+    balancePaid: data.balancePaid,
+    balanceDue: data.balanceDue,
   })
 
-  const rows: Array<[string, string, string]> = [['Subtotal', money(safeSubtotal), ink]]
-  if (safeDiscountAmount > 0) rows.push([`Coupon${data.couponCode ? ` (${data.couponCode})` : ''}`, `-${money(safeDiscountAmount)}`, primaryColor])
-  if (safeManualDiscountAmount > 0) rows.push(['Discount', `-${money(safeManualDiscountAmount)}`, primaryColor])
-  if (safeGstAmount > 0) rows.push(['GST', money(safeGstAmount), ink])
-  rows.push(['Delivery', safeShipping > 0 ? money(safeShipping) : 'FREE', ink])
   doc.setFontSize(9)
-  rows.forEach(([label, value, color]) => { doc.setFont('helvetica', 'normal'); doc.setTextColor(color); doc.text(label, 143, y, { align: 'right' }); doc.text(value, right - 4, y, { align: 'right' }); y += 7 })
+  breakdown.rows.forEach(row => {
+    if (row.type === 'total') return
+
+    const color = row.type === 'discount' ? primaryColor : ink
+    const sign = row.prefix ? `${row.prefix}` : ''
+    const valText = `${sign}${money(row.amount)}`
+
+    doc.setFont('helvetica', row.type === 'taxable' ? 'bold' : 'normal')
+    doc.setTextColor(color)
+    doc.text(row.label, 143, y, { align: 'right' })
+    doc.text(valText, right - 4, y, { align: 'right' })
+    y += 6.5
+  })
+
   doc.setDrawColor(primaryColor)
   doc.setLineWidth(0.7)
-  doc.line(118, y - 3, right, y - 3)
+  doc.line(118, y - 2, right, y - 2)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(13)
   doc.setTextColor(primaryColor)
-  doc.text('TOTAL', 143, y + 5.5, { align: 'right' })
-  doc.text(money(safeTotal), right - 4, y + 5.5, { align: 'right' })
-  y += 11
+  doc.text('TOTAL', 143, y + 6, { align: 'right' })
+  doc.text(money(breakdown.total), right - 4, y + 6, { align: 'right' })
+  y += 12
 
   // ── PAYMENT DETAILS SECTION (under TOTAL) ─────────────────────────
   doc.setDrawColor('#e5e7eb')
@@ -227,58 +244,66 @@ export function createInvoicePdf(data: InvoicePdfData): Blob {
   doc.text('PAYMENT DETAILS', 120, y)
   y += 5
 
-  const activePayments = (data.payments || []).filter(p => toNumber(p.amount, 0) > 0)
-  const isDepositInvoice = (data.depositAmount != null && data.depositAmount > 0) || (data.remainingBalance != null)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(ink)
 
-  if (isDepositInvoice) {
-    const advPaid = toNumber(data.depositAmount ?? data.advancePaid, 0)
-    const remBalance = toNumber(data.remainingBalance ?? data.balanceDue, 0)
-    const balPaid = toNumber(data.balancePaid, 0)
-
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(8)
-    doc.setTextColor(ink)
-
-    doc.text('Advance Paid', 120, y)
-    doc.text(money(advPaid), right - 4, y, { align: 'right' })
-    y += 4.5
-
-    if (balPaid > 0) {
-      doc.text('Balance Paid', 120, y)
-      doc.text(money(balPaid), right - 4, y, { align: 'right' })
+  if (breakdown.isDepositInvoice) {
+    if (breakdown.paymentDisplay.advancePayments.length > 0) {
+      breakdown.paymentDisplay.advancePayments.forEach(p => {
+        doc.setFontSize(7.5)
+        doc.text(p.label, 120, y)
+        doc.setFontSize(8)
+        doc.text(money(p.amount), right - 4, y, { align: 'right' })
+        y += 4.5
+      })
+    } else {
+      doc.text('Advance Paid', 120, y)
+      doc.text(money(breakdown.advancePaid), right - 4, y, { align: 'right' })
       y += 4.5
     }
 
-    if (remBalance > 0) {
+    if (breakdown.paymentDisplay.balancePayments.length > 0) {
+      breakdown.paymentDisplay.balancePayments.forEach(p => {
+        doc.setFontSize(7.5)
+        doc.text(p.label, 120, y)
+        doc.setFontSize(8)
+        doc.text(money(p.amount), right - 4, y, { align: 'right' })
+        y += 4.5
+      })
+    } else if (breakdown.balancePaid > 0) {
+      doc.text('Balance Paid', 120, y)
+      doc.text(money(breakdown.balancePaid), right - 4, y, { align: 'right' })
+      y += 4.5
+    }
+
+    if (breakdown.balanceDue > 0) {
       doc.setTextColor(primaryColor)
       doc.setFont('helvetica', 'bold')
       doc.text('Balance Due', 120, y)
-      doc.text(money(remBalance), right - 4, y, { align: 'right' })
+      doc.text(money(breakdown.balanceDue), right - 4, y, { align: 'right' })
       doc.setFont('helvetica', 'normal')
       doc.setTextColor(ink)
       y += 4.5
     }
 
-    if (data.paymentMode) {
-      doc.setFontSize(7.5)
-      doc.setTextColor(muted)
-      doc.text(`Payment Mode: ${formatMode(data.paymentMode)}`, 120, y)
-      y += 4.5
-    }
-  } else if (activePayments.length > 0) {
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(8)
-    doc.setTextColor(ink)
+    doc.setDrawColor('#e5e7eb')
+    doc.setLineWidth(0.2)
+    doc.line(118, y, right, y)
+    y += 3.5
 
-    let totalPaid = 0
-    let cashPaid = 0
-
-    activePayments.forEach(p => {
-      const amt = toNumber(p.amount, 0)
-      totalPaid += amt
-      if (p.mode.toLowerCase() === 'cash') cashPaid += amt
-      doc.text(formatMode(p.mode), 120, y)
-      doc.text(money(amt), right - 4, y, { align: 'right' })
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8.5)
+    doc.setTextColor(primaryColor)
+    doc.text('Total Paid', 120, y)
+    doc.text(money(breakdown.paymentDisplay.totalPaid), right - 4, y, { align: 'right' })
+    y += 5
+  } else if (breakdown.paymentDisplay.isSplit) {
+    doc.text('Payment:', 120, y)
+    y += 4
+    breakdown.paymentDisplay.splitPayments.forEach(p => {
+      doc.text(`  ${p.label}`, 120, y)
+      doc.text(money(p.amount), right - 4, y, { align: 'right' })
       y += 4.5
     })
 
@@ -288,12 +313,6 @@ export function createInvoicePdf(data: InvoicePdfData): Blob {
       doc.text('Change Returned', 120, y)
       doc.text(`-${money(change)}`, right - 4, y, { align: 'right' })
       y += 4.5
-
-      if (cashPaid > 0) {
-        doc.text('Net Cash', 120, y)
-        doc.text(money(Math.max(0, cashPaid - change)), right - 4, y, { align: 'right' })
-        y += 4.5
-      }
       doc.setTextColor(ink)
     }
 
@@ -306,18 +325,22 @@ export function createInvoicePdf(data: InvoicePdfData): Blob {
     doc.setFontSize(8.5)
     doc.setTextColor(primaryColor)
     doc.text('Total Paid', 120, y)
-    doc.text(money(totalPaid), right - 4, y, { align: 'right' })
+    doc.text(money(breakdown.paymentDisplay.totalPaid), right - 4, y, { align: 'right' })
     y += 5
   } else {
     // Single payment bill
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(8)
-    doc.setTextColor(ink)
-
-    const modeLabel = formatMode(data.paymentMode)
-    doc.text('Payment Mode:', 120, y)
-    doc.text(modeLabel, right - 4, y, { align: 'right' })
+    doc.text('Payment:', 120, y)
+    doc.text(breakdown.paymentDisplay.singleModeLabel, right - 4, y, { align: 'right' })
     y += 4.5
+
+    const change = toNumber(data.changeGiven, 0)
+    if (change > 0) {
+      doc.setTextColor(muted)
+      doc.text('Change Returned', 120, y)
+      doc.text(`-${money(change)}`, right - 4, y, { align: 'right' })
+      y += 4.5
+      doc.setTextColor(ink)
+    }
 
     doc.setDrawColor('#e5e7eb')
     doc.setLineWidth(0.2)
@@ -328,7 +351,7 @@ export function createInvoicePdf(data: InvoicePdfData): Blob {
     doc.setFontSize(8.5)
     doc.setTextColor(primaryColor)
     doc.text('Total Paid', 120, y)
-    doc.text(money(safeTotal), right - 4, y, { align: 'right' })
+    doc.text(money(breakdown.total), right - 4, y, { align: 'right' })
     y += 5
   }
 

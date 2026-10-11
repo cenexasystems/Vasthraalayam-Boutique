@@ -92,6 +92,9 @@ function formatOrderRow(row: Record<string, unknown>) {
   const payments = (rawPayments as Array<Record<string, unknown>>).map((p) => ({
     mode: String(p?.mode || 'cash').toLowerCase(),
     amount: toNumber(p?.amount, 0),
+    phase: p?.phase ? String(p.phase) : undefined,
+    paid_at: p?.paid_at ? String(p.paid_at) : undefined,
+    notes: p?.notes ? String(p.notes) : undefined,
   }))
 
   return {
@@ -145,8 +148,9 @@ async function list(req: VercelRequest, res: VercelResponse) {
   const rows = await sql`
     SELECT
       id, invoice_no, customer_name, phone, address, created_at, total, status,
-      order_mode, order_type, user_id, items, coupon_code, discount_amount,
-      manual_discount_amount, delivery_charge, total_gst, gst_amount, payment_mode,
+      order_mode, order_type, user_id, items, coupon_code, coupon_percentage, discount_amount,
+      manual_discount_amount, manual_discount_type, manual_discount_value, delivery_charge,
+      subtotal, total_gst, gst_amount, gst_enabled, payment_mode,
       payment_method, remarks, tailor_name, reference_number, invoice_pdf_url,
       payments, change_given, business_id
     FROM public.orders
@@ -163,8 +167,9 @@ async function getById(req: VercelRequest, res: VercelResponse) {
   const rows = await sql`
     SELECT
       id, invoice_no, customer_name, phone, address, created_at, total, status,
-      order_mode, order_type, user_id, items, coupon_code, discount_amount,
-      manual_discount_amount, delivery_charge, total_gst, gst_amount, payment_mode,
+      order_mode, order_type, user_id, items, coupon_code, coupon_percentage, discount_amount,
+      manual_discount_amount, manual_discount_type, manual_discount_value, delivery_charge,
+      subtotal, total_gst, gst_amount, gst_enabled, payment_mode,
       payment_method, remarks, tailor_name, reference_number, invoice_pdf_url,
       payments, change_given, business_id
     FROM public.orders
@@ -215,8 +220,9 @@ async function getPublicInvoice(req: VercelRequest, res: VercelResponse) {
     ? await sql`
         SELECT
           id, invoice_no, customer_name, phone, address, created_at, total, status,
-          order_mode, order_type, user_id, items, coupon_code, discount_amount,
-          manual_discount_amount, delivery_charge, total_gst, gst_amount, payment_mode,
+          order_mode, order_type, user_id, items, coupon_code, coupon_percentage, discount_amount,
+          manual_discount_amount, manual_discount_type, manual_discount_value, delivery_charge,
+          subtotal, total_gst, gst_amount, gst_enabled, payment_mode,
           payment_method, remarks, tailor_name, reference_number, invoice_pdf_url,
           payments, change_given, business_id
         FROM public.orders
@@ -226,8 +232,9 @@ async function getPublicInvoice(req: VercelRequest, res: VercelResponse) {
     : await sql`
         SELECT
           id, invoice_no, customer_name, phone, address, created_at, total, status,
-          order_mode, order_type, user_id, items, coupon_code, discount_amount,
-          manual_discount_amount, delivery_charge, total_gst, gst_amount, payment_mode,
+          order_mode, order_type, user_id, items, coupon_code, coupon_percentage, discount_amount,
+          manual_discount_amount, manual_discount_type, manual_discount_value, delivery_charge,
+          subtotal, total_gst, gst_amount, gst_enabled, payment_mode,
           payment_method, remarks, tailor_name, reference_number, invoice_pdf_url,
           payments, change_given, business_id
         FROM public.orders
@@ -268,6 +275,27 @@ async function getPublicInvoice(req: VercelRequest, res: VercelResponse) {
           line_total: Number(adv.total_amount || 0),
         }]
     const mappedTotal = toNumber(adv.total_amount, 0)
+    const depositAmt = toNumber(adv.deposit_amount, 0)
+    const remBal = toNumber(adv.remaining_balance, 0)
+
+    // Load advance order payments from DB if present
+    const advOrderId = String(adv.id || '')
+    const advPmtRows = await sql`
+      SELECT payment_type, amount, payment_method, received_at, remarks
+      FROM public.advance_order_payments
+      WHERE advance_order_id = ${advOrderId}
+      ORDER BY received_at ASC
+    `
+    const mappedPayments = advPmtRows.length > 0
+      ? advPmtRows.map(p => ({
+          mode: String(p.payment_method || 'cash').toLowerCase(),
+          amount: toNumber(p.amount, 0),
+          phase: String(p.payment_type || 'deposit'),
+          paid_at: p.received_at ? String(p.received_at) : undefined,
+          notes: p.remarks ? String(p.remarks) : undefined,
+        }))
+      : [{ mode: String(adv.final_payment_method || adv.advance_payment_method || 'cash').toLowerCase(), amount: mappedTotal }]
+
     const mapped = {
       id: adv.completed_order_id || adv.id,
       invoice_no: adv.invoice_number || adv.deposit_id,
@@ -278,16 +306,24 @@ async function getPublicInvoice(req: VercelRequest, res: VercelResponse) {
       total: mappedTotal,
       total_amount: mappedTotal,
       grand_total: mappedTotal,
-      subtotal: mappedTotal,
+      subtotal: adv.subtotal != null ? toNumber(adv.subtotal, mappedTotal) : mappedTotal,
       delivery_charge: 0,
       shipping: 0,
-      discount_amount: 0,
-      manual_discount_amount: 0,
-      total_gst: 0,
-      gst_amount: 0,
+      discount_amount: toNumber(adv.discount_amount, 0),
+      manual_discount_amount: toNumber(adv.manual_discount_amount, 0),
+      coupon_code: adv.coupon_code || undefined,
+      coupon_percentage: adv.coupon_percentage != null ? toNumber(adv.coupon_percentage, 0) : undefined,
+      total_gst: toNumber(adv.total_gst ?? adv.gst_amount, 0),
+      gst_amount: toNumber(adv.gst_amount ?? adv.total_gst, 0),
+      gst_rate: adv.gst_rate != null ? toNumber(adv.gst_rate, 0) : undefined,
       status: adv.status,
       payment_mode: adv.final_payment_method || 'Advance Payment',
-      payments: [{ mode: String(adv.final_payment_method || 'advance').toLowerCase(), amount: mappedTotal }],
+      payments: mappedPayments,
+      deposit_amount: depositAmt,
+      remaining_balance: remBal,
+      advance_paid: depositAmt,
+      balance_paid: adv.status === 'completed' ? Math.max(0, mappedTotal - depositAmt) : 0,
+      balance_due: remBal,
       change_given: 0,
       created_at: adv.completed_at || adv.created_at,
     }

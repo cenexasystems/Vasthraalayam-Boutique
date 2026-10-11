@@ -1,5 +1,6 @@
-import { formatInvoiceNo, toNumber, computeOrderTotal } from './retail'
+import { formatInvoiceNo, toNumber } from './retail'
 import { BRAND_EN, BRAND_INSTAGRAM, BRAND_INSTAGRAM_URL, BRAND_PRIMARY_PHONE_DISPLAY, BRAND_PRODUCTION_DOMAIN } from './brand'
+import { computeInvoiceBreakdown } from './invoiceBreakdown'
 
 export type WhatsAppLineItem = {
   name: string
@@ -17,7 +18,7 @@ export type BuildWhatsAppMessageInput = {
   invoiceDate?: string
   invoiceUrl?: string
   paymentMode?: string
-  payments?: Array<{ mode: string; amount: number }>
+  payments?: Array<{ mode: string; amount: number; phase?: string; paid_at?: string; notes?: string }>
   changeGiven?: number
   depositAmount?: number
   remainingBalance?: number
@@ -26,10 +27,19 @@ export type BuildWhatsAppMessageInput = {
   balanceDue?: number
   items?: WhatsAppLineItem[]
   subtotal?: number
+  discountAmount?: number
   couponDiscount?: number
   manualDiscountAmount?: number
+  manualDiscountType?: string
+  manualDiscountValue?: number
+  couponCode?: string | null
+  couponPercentage?: number
   shipping?: number
+  deliveryCharge?: number
   gstAmount?: number
+  totalGst?: number
+  gstRate?: number
+  roundOff?: number
   total?: number
 }
 
@@ -59,69 +69,83 @@ export const buildProfessionalWhatsAppMessage = (input: BuildWhatsAppMessageInpu
   const customerName = input.customerName?.trim() || 'Valued Customer'
   const invoiceUrl = input.invoiceUrl || publicInvoiceUrl(input.invoiceNumber)
   const formattedNo = formatInvoiceNo(input.invoiceNumber)
-  const safeTotal = computeOrderTotal({
+
+  const breakdown = computeInvoiceBreakdown({
+    subtotal: input.subtotal ?? 0,
     total: input.total,
-    subtotal: input.subtotal,
-    delivery_charge: input.shipping,
-    total_gst: input.gstAmount,
-    discount_amount: input.couponDiscount,
-    manual_discount_amount: input.manualDiscountAmount,
+    discountAmount: input.discountAmount ?? input.couponDiscount,
+    manualDiscountAmount: input.manualDiscountAmount,
+    manualDiscountType: input.manualDiscountType,
+    manualDiscountValue: input.manualDiscountValue,
+    couponCode: input.couponCode,
+    couponPercentage: input.couponPercentage,
+    totalGst: input.totalGst ?? input.gstAmount,
+    gstRate: input.gstRate,
+    deliveryCharge: input.deliveryCharge ?? input.shipping,
+    shipping: input.shipping,
+    roundOff: input.roundOff,
+    paymentMode: input.paymentMode,
+    payments: input.payments,
+    depositAmount: input.depositAmount,
+    remainingBalance: input.remainingBalance,
+    advancePaid: input.advancePaid,
+    balancePaid: input.balancePaid,
+    balanceDue: input.balanceDue,
   })
 
   const itemsText = input.items && input.items.length > 0
     ? input.items.map(item => `• ${item.name} (x${item.qty}) - ₹ ${toNumber(item.lineTotal, 0).toFixed(2)}`).join('\n')
     : ''
 
-  const formatMode = (m?: string): string => {
-    if (!m) return 'Cash'
-    const lower = m.trim().toLowerCase()
-    if (lower === 'qr' || lower === 'upi') return 'QR / UPI'
-    if (lower === 'cash') return 'Cash'
-    if (lower === 'card') return 'Card'
-    return m.charAt(0).toUpperCase() + m.slice(1)
-  }
-
-  const activePayments = (input.payments || []).filter(p => toNumber(p.amount, 0) > 0)
-  const isDeposit = (input.depositAmount != null && input.depositAmount > 0) || (input.remainingBalance != null)
+  const breakdownLines = breakdown.rows.map(row => {
+    if (row.type === 'total') return `*TOTAL: ₹ ${row.amount.toFixed(2)}*`
+    const sign = row.prefix ? `${row.prefix}` : ''
+    return `• ${row.label}: ${sign}₹ ${row.amount.toFixed(2)}`
+  }).join('\n')
 
   let paymentSection = ''
-  if (isDeposit) {
-    const advPaid = toNumber(input.depositAmount ?? input.advancePaid, 0)
-    const balPaid = toNumber(input.balancePaid, 0)
-    const remBal = toNumber(input.remainingBalance ?? input.balanceDue, 0)
-    const depositTotalPaid = advPaid + balPaid
+  if (breakdown.isDepositInvoice) {
+    const depositLines: string[] = []
+    if (breakdown.paymentDisplay.advancePayments.length > 0) {
+      breakdown.paymentDisplay.advancePayments.forEach(p => {
+        depositLines.push(`• ${p.label}: ₹ ${p.amount.toFixed(2)}`)
+      })
+    } else {
+      depositLines.push(`• Advance Paid: ₹ ${breakdown.advancePaid.toFixed(2)}`)
+    }
 
-    const depositLines = [
-      `• Advance Paid: ₹ ${advPaid.toFixed(2)}`,
-    ]
-    if (balPaid > 0) {
-      depositLines.push(`• Balance Paid: ₹ ${balPaid.toFixed(2)}`)
+    if (breakdown.paymentDisplay.balancePayments.length > 0) {
+      breakdown.paymentDisplay.balancePayments.forEach(p => {
+        depositLines.push(`• ${p.label}: ₹ ${p.amount.toFixed(2)}`)
+      })
+    } else if (breakdown.balancePaid > 0) {
+      depositLines.push(`• Balance Paid: ₹ ${breakdown.balancePaid.toFixed(2)}`)
     }
-    if (remBal > 0) {
-      depositLines.push(`• Balance Due: ₹ ${remBal.toFixed(2)}`)
+
+    if (breakdown.balanceDue > 0) {
+      depositLines.push(`• Balance Due: ₹ ${breakdown.balanceDue.toFixed(2)}`)
     }
-    if (input.paymentMode) {
-      depositLines.push(`• Payment Mode: ${formatMode(input.paymentMode)}`)
-    }
-    if (depositTotalPaid > 0) {
-      depositLines.push(`--------------------------\n*Total Paid:* ₹ ${depositTotalPaid.toFixed(2)}`)
-    }
+    depositLines.push(`--------------------------\n*Total Paid:* ₹ ${breakdown.paymentDisplay.totalPaid.toFixed(2)}`)
     paymentSection = `💳 *PAYMENT DETAILS:*\n${depositLines.join('\n')}`
-  } else if (activePayments.length > 0) {
-    const totalPaid = activePayments.reduce((s, p) => s + toNumber(p.amount, 0), 0)
-    const cashPaid = activePayments.filter(p => p.mode.toLowerCase() === 'cash').reduce((s, p) => s + toNumber(p.amount, 0), 0)
-    const lines = activePayments.map(p => `• ${formatMode(p.mode)}: ₹ ${toNumber(p.amount, 0).toFixed(2)}`)
+  } else if (breakdown.paymentDisplay.isSplit) {
+    const lines = [
+      `Payment:`,
+      ...breakdown.paymentDisplay.splitPayments.map(p => `  • ${p.label}: ₹ ${p.amount.toFixed(2)}`)
+    ]
     const change = toNumber(input.changeGiven, 0)
     if (change > 0) {
       lines.push(`• Change Returned: -₹ ${change.toFixed(2)}`)
-      if (cashPaid > 0) {
-        lines.push(`• Net Cash: ₹ ${Math.max(0, cashPaid - change).toFixed(2)}`)
-      }
     }
-    lines.push(`--------------------------\n*Total Paid:* ₹ ${totalPaid.toFixed(2)}`)
+    lines.push(`--------------------------\n*Total Paid:* ₹ ${breakdown.paymentDisplay.totalPaid.toFixed(2)}`)
     paymentSection = `💳 *PAYMENT DETAILS:*\n${lines.join('\n')}`
   } else {
-    paymentSection = `💳 *PAYMENT DETAILS:*\n• Payment Mode: ${formatMode(input.paymentMode)}\n--------------------------\n*Total Paid:* ₹ ${safeTotal.toFixed(2)}`
+    const lines = [`• Payment: ${breakdown.paymentDisplay.singleModeLabel}`]
+    const change = toNumber(input.changeGiven, 0)
+    if (change > 0) {
+      lines.push(`• Change Returned: -₹ ${change.toFixed(2)}`)
+    }
+    lines.push(`--------------------------\n*Total Paid:* ₹ ${breakdown.total.toFixed(2)}`)
+    paymentSection = `💳 *PAYMENT DETAILS:*\n${lines.join('\n')}`
   }
 
   return `✨ *${BRAND_EN}* ✨
@@ -134,7 +158,7 @@ Thank you for shopping at ${BRAND_EN}! We truly appreciate your patronage.
 🧾 *INVOICE DETAILS*
 📌 *Invoice No:* #${formattedNo}
 ${input.invoiceDate ? `📅 *Date:* ${new Date(input.invoiceDate).toLocaleDateString('en-IN')}\n` : ''}
-${itemsText ? `📦 *ITEMS ORDERED:*\n${itemsText}\n\n` : ''}${safeTotal > 0 ? `💰 *Total Amount:* ₹ ${safeTotal.toFixed(2)}\n\n` : ''}${paymentSection ? `${paymentSection}\n\n` : ''}📄 *View & Download Digital Invoice / PDF:*
+${itemsText ? `📦 *ITEMS ORDERED:*\n${itemsText}\n\n` : ''}💰 *BILL BREAKDOWN:*\n${breakdownLines}\n\n${paymentSection ? `${paymentSection}\n\n` : ''}📄 *View & Download Digital Invoice / PDF:*
 👉 ${invoiceUrl}
 
 📞 *Shop Contact:* ${BRAND_PRIMARY_PHONE_DISPLAY}

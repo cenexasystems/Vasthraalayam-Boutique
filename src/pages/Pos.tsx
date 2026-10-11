@@ -19,6 +19,7 @@ import { Invoice } from '../components/Invoice'
 import CatalogModal from '../components/CatalogModal'
 import { Modal } from '../components/common/Modal'
 import { invoicePdfFile } from '../lib/invoicePdf'
+import { computeInvoiceBreakdown } from '../lib/invoiceBreakdown'
 
 import { uploadInvoicePdf } from '../lib/storage'
 import { createOrderWithStock } from '../services/orderService'
@@ -65,10 +66,12 @@ type InvoiceSnap = {
   shipping: number
   couponCode?: string
   couponDiscount: number
+  couponPercentage?: number
   manualDiscountAmount: number
   manualDiscountType: 'flat' | 'percent'
   manualDiscountValue: number
   gstAmount: number
+  gstRate?: number
   total: number
   customerName: string
   phone: string
@@ -77,7 +80,7 @@ type InvoiceSnap = {
   balanceReturned: number
   paymentMode: string
   paymentMethod?: string
-  payments?: Array<{ mode: string; amount: number }>
+  payments?: Array<{ mode: string; amount: number; phase?: string; paid_at?: string; notes?: string }>
   changeGiven?: number
   invoicePdfUrl?: string
 }
@@ -871,6 +874,14 @@ export default function Pos(props: PosProps = {}) {
         payments: posDepositValidation.activePayments,
         createdByName: role || 'Staff',
         products: productsSnapshot,
+        subtotal: subtotal,
+        discountAmount: couponDiscount,
+        manualDiscountAmount: manualDiscountAmount,
+        couponCode: appliedCoupon?.code || null,
+        couponPercentage: appliedCoupon?.percentage || 0,
+        totalGst: totalGst,
+        gstRate: gstType === 'percent' ? Number(gstInput) || 0 : 0,
+        gstEnabled: billGstEnabled,
       })
       setDepositCreated(created)
       setDepositOpen(false)
@@ -1026,10 +1037,12 @@ export default function Pos(props: PosProps = {}) {
         shipping: Number(shipping || 0),
         couponCode: appliedCoupon?.code,
         couponDiscount,
+        couponPercentage: appliedCoupon?.percentage,
         manualDiscountAmount,
         manualDiscountType,
         manualDiscountValue: manualDiscountNumeric,
         gstAmount: totalGst,
+        gstRate: billGstEnabled && gstType === 'percent' ? Number(gstInput || 0) : undefined,
         total,
         customerName: customer.name.trim() || 'Walk-in Customer',
         phone: normalizedPhone,
@@ -1077,16 +1090,25 @@ export default function Pos(props: PosProps = {}) {
       items: inv.items.map((item) => ({
         name: item.name,
         qty: item.qty,
-        unit: item.selectedUnit,
-        unitType: item.unitType,
+        unit: item.selectedUnit || item.unit || 'piece',
+        unitType: item.unitType || 'unit',
         rate: Number(item.basePrice) || 0,
         lineTotal: item.lineTotal,
       })),
       subtotal: inv.subtotal,
       couponDiscount: inv.couponDiscount,
+      discountAmount: inv.couponDiscount,
       manualDiscountAmount: inv.manualDiscountAmount,
+      manualDiscountType: inv.manualDiscountType === 'percent' ? '%' : 'flat',
+      manualDiscountValue: inv.manualDiscountValue,
+      couponCode: inv.couponCode,
+      couponPercentage: inv.couponPercentage,
       shipping: inv.shipping,
+      deliveryCharge: inv.shipping,
       gstAmount: inv.gstAmount,
+      totalGst: inv.gstAmount,
+      gstRate: inv.gstRate,
+      changeGiven: inv.changeGiven,
       total: inv.total,
     })
     window.open(toWhatsAppUrl(inv.phone || customer.phone || '', message), '_blank', 'noopener,noreferrer')
@@ -1103,10 +1125,16 @@ export default function Pos(props: PosProps = {}) {
         items: inv.items.map(item => ({ name: item.name, qty: item.qty, unit: item.selectedUnit, price: Number(item.basePrice) || 0, line_total: item.lineTotal })),
         subtotal: inv.subtotal,
         shipping: inv.shipping,
+        deliveryCharge: inv.shipping,
         discountAmount: inv.couponDiscount,
         manualDiscountAmount: inv.manualDiscountAmount,
+        manualDiscountType: inv.manualDiscountType === 'percent' ? '%' : 'flat',
+        manualDiscountValue: inv.manualDiscountValue,
         gstAmount: inv.gstAmount,
+        totalGst: inv.gstAmount,
+        gstRate: inv.gstRate,
         couponCode: inv.couponCode,
+        couponPercentage: inv.couponPercentage,
         paymentMode: inv.paymentMode,
         payments: inv.payments,
         changeGiven: inv.changeGiven,
@@ -1133,9 +1161,18 @@ export default function Pos(props: PosProps = {}) {
       items: inv.items.map(item => ({ name: item.name, qty: item.qty, unit: item.selectedUnit, price: Number(item.basePrice) || 0, line_total: item.lineTotal })),
       subtotal: inv.subtotal,
       shipping: inv.shipping,
+      deliveryCharge: inv.shipping,
       couponDiscount: inv.couponDiscount,
       manualDiscount: inv.manualDiscountAmount,
+      discountAmount: inv.couponDiscount,
+      manualDiscountAmount: inv.manualDiscountAmount,
+      manualDiscountType: inv.manualDiscountType === 'percent' ? '%' : 'flat',
+      manualDiscountValue: inv.manualDiscountValue,
+      couponCode: inv.couponCode,
+      couponPercentage: inv.couponPercentage,
       totalGst: inv.gstAmount,
+      gstAmount: inv.gstAmount,
+      gstRate: inv.gstRate,
       total: inv.total,
       paymentMode: inv.paymentMode,
       payments: inv.payments,
@@ -1208,40 +1245,85 @@ export default function Pos(props: PosProps = {}) {
           </div>
 
           {/* Payment receipt */}
-          <div className="surface-panel p-5 rounded-xl border border-gray-100 bg-white shadow-sm mb-4">
-            <p className="text-xs font-black uppercase tracking-widest text-textMuted mb-3">{l('Financial Summary', 'நிதி சுருக்கம்')}</p>
-            <div className="space-y-2.5">
-              <div className="flex justify-between items-center pb-2.5 border-b border-gray-100">
-                <p className="text-sm font-bold text-textMuted">{l('Grand Total', 'மொத்த தொகை')}</p>
-                <p className="text-2xl font-black text-textMain tabular-nums">{formatCurrency(invoice.total)}</p>
-              </div>
-              {invoice.payments && invoice.payments.length > 1 && (
-                <div className="py-2.5 border-b border-gray-100 space-y-1.5">
-                  <p className="text-[11px] font-black uppercase tracking-wider text-textMuted">Split Payments Breakdown</p>
-                  {invoice.payments.map((p, idx) => (
-                    <div key={idx} className="flex justify-between items-center text-xs">
-                      <span className="font-bold text-gray-700 uppercase">{p.mode === 'qr' ? 'QR Code' : p.mode}:</span>
-                      <span className="font-black text-gray-900 tabular-nums">{formatCurrency(p.amount)}</span>
+          {(() => {
+            const posBreakdown = computeInvoiceBreakdown({
+              subtotal: invoice.subtotal,
+              total: invoice.total,
+              discountAmount: invoice.couponDiscount,
+              manualDiscountAmount: invoice.manualDiscountAmount,
+              manualDiscountType: invoice.manualDiscountType === 'percent' ? '%' : 'flat',
+              manualDiscountValue: invoice.manualDiscountValue,
+              couponCode: invoice.couponCode,
+              couponPercentage: invoice.couponPercentage,
+              totalGst: invoice.gstAmount,
+              gstRate: invoice.gstRate,
+              deliveryCharge: invoice.shipping,
+              shipping: invoice.shipping,
+              paymentMode: invoice.paymentMode,
+              payments: invoice.payments,
+            })
+            return (
+              <div className="surface-panel p-5 rounded-xl border border-gray-100 bg-white shadow-sm mb-4">
+                <p className="text-xs font-black uppercase tracking-widest text-textMuted mb-3">{l('Financial Summary', 'நிதி சுருக்கம்')}</p>
+                <div className="space-y-2">
+                  {posBreakdown.rows.map(row => {
+                    if (row.type === 'total') {
+                      return (
+                        <div key={row.key} className="flex justify-between items-center pt-2.5 border-t-2 border-[#111111] mt-1">
+                          <p className="text-sm font-black text-brand-black uppercase tracking-wider">{l('Total', 'மொத்த தொகை')}</p>
+                          <p className="text-2xl font-black text-brand-black tabular-nums">{formatCurrency(row.amount)}</p>
+                        </div>
+                      )
+                    }
+                    const isDisc = row.type === 'discount'
+                    const sign = row.prefix ? `${row.prefix}` : ''
+                    return (
+                      <div key={row.key} className="flex justify-between items-center text-xs">
+                        <span className={`font-semibold ${isDisc ? 'text-emerald-700' : 'text-gray-600'}`}>{row.label}</span>
+                        <span className={`font-bold tabular-nums ${isDisc ? 'text-emerald-700' : 'text-gray-900'}`}>{sign}{formatCurrency(row.amount)}</span>
+                      </div>
+                    )
+                  })}
+
+                  {/* Payment details */}
+                  <div className="pt-2.5 border-t border-gray-100 space-y-1.5 mt-2">
+                    {posBreakdown.paymentDisplay.isSplit ? (
+                      <>
+                        <p className="text-[11px] font-black uppercase tracking-wider text-textMuted">Split Payments Breakdown</p>
+                        {posBreakdown.paymentDisplay.splitPayments.map((p, idx) => (
+                          <div key={idx} className="flex justify-between items-center text-xs">
+                            <span className="font-bold text-gray-700">{p.label}:</span>
+                            <span className="font-black text-gray-900 tabular-nums">{formatCurrency(p.amount)}</span>
+                          </div>
+                        ))}
+                      </>
+                    ) : (
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-bold text-gray-700">Payment:</span>
+                        <span className="font-black text-gray-900">{posBreakdown.paymentDisplay.singleModeLabel}</span>
+                      </div>
+                    )}
+
+                    <div className="flex justify-between items-center text-xs pt-1">
+                      <span className="font-bold text-gray-700">{l('Amount Received', 'பெற்ற தொகை')}:</span>
+                      <span className="font-black text-gray-900 tabular-nums">{formatCurrency(invoice.amountReceived)}</span>
                     </div>
-                  ))}
+
+                    {invoice.balanceReturned > 0 ? (
+                      <div className="flex justify-between items-center rounded-xl bg-blue-50 border border-blue-200 px-3 py-2 mt-2">
+                        <span className="text-xs font-black text-blue-700">{l('Balance Returned', 'திரும்பிய பணம்')}</span>
+                        <span className="text-lg font-black text-blue-700 tabular-nums">{formatCurrency(invoice.balanceReturned)}</span>
+                      </div>
+                    ) : (
+                      <div className="rounded-xl bg-green-50 border border-green-200 px-3 py-1.5 text-center mt-2">
+                        <p className="text-xs font-black text-green-700">✅ {l('Exact Amount Received', 'சரியான தொகை')}</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              )}
-              <div className="flex justify-between items-center">
-                <p className="text-sm font-bold text-textMuted">{l('Amount Received', 'பெற்ற தொகை')}</p>
-                <p className="text-xl font-black text-textMain tabular-nums">{formatCurrency(invoice.amountReceived)}</p>
               </div>
-              {invoice.balanceReturned > 0 ? (
-                <div className="flex justify-between items-center rounded-xl bg-blue-50 border border-blue-200 px-4 py-3">
-                  <p className="text-sm font-black text-blue-700">{l('Balance Returned', 'திரும்பிய பணம்')}</p>
-                  <p className="text-2xl font-black text-blue-700 tabular-nums">{formatCurrency(invoice.balanceReturned)}</p>
-                </div>
-              ) : (
-                <div className="rounded-xl bg-green-50 border border-green-200 px-4 py-3 text-center">
-                  <p className="text-sm font-black text-green-700">✅ {l('Exact Amount Received', 'சரியான தொகை')}</p>
-                </div>
-              )}
-            </div>
-          </div>
+            )
+          })()}
 
           {/* Actions */}
           <div className="grid grid-cols-3 gap-3">
@@ -1284,12 +1366,18 @@ export default function Pos(props: PosProps = {}) {
             items={invoiceItems}
             subtotal={invoice.subtotal}
             shipping={invoice.shipping}
+            deliveryCharge={invoice.shipping}
             total={invoice.total}
             status="Completed"
             discountAmount={invoice.couponDiscount || 0}
             manualDiscountAmount={invoice.manualDiscountAmount || 0}
+            manualDiscountType={invoice.manualDiscountType === 'percent' ? '%' : 'flat'}
+            manualDiscountValue={invoice.manualDiscountValue}
             gstAmount={invoice.gstAmount || 0}
+            totalGst={invoice.gstAmount || 0}
+            gstRate={invoice.gstRate}
             couponCode={invoice.couponCode}
+            couponPercentage={invoice.couponPercentage}
             paymentMode={invoice.paymentMode}
             payments={invoice.payments}
             changeGiven={invoice.changeGiven}

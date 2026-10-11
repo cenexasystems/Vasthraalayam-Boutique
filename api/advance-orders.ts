@@ -62,6 +62,15 @@ function normalizeOrder(row: Record<string, unknown>) {
     final_payment_method: row.final_payment_method ? String(row.final_payment_method) : null,
     advance_payment_method: String(row.advance_payment_method || 'cash'),
     business_id: String(row.business_id || '1'),
+    subtotal: row.subtotal != null ? Number(row.subtotal) : Number(row.total_amount || 0),
+    discount_amount: Number(row.discount_amount || 0),
+    manual_discount_amount: Number(row.manual_discount_amount || 0),
+    coupon_code: row.coupon_code ? String(row.coupon_code) : null,
+    coupon_percentage: Number(row.coupon_percentage || 0),
+    total_gst: Number(row.total_gst ?? row.gst_amount ?? 0),
+    gst_amount: Number(row.gst_amount ?? row.total_gst ?? 0),
+    gst_rate: Number(row.gst_rate || 0),
+    gst_enabled: Boolean(row.gst_enabled),
   }
 }
 
@@ -83,7 +92,16 @@ async function list(req: VercelRequest, res: VercelResponse) {
         created_by, created_by_name, created_at, updated_at,
         completed_at, completed_order_id, invoice_number, final_payment_method,
         COALESCE(advance_payment_method, 'cash') AS advance_payment_method,
-        COALESCE(business_id, '1') AS business_id
+        COALESCE(business_id, '1') AS business_id,
+        COALESCE(subtotal, total_amount) AS subtotal,
+        COALESCE(discount_amount, 0) AS discount_amount,
+        COALESCE(manual_discount_amount, 0) AS manual_discount_amount,
+        coupon_code,
+        COALESCE(coupon_percentage, 0) AS coupon_percentage,
+        COALESCE(total_gst, 0) AS total_gst,
+        COALESCE(gst_amount, 0) AS gst_amount,
+        COALESCE(gst_rate, 0) AS gst_rate,
+        COALESCE(gst_enabled, false) AS gst_enabled
       FROM public.advance_orders
       WHERE business_id = ${bizId}
       ORDER BY created_at DESC
@@ -210,7 +228,15 @@ async function create(req: VercelRequest, res: VercelResponse) {
         p_products               => ${sql.json(products as unknown as JSONValue)},
         p_created_by             => ${session.portalId},
         p_payments               => ${cleanPayments.length > 0 ? sql.json(cleanPayments as unknown as JSONValue) : null},
-        p_business_id            => ${String(body.business_id || body.p_business_id || '1')}
+        p_business_id            => ${String(body.business_id || body.p_business_id || '1')},
+        p_subtotal               => ${body.subtotal != null ? Number(body.subtotal) : totalAmount},
+        p_discount_amount        => ${Number(body.discount_amount || body.discount || 0)},
+        p_manual_discount_amount => ${Number(body.manual_discount_amount || 0)},
+        p_coupon_code            => ${body.coupon_code ? String(body.coupon_code) : null},
+        p_coupon_percentage      => ${Number(body.coupon_percentage || 0)},
+        p_total_gst              => ${Number(body.total_gst || body.gst_amount || 0)},
+        p_gst_rate               => ${Number(body.gst_rate || 0)},
+        p_gst_enabled            => ${Boolean(body.gst_enabled || Number(body.total_gst || 0) > 0)}
       )
     `
     const order = rows[0] as Record<string, unknown>
@@ -301,7 +327,10 @@ async function patch(req: VercelRequest, res: VercelResponse) {
           p_remarks           => ${String(body.remarks || '')},
           p_created_by        => ${session.portalId},
           p_payments          => ${cleanPayments.length > 0 ? sql.json(cleanPayments as unknown as JSONValue) : null},
-          p_change_given      => ${changeGiven}
+          p_change_given      => ${changeGiven},
+          p_total_gst         => ${Number(body.total_gst || body.gst_amount || 0)},
+          p_gst_rate          => ${Number(body.gst_rate || 0)},
+          p_gst_enabled       => ${Boolean(body.gst_enabled || Number(body.total_gst || 0) > 0)}
         )
       `
       res.status(200).json({ data: rows[0] })

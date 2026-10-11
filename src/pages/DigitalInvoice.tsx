@@ -243,17 +243,29 @@ export default function DigitalInvoice() {
       customerName: invoice.customer_name,
       phone: invoice.phone,
       items: (invoice.items || []).map((item: Record<string, unknown>) => ({
-        name: item.name || item.product_name,
-        qty: item.qty || item.quantity,
-        unit: item.unit,
-        price: item.price || item.base_price || 0,
-        line_total: item.line_total
+        name: String(item.name || item.product_name || 'Item'),
+        qty: Number(item.qty || item.quantity || 1),
+        unit: String(item.unit || ''),
+        price: Number(item.price || item.base_price || 0),
+        line_total: Number(item.line_total || 0),
       })),
       subtotal,
       shipping: deliveryCharge,
+      deliveryCharge,
       couponDiscount: discountAmount,
+      manualDiscount: manualDiscountAmount,
+      couponCode: invoice.coupon_code,
       totalGst,
+      gstRate: invoice.gst_rate,
       total: orderTotal,
+      paymentMode: invoice.payment_mode || invoice.payment_method,
+      payments: invoice.payments,
+      changeGiven: toNumber(invoice.change_given, 0),
+      depositAmount: invoice.deposit_amount,
+      remainingBalance: invoice.remaining_balance,
+      advancePaid: invoice.advance_paid,
+      balancePaid: invoice.balance_paid,
+      balanceDue: invoice.balance_due,
     })
   }
 
@@ -329,13 +341,24 @@ export default function DigitalInvoice() {
             deliveryCharge={deliveryCharge}
             discountAmount={discountAmount}
             manualDiscountAmount={manualDiscountAmount}
+            manualDiscountType={invoice.manual_discount_type}
+            manualDiscountValue={invoice.manual_discount_value}
             gstAmount={totalGst}
+            totalGst={totalGst}
+            gstRate={invoice.gst_rate}
             couponCode={invoice.coupon_code}
+            couponPercentage={invoice.coupon_percentage}
+            roundOff={invoice.round_off}
             total={orderTotal}
             status={invoice.status}
             paymentMode={invoice.payment_mode || invoice.payment_method}
             payments={invoice.payments}
             changeGiven={toNumber(invoice.change_given, 0)}
+            depositAmount={invoice.deposit_amount}
+            remainingBalance={invoice.remaining_balance}
+            advancePaid={invoice.advance_paid}
+            balancePaid={invoice.balance_paid}
+            balanceDue={invoice.balance_due}
           />
         </div>
       </div>

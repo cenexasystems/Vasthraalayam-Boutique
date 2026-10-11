@@ -87,10 +87,11 @@ type Category = { id: string | number; name_en: string; name_ta: string; is_acti
 type DashboardOrder = {
   id: string; invoice_no: string; customer_name: string; phone: string; address: string
   created_at: string; total: number; status: string; order_mode: string; order_type: string; user_id: string | null; items: unknown
-  coupon_code: string; discount_amount: number; manual_discount_amount: number; delivery_charge: number
-  total_gst: number; payment_mode: string; payment_method?: string; invoice_pdf_url: string; remarks?: string; tailor_name?: string; reference_number?: string
-  payments?: Array<{ mode: string; amount: number }>
+  coupon_code: string; coupon_percentage?: number; discount_amount: number; manual_discount_amount: number; manual_discount_type?: string; manual_discount_value?: number; delivery_charge: number
+  subtotal?: number; total_gst: number; gst_rate?: number; payment_mode: string; payment_method?: string; invoice_pdf_url: string; remarks?: string; tailor_name?: string; reference_number?: string
+  payments?: Array<{ mode: string; amount: number; phase?: string; paid_at?: string; notes?: string }>
   change_given?: number
+  deposit_amount?: number; remaining_balance?: number; advance_paid?: number; balance_paid?: number; balance_due?: number
 }
 type DashboardOrderItem = {
   order_id: string
@@ -960,7 +961,7 @@ export default function Dashboard() {
   const handlePrintReceipt = (order: DashboardOrder) => {
     const preview = getOrderWhatsAppPreview(order)
     if (!preview) { alert('This order has no invoice details available.'); return }
-    const subtotal = order.total - (order.delivery_charge || 0) + (order.discount_amount || 0)
+    const subtotal = order.subtotal ?? (order.total - (order.delivery_charge || 0) + (order.discount_amount || 0) + (order.manual_discount_amount || 0) - (order.total_gst || 0))
 
     printThermalReceipt({
       invoiceNo: order.invoice_no || order.id,
@@ -983,11 +984,28 @@ export default function Dashboard() {
         price: item.price || item.base_price || 0,
         line_total: item.line_total || 0
       })),
-      subtotal,
+      subtotal: preview.subtotal ?? subtotal,
       shipping: order.delivery_charge || 0,
+      deliveryCharge: order.delivery_charge || 0,
       couponDiscount: order.discount_amount || 0,
+      manualDiscount: order.manual_discount_amount || 0,
+      discountAmount: order.discount_amount || 0,
+      manualDiscountAmount: order.manual_discount_amount || 0,
+      manualDiscountType: order.manual_discount_type,
+      manualDiscountValue: order.manual_discount_value,
+      couponCode: order.coupon_code,
+      couponPercentage: order.coupon_percentage,
       totalGst: order.total_gst || 0,
-      total: order.total
+      gstRate: order.gst_rate,
+      total: order.total,
+      paymentMode: order.payment_mode,
+      payments: order.payments,
+      changeGiven: order.change_given,
+      depositAmount: order.deposit_amount,
+      remainingBalance: order.remaining_balance,
+      advancePaid: order.advance_paid,
+      balancePaid: order.balance_paid,
+      balanceDue: order.balance_due,
     })
   }
 
@@ -1015,14 +1033,26 @@ export default function Dashboard() {
       phone: order.phone,
       address: order.address,
       items: preview.items as unknown as Array<Record<string, unknown>>,
-      subtotal: preview.subtotal,
+      subtotal: preview.subtotal ?? order.subtotal ?? order.total,
       shipping: order.delivery_charge,
+      deliveryCharge: order.delivery_charge,
       discountAmount: order.discount_amount,
       manualDiscountAmount: order.manual_discount_amount,
+      manualDiscountType: order.manual_discount_type,
+      manualDiscountValue: order.manual_discount_value,
+      couponCode: order.coupon_code,
+      couponPercentage: order.coupon_percentage,
       gstAmount: order.total_gst,
+      totalGst: order.total_gst,
+      gstRate: order.gst_rate,
       paymentMode: order.payment_mode,
       payments: order.payments,
       changeGiven: order.change_given,
+      depositAmount: order.deposit_amount,
+      remainingBalance: order.remaining_balance,
+      advancePaid: order.advance_paid,
+      balancePaid: order.balance_paid,
+      balanceDue: order.balance_due,
       total: order.total,
     })
     const url = URL.createObjectURL(file)
@@ -4611,15 +4641,26 @@ export default function Dashboard() {
                     phone={invoicePreviewOrder.phone}
                     address={invoicePreviewOrder.address}
                     items={preview.items as unknown as import('../components/Invoice').InvoiceItem[]}
-                    subtotal={preview.subtotal}
+                    subtotal={preview.subtotal ?? invoicePreviewOrder.subtotal ?? invoicePreviewOrder.total}
                     shipping={invoicePreviewOrder.delivery_charge}
                     deliveryCharge={invoicePreviewOrder.delivery_charge}
                     discountAmount={invoicePreviewOrder.discount_amount}
                     manualDiscountAmount={invoicePreviewOrder.manual_discount_amount}
+                    manualDiscountType={invoicePreviewOrder.manual_discount_type}
+                    manualDiscountValue={invoicePreviewOrder.manual_discount_value}
+                    couponCode={invoicePreviewOrder.coupon_code}
+                    couponPercentage={invoicePreviewOrder.coupon_percentage}
                     gstAmount={invoicePreviewOrder.total_gst}
+                    totalGst={invoicePreviewOrder.total_gst}
+                    gstRate={invoicePreviewOrder.gst_rate}
                     paymentMode={invoicePreviewOrder.payment_mode}
                     payments={invoicePreviewOrder.payments}
                     changeGiven={invoicePreviewOrder.change_given}
+                    depositAmount={invoicePreviewOrder.deposit_amount}
+                    remainingBalance={invoicePreviewOrder.remaining_balance}
+                    advancePaid={invoicePreviewOrder.advance_paid}
+                    balancePaid={invoicePreviewOrder.balance_paid}
+                    balanceDue={invoicePreviewOrder.balance_due}
                     total={invoicePreviewOrder.total}
                     status={invoicePreviewOrder.status}
                   />
