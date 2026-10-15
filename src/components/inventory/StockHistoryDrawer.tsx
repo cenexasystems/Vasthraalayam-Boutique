@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X, History, ArrowUpRight, ArrowDownRight, RefreshCw } from 'lucide-react'
 import { inventoryService, type InventoryMovement, type InventoryStockItem } from '../../services/inventoryService'
-import { fmtQty } from '../../lib/retail'
+import { fmtQty, toNumber } from '../../lib/retail'
 import { BRAND_EN } from '../../lib/brand'
 
 export interface StockHistoryDrawerProps {
@@ -150,7 +150,8 @@ export const StockHistoryDrawer: React.FC<StockHistoryDrawerProps> = ({
             </div>
           ) : (
             movements.map((m) => {
-              const isPositive = m.quantity_delta > 0
+              const delta = toNumber(m.quantity_delta, 0)
+              const isPositive = delta > 0
               const formattedDate = new Date(m.created_at).toLocaleString('en-IN', {
                 day: '2-digit',
                 month: 'short',

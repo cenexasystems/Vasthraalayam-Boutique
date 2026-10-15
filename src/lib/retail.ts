@@ -88,8 +88,12 @@ export const roundTo = (value: unknown, places = 2): number => {
 }
 
 /** Display a stock quantity without trailing decimal zeros.
- *  Examples: 19.000 → "19", 2.5 → "2.5", 0.125 → "0.125" */
-export const fmtQty = (n: number): string => parseFloat(n.toFixed(6)).toString()
+ *  Safely handles numbers, database string numerics ('19.000'), and null/undefined.
+ *  Examples: "19.000" → "19", 19.000 → "19", "2.500" → "2.5", "-2.000" → "-2", 0 → "0" */
+export const fmtQty = (n: unknown): string => {
+  const num = toNumber(n, 0)
+  return parseFloat(num.toFixed(6)).toString()
+}
 
 export const computeOrderTotal = (order: {
   total?: unknown

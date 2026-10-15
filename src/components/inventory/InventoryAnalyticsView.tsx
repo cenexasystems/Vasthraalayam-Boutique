@@ -17,7 +17,7 @@ import {
   type InventoryMovement,
   type InventoryStockItem,
 } from '../../services/inventoryService'
-import { fmtQty } from '../../lib/retail'
+import { fmtQty, toNumber } from '../../lib/retail'
 
 type RangeMode = 'all' | 'today' | 'week' | 'month' | 'custom'
 
@@ -553,17 +553,22 @@ export const InventoryAnalyticsView: React.FC = () => {
                       {m.barcode_id || '—'}
                     </td>
                     <td className="p-3 text-center font-black">
-                      <span
-                        className={
-                          m.quantity_delta > 0
-                            ? 'text-emerald-700'
-                            : m.quantity_delta < 0
-                            ? 'text-red-600'
-                            : 'text-gray-500'
-                        }
-                      >
-                        {m.quantity_delta > 0 ? `+${fmtQty(m.quantity_delta)}` : fmtQty(m.quantity_delta)}
-                      </span>
+                      {(() => {
+                        const delta = toNumber(m.quantity_delta, 0)
+                        return (
+                          <span
+                            className={
+                              delta > 0
+                                ? 'text-emerald-700'
+                                : delta < 0
+                                ? 'text-red-600'
+                                : 'text-gray-500'
+                            }
+                          >
+                            {delta > 0 ? `+${fmtQty(delta)}` : fmtQty(delta)}
+                          </span>
+                        )
+                      })()}
                     </td>
                     <td className="p-3 text-center font-mono text-xs text-gray-600 whitespace-nowrap">
                       {fmtQty(m.quantity_before)} → <strong className="text-black">{fmtQty(m.quantity_after)}</strong>
