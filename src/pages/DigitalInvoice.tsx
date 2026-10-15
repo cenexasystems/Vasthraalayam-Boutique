@@ -4,7 +4,7 @@ import { neonApi } from '../lib/neonApi'
 import { Invoice } from '../components/Invoice'
 import { Printer, ArrowLeft, MessageCircle, AlertCircle, X, ExternalLink } from 'lucide-react'
 import { printThermalReceipt } from '../lib/thermalPrint'
-import { invoicePdfFile, invoicePdfFileFromElement } from '../lib/invoicePdf'
+import { invoicePdfFileFromElement } from '../lib/invoicePdf'
 import { uploadInvoicePdf } from '../lib/storage'
 import { normalizeStructuredOrderItem, toNumber, computeOrderTotal, roundTo } from '../lib/retail'
 import { buildProfessionalWhatsAppMessage } from '../lib/whatsappMessage'
@@ -187,6 +187,14 @@ export default function DigitalInvoice() {
       unitType: item.unit_type,
       rate: item.base_price,
       lineTotal: item.line_total,
+      unit_price: item.unit_price,
+      base_price: item.base_price,
+      gst_rate: item.gst_rate,
+      gst_percent: item.gst_percent,
+      gst_amount: item.gst_amount,
+      taxable_amount: item.taxable_amount,
+      cgst: item.cgst,
+      sgst: item.sgst,
     }))
     const message = buildProfessionalWhatsAppMessage({
       customerName: invoice.customer_name,
@@ -204,13 +212,7 @@ export default function DigitalInvoice() {
       payments: invoice.payments,
     })
 
-    const invoiceUrl = window.location.href
-    const pdfUrl = invoice.pdf_url || invoice.invoice_pdf_url
-    const linkSection = pdfUrl
-      ? `\n\n📄 View Invoice: ${invoiceUrl}\n📥 Download PDF: ${pdfUrl}`
-      : `\n\n📄 View Invoice: ${invoiceUrl}`
-
-    const whatsappMessage = `${message}${linkSection}`
+    const whatsappMessage = message
     const waUrl = toWhatsAppUrl(invoice.phone, whatsappMessage)
 
     // Open WhatsApp synchronously in user click gesture to avoid iOS Safari popup blocking
@@ -225,6 +227,7 @@ export default function DigitalInvoice() {
     }
 
     // Proactively upload invoice PDF in background if needed
+    const pdfUrl = invoice.pdf_url || invoice.invoice_pdf_url
     if (!pdfUrl && invoiceElementRef.current) {
       void (async () => {
         try {
@@ -247,6 +250,11 @@ export default function DigitalInvoice() {
         unit: String(item.unit || ''),
         price: Number(item.price || item.base_price || 0),
         line_total: Number(item.line_total || 0),
+        gst_rate: Number(item.gst_rate || item.gstRate || item.gst_percent || 0),
+        gst_amount: Number(item.gst_amount || item.gstAmount || 0),
+        taxable_amount: Number(item.taxable_amount || item.taxableAmount || 0),
+        cgst: Number(item.cgst || 0),
+        sgst: Number(item.sgst || 0),
       })),
       subtotal,
       shipping: deliveryCharge,
@@ -358,6 +366,7 @@ export default function DigitalInvoice() {
             advancePaid={invoice.advance_paid}
             balancePaid={invoice.balance_paid}
             balanceDue={invoice.balance_due}
+            onPrintReceipt={printReceipt}
           />
         </div>
       </div>

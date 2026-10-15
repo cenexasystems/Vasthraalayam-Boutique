@@ -1,5 +1,5 @@
 import { formatInvoiceNo, toNumber } from './retail'
-import { BRAND_EN, BRAND_INSTAGRAM, BRAND_INSTAGRAM_URL, BRAND_PRIMARY_PHONE_DISPLAY, BRAND_PRODUCTION_DOMAIN } from './brand'
+import { BRAND_EN, BRAND_INSTAGRAM, BRAND_INSTAGRAM_URL, BRAND_PRIMARY_PHONE_DISPLAY, getPublicBaseUrl } from './brand'
 import { computeInvoiceBreakdown } from './invoiceBreakdown'
 
 export type WhatsAppLineItem = {
@@ -9,6 +9,20 @@ export type WhatsAppLineItem = {
   unitType: 'unit' | 'weight' | 'volume' | 'bundle'
   rate: number
   lineTotal: number
+  unit_price?: number
+  unitPrice?: number
+  base_price?: number
+  basePrice?: number
+  gst_rate?: number
+  gstRate?: number
+  gst_percent?: number
+  gstPercent?: number
+  gst_amount?: number
+  gstAmount?: number
+  taxable_amount?: number
+  taxableAmount?: number
+  cgst?: number
+  sgst?: number
 }
 
 export type BuildWhatsAppMessageInput = {
@@ -52,18 +66,16 @@ export type AdvanceDepositWhatsAppInput = {
   remainingBalance: number
   expectedDeliveryDate: string
   paymentMethod?: string
+  receiptUrl?: string
 }
 
-export const publicInvoiceUrl = (invoiceNumber: string) => {
+export const buildPublicInvoiceUrl = (invoiceNumber: string): string => {
   const formatted = formatInvoiceNo(invoiceNumber)
-  const envUrl = (import.meta.env.VITE_SITE_URL as string | undefined)?.replace(/\/$/, '')
-  const origin =
-    envUrl ||
-    (typeof window !== 'undefined' && window.location?.origin && !window.location.origin.includes('localhost')
-      ? window.location.origin
-      : BRAND_PRODUCTION_DOMAIN)
-  return `${origin}/invoice/${encodeURIComponent(formatted)}`
+  const baseUrl = getPublicBaseUrl()
+  return `${baseUrl}/invoice/${encodeURIComponent(formatted)}`
 }
+
+export const publicInvoiceUrl = buildPublicInvoiceUrl
 
 export const buildProfessionalWhatsAppMessage = (input: BuildWhatsAppMessageInput) => {
   const customerName = input.customerName?.trim() || 'Valued Customer'
@@ -199,6 +211,9 @@ We have successfully received your initial advance payment!
 📅 Expected Delivery Date: ${deliveryDateFormatted}
 
 Your garments are being prepared with utmost care. We will have everything ready on or before ${deliveryDateFormatted}!
+
+📄 *View & Download Digital Deposit Receipt:*
+👉 ${input.receiptUrl || buildPublicInvoiceUrl(input.depositId)}
 
 📞 *Shop Contact:* ${BRAND_PRIMARY_PHONE_DISPLAY}
 📷 *Instagram:* @${BRAND_INSTAGRAM}`

@@ -7,6 +7,20 @@ export const BRAND_ICON = '/vasthraalayam-icon.png'
 export const BRAND_FAVICON = '/vasthraalayam-favicon.png'
 export const BRAND_PRODUCTION_DOMAIN = 'https://vasthraalayam-boutique.vercel.app'
 
+/**
+ * Returns the public customer-facing production base URL.
+ * NEVER uses window.location.origin, VERCEL_URL, or preview deployment URLs,
+ * preventing customers from seeing Vercel login prompts.
+ */
+export const getPublicBaseUrl = (): string => {
+  const envUrl = (
+    (import.meta.env.NEXT_PUBLIC_APP_URL as string | undefined) ||
+    (import.meta.env.VITE_SITE_URL as string | undefined) ||
+    (import.meta.env.NEXT_PUBLIC_SITE_URL as string | undefined)
+  )?.trim().replace(/\/+$/, '')
+  return envUrl || BRAND_PRODUCTION_DOMAIN
+}
+
 // Owner / Personal contact
 export const BRAND_OWNER_NAME = 'Vasthraalayam Boutique'
 export const BRAND_OWNER_PHONE_DISPLAY = '+91 98844 23899'

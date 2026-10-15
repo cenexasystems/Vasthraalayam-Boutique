@@ -1,4 +1,4 @@
-import { toNumber, roundTo, formatCurrency } from './retail'
+import { toNumber, roundTo } from './retail'
 import { splitGst5050, type TaxRateGroup } from './taxHelper'
 
 export interface InvoiceBreakdownInput {
@@ -200,8 +200,8 @@ export function computeInvoiceBreakdown(input: InvoiceBreakdownInput): InvoiceBr
     if (rateGroups.length === 1) {
       const halfRate = rateGroups[0].halfRate
       const formattedRate = Number.isInteger(halfRate) ? String(halfRate) : halfRate.toFixed(1)
-      cgstLabel = `CGST @ ${formattedRate}%`
-      sgstLabel = `SGST @ ${formattedRate}%`
+      cgstLabel = `CGST (${formattedRate}%)`
+      sgstLabel = `SGST (${formattedRate}%)`
       cleanGstRate = rateGroups[0].rate
     }
   }
@@ -227,8 +227,8 @@ export function computeInvoiceBreakdown(input: InvoiceBreakdownInput): InvoiceBr
     if (cleanGstRate && cleanGstRate > 0) {
       const halfRate = cleanGstRate / 2
       const formattedRate = Number.isInteger(halfRate) ? String(halfRate) : halfRate.toFixed(1)
-      cgstLabel = `CGST @ ${formattedRate}%`
-      sgstLabel = `SGST @ ${formattedRate}%`
+      cgstLabel = `CGST (${formattedRate}%)`
+      sgstLabel = `SGST (${formattedRate}%)`
     } else {
       cgstLabel = 'CGST'
       sgstLabel = 'SGST'
@@ -309,14 +309,14 @@ export function computeInvoiceBreakdown(input: InvoiceBreakdownInput): InvoiceBr
         })
         rows.push({
           key: `cgst_${rg.rate}`,
-          label: `CGST @ ${halfRateStr}%`,
+          label: `CGST (${halfRateStr}%)`,
           amount: rg.cgst,
           prefix: '+',
           type: 'tax',
         })
         rows.push({
           key: `sgst_${rg.rate}`,
-          label: `SGST @ ${halfRateStr}%`,
+          label: `SGST (${halfRateStr}%)`,
           amount: rg.sgst,
           prefix: '+',
           type: 'tax',

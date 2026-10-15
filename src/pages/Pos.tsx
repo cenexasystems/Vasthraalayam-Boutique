@@ -38,7 +38,7 @@ import {
   roundTo,
 } from '../lib/retail'
 import { computeBillTaxBreakdown, calculateBaseFromInclusive } from '../lib/taxHelper'
-import { buildProfessionalWhatsAppMessage, buildAdvanceDepositWhatsAppMessage, publicInvoiceUrl } from '../lib/whatsappMessage'
+import { buildProfessionalWhatsAppMessage, buildAdvanceDepositWhatsAppMessage, buildPublicInvoiceUrl } from '../lib/whatsappMessage'
 import { normalizePhone, toWhatsAppUrl } from '../lib/phone'
 import { useLangStore } from '../store/langStore'
 import { fetchVariantsByProduct, type ProductVariant } from '../services/variantService'
@@ -1142,7 +1142,7 @@ export default function Pos(props: PosProps = {}) {
     ? Number(cashReceived) - total : null
 
   const sendPosWhatsApp = (inv: InvoiceSnap) => {
-    const invoiceUrl = publicInvoiceUrl(inv.invoiceNo)
+    const invoiceUrl = buildPublicInvoiceUrl(inv.invoiceNo)
     const message = buildProfessionalWhatsAppMessage({
       customerName: inv.customerName,
       phone: inv.phone,
@@ -1157,6 +1157,9 @@ export default function Pos(props: PosProps = {}) {
         unitType: item.unitType || 'unit',
         rate: Number(item.basePrice) || 0,
         lineTotal: item.lineTotal,
+        gst_percent: item.gstPercent,
+        gst_rate: item.gstPercent,
+        gstPercent: item.gstPercent,
       })),
       subtotal: inv.subtotal,
       couponDiscount: inv.couponDiscount,

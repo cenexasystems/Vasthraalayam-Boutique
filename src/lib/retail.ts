@@ -571,5 +571,13 @@ export const normalizeStructuredOrderItem = (raw: Record<string, unknown>): Stru
     source: raw.source === 'manual' || raw.is_manual === true ? 'manual' : 'catalogue',
     note: raw.note ? String(raw.note) : (raw.manual_note ? String(raw.manual_note) : null),
     item_type: raw.item_type === 'service' || raw.itemType === 'service' ? 'service' : 'product',
+    category: raw.category ? String(raw.category) : undefined,
+    unit_price: raw.unit_price !== undefined ? toNumber(raw.unit_price, basePrice) : (raw.unitPrice !== undefined ? toNumber(raw.unitPrice, basePrice) : undefined),
+    gst_percent: raw.gst_percent !== undefined ? roundTo(toNumber(raw.gst_percent, 0), 2) : (raw.gstPercent !== undefined ? roundTo(toNumber(raw.gstPercent, 0), 2) : undefined),
+    gst_rate: raw.gst_rate !== undefined ? roundTo(toNumber(raw.gst_rate, 0), 2) : (raw.gstRate !== undefined ? roundTo(toNumber(raw.gstRate, 0), 2) : (raw.gst_percent !== undefined ? roundTo(toNumber(raw.gst_percent, 0), 2) : undefined)),
+    gst_amount: raw.gst_amount !== undefined ? roundTo(toNumber(raw.gst_amount, 0), 2) : (raw.gstAmount !== undefined ? roundTo(toNumber(raw.gstAmount, 0), 2) : undefined),
+    taxable_amount: raw.taxable_amount !== undefined ? roundTo(toNumber(raw.taxable_amount, 0), 2) : (raw.taxableAmount !== undefined ? roundTo(toNumber(raw.taxableAmount, 0), 2) : undefined),
+    cgst: raw.cgst !== undefined ? roundTo(toNumber(raw.cgst, 0), 2) : undefined,
+    sgst: raw.sgst !== undefined ? roundTo(toNumber(raw.sgst, 0), 2) : undefined,
   }
 }

@@ -991,6 +991,14 @@ export default function Dashboard() {
         unitType: item.unit_type,
         rate: item.base_price,
         lineTotal: item.line_total,
+        unit_price: item.unit_price,
+        base_price: item.base_price,
+        gst_rate: item.gst_rate,
+        gst_percent: item.gst_percent,
+        gst_amount: item.gst_amount,
+        taxable_amount: item.taxable_amount,
+        cgst: item.cgst,
+        sgst: item.sgst,
       })),
       subtotal,
       discountAmount: resolved.discount,
@@ -1020,21 +1028,17 @@ export default function Dashboard() {
       date: order.created_at,
       customerName: order.customer_name,
       phone: order.phone,
-      items: (preview.items as Array<{
-        name?: string
-        product_name?: string
-        qty?: number
-        quantity?: number
-        unit?: string
-        price?: number
-        base_price?: number
-        line_total?: number
-      }>).map((item) => ({
-        name: item.name || item.product_name || '',
-        qty: item.qty || item.quantity || 0,
-        unit: item.unit || '',
-        price: item.price || item.base_price || 0,
-        line_total: item.line_total || 0
+      items: (preview.items as Array<Record<string, unknown>>).map((item) => ({
+        name: String(item.name || item.product_name || ''),
+        qty: Number(item.qty || item.quantity || 0),
+        unit: String(item.unit || ''),
+        price: Number(item.price || item.base_price || 0),
+        line_total: Number(item.line_total || 0),
+        gst_rate: Number(item.gst_rate || item.gstRate || item.gst_percent || 0),
+        gst_amount: Number(item.gst_amount || item.gstAmount || 0),
+        taxable_amount: Number(item.taxable_amount || item.taxableAmount || 0),
+        cgst: Number(item.cgst || 0),
+        sgst: Number(item.sgst || 0),
       })),
       subtotal: preview.subtotal ?? subtotal,
       shipping: resolved.delivery,
@@ -2280,6 +2284,14 @@ export default function Dashboard() {
                             unitType: item.unit_type,
                             rate: item.base_price,
                             lineTotal: item.line_total,
+                            unit_price: item.unit_price,
+                            base_price: item.base_price,
+                            gst_rate: item.gst_rate,
+                            gst_percent: item.gst_percent,
+                            gst_amount: item.gst_amount,
+                            taxable_amount: item.taxable_amount,
+                            cgst: item.cgst,
+                            sgst: item.sgst,
                           })),
                           subtotal: normalizedItems.reduce((sum, item) => sum + item.line_total, 0),
                           total: getOrderTotal(order),
@@ -3550,7 +3562,7 @@ export default function Dashboard() {
                           <button onClick={() => void openOrderInvoice(o, 'view')} className="inline-flex h-10 sm:min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-xl border border-[#E5E7EB]/60 px-2 sm:px-3 text-[12px] font-black text-[#111111] transition-colors hover:bg-white" title="View Invoice">
                             <Eye size={14} /> View
                           </button>
-                          <button onClick={() => window.open(`/invoice/${o.id}`, '_blank')} className="inline-flex h-10 sm:min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-xl bg-green-500 px-2 sm:px-3 text-[12px] font-black text-white transition-colors hover:bg-green-600" title="Invoice & Share">
+                          <button onClick={() => window.open(`/invoice/${o.invoice_no || o.id}`, '_blank')} className="inline-flex h-10 sm:min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-xl bg-green-500 px-2 sm:px-3 text-[12px] font-black text-white transition-colors hover:bg-green-600" title="Invoice & Share">
                             <MessageCircle size={14} /> Share
                           </button>
                         </div>
@@ -3643,7 +3655,7 @@ export default function Dashboard() {
                               <button onClick={() => void openOrderInvoice(o, 'view')} className="rounded-lg p-1 text-[#111111] transition-colors hover:bg-[#F9FAFB]" title="View Invoice">
                                 <Eye size={13} />
                               </button>
-                              <button onClick={() => window.open(`/invoice/${o.id}`, '_blank')} className="rounded-lg p-1.5 text-green-600 transition-colors hover:bg-green-50" title="Invoice & Share">
+                              <button onClick={() => window.open(`/invoice/${o.invoice_no || o.id}`, '_blank')} className="rounded-lg p-1.5 text-green-600 transition-colors hover:bg-green-50" title="Invoice & Share">
                                 <MessageCircle size={14} />
                               </button>
                             </div>
