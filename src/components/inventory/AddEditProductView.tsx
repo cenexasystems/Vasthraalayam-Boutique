@@ -1323,7 +1323,7 @@ export const AddEditProductView: React.FC<{
 
               {enableGst && (
                 <div className="pt-2 border-t border-gray-100 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
-                  <div>
+                  <div className="order-3">
                     <label className="block text-[11px] font-bold text-gray-700 mb-1">
                       Base Price (₹)
                     </label>
@@ -1338,7 +1338,7 @@ export const AddEditProductView: React.FC<{
                     />
                   </div>
 
-                  <div>
+                  <div className="order-2">
                     <label className="block text-[11px] font-bold text-gray-700 mb-1">
                       GST Rate (%)
                     </label>
@@ -1354,7 +1354,7 @@ export const AddEditProductView: React.FC<{
                     />
                   </div>
 
-                  <div>
+                  <div className="order-4">
                     <label className="block text-[11px] font-bold text-gray-700 mb-1">
                       GST Amount (₹)
                     </label>
@@ -1369,7 +1369,7 @@ export const AddEditProductView: React.FC<{
                     />
                   </div>
 
-                  <div>
+                  <div className="order-1">
                     <label className="block text-[11px] font-bold text-[#7daa8f] mb-1">
                       Final Price (Incl. GST)
                     </label>
@@ -1385,7 +1385,7 @@ export const AddEditProductView: React.FC<{
                     />
                   </div>
                   {lockedFinal !== null && Number(gstPercent) > 0 && Math.abs(computedFinalPrice - lockedFinal) > 0.004 && (
-                    <p className="sm:col-span-4 text-[11px] font-semibold text-amber-700">
+                    <p className="order-5 sm:col-span-4 text-[11px] font-semibold text-amber-700">
                       ₹{lockedFinal.toFixed(2)} cannot be split exactly into a 2-decimal base price + GST; it will bill as ₹{computedFinalPrice.toFixed(2)}.
                     </p>
                   )}
