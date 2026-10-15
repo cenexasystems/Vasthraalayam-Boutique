@@ -722,6 +722,11 @@ export default function Dashboard() {
       source: 'advance_order',
     }
     const completedItems = advance.products.length ? advance.products : [fallbackItem]
+    const advSubtotal = advance.subtotal != null ? advance.subtotal : advance.total_amount
+    const advDiscount = (advance.discount_amount || 0) + (advance.manual_discount_amount || 0)
+    const advGst = advance.total_gst ?? advance.gst_amount ?? 0
+    const advDelivery = advance.delivery_charge ?? Math.max(0, Math.round((advance.total_amount - (advSubtotal - advDiscount + advGst)) * 100) / 100)
+
     const completed: DashboardOrder = {
       id: advance.completed_order_id,
       invoice_no: advance.invoice_number,
@@ -735,11 +740,13 @@ export default function Dashboard() {
       order_type: 'advance_order',
       user_id: user?.id || null,
       items: completedItems,
-      coupon_code: '',
-      discount_amount: 0,
-      manual_discount_amount: 0,
-      delivery_charge: 0,
-      total_gst: 0,
+      subtotal: advSubtotal,
+      coupon_code: advance.coupon_code || '',
+      coupon_percentage: advance.coupon_percentage || 0,
+      discount_amount: advDiscount,
+      manual_discount_amount: advance.manual_discount_amount || 0,
+      delivery_charge: advDelivery,
+      total_gst: advGst,
       payment_mode: advance.final_payment_method || '',
       payment_method: advance.final_payment_method || '',
       invoice_pdf_url: '',
@@ -922,6 +929,42 @@ export default function Dashboard() {
     })
   }
 
+  const resolveOrderFields = useCallback((order: DashboardOrder) => {
+    let coupon = order.coupon_code || ''
+    let discount = toNumber(order.discount_amount, 0)
+    let manualDiscount = toNumber(order.manual_discount_amount, 0)
+    let delivery = toNumber(order.delivery_charge, 0)
+    let subtotal = order.subtotal != null ? toNumber(order.subtotal, 0) : 0
+    let totalGst = toNumber(order.total_gst, 0)
+
+    // Fallback for advance orders if stored order fields lack these values
+    if (order.order_type === 'advance_order' || (!coupon && discount === 0 && delivery === 0)) {
+      const adv = advanceOrders.find(a =>
+        (a.completed_order_id && a.completed_order_id === order.id) ||
+        (a.invoice_number && a.invoice_number === order.invoice_no)
+      )
+      if (adv) {
+        if (!coupon && adv.coupon_code) coupon = adv.coupon_code
+        const advTotalDisc = (adv.discount_amount || 0) + (adv.manual_discount_amount || 0)
+        if (discount === 0 && advTotalDisc > 0) {
+          discount = advTotalDisc
+          manualDiscount = adv.manual_discount_amount || 0
+        }
+        const advSub = adv.subtotal != null ? Number(adv.subtotal) : Number(adv.total_amount || 0)
+        const advGst = Number(adv.total_gst ?? adv.gst_amount ?? 0)
+        const advTot = Number(adv.total_amount || 0)
+        const advDelivery = adv.delivery_charge != null
+          ? Number(adv.delivery_charge)
+          : Math.max(0, Math.round((advTot - (advSub - advTotalDisc + advGst)) * 100) / 100)
+
+        if (delivery === 0 && advDelivery > 0) delivery = advDelivery
+        if (subtotal === 0 && advSub > 0) subtotal = advSub
+        if (totalGst === 0 && advGst > 0) totalGst = advGst
+      }
+    }
+    return { coupon, discount, manualDiscount, delivery, subtotal, totalGst }
+  }, [advanceOrders])
+
   const getOrderWhatsAppPreview = (order: DashboardOrder) => {
     const rawItems = parseOrderItems(order.items)
     const fallbackItems = orderItems
@@ -930,7 +973,9 @@ export default function Dashboard() {
     const items = (rawItems.length ? rawItems : fallbackItems).map(normalizeStructuredOrderItem)
     if (!items.length) return null
 
-    const subtotal = items.reduce((sum, item) => sum + toNumber(item.line_total, 0), 0)
+    const resolved = resolveOrderFields(order)
+    const calculatedSubtotal = items.reduce((sum, item) => sum + toNumber(item.line_total, 0), 0)
+    const subtotal = resolved.subtotal > 0 ? resolved.subtotal : calculatedSubtotal
     const message = buildProfessionalWhatsAppMessage({
       customerName: order.customer_name,
       phone: order.phone,
@@ -948,10 +993,14 @@ export default function Dashboard() {
         lineTotal: item.line_total,
       })),
       subtotal,
-      couponDiscount: order.discount_amount,
-      manualDiscountAmount: order.manual_discount_amount,
-      shipping: order.delivery_charge,
-      gstAmount: order.total_gst,
+      discountAmount: resolved.discount,
+      couponDiscount: resolved.discount,
+      manualDiscountAmount: resolved.manualDiscount,
+      couponCode: resolved.coupon,
+      shipping: resolved.delivery,
+      deliveryCharge: resolved.delivery,
+      gstAmount: resolved.totalGst,
+      totalGst: resolved.totalGst,
       total: order.total,
     })
     return { items, subtotal, message, fileName: `Invoice-${order.invoice_no || order.id}.pdf` }
@@ -961,7 +1010,10 @@ export default function Dashboard() {
   const handlePrintReceipt = (order: DashboardOrder) => {
     const preview = getOrderWhatsAppPreview(order)
     if (!preview) { alert('This order has no invoice details available.'); return }
-    const subtotal = order.subtotal ?? (order.total - (order.delivery_charge || 0) + (order.discount_amount || 0) + (order.manual_discount_amount || 0) - (order.total_gst || 0))
+    const resolved = resolveOrderFields(order)
+    const subtotal = resolved.subtotal > 0
+      ? resolved.subtotal
+      : (order.subtotal ?? (order.total - (resolved.delivery || 0) + (resolved.discount || 0) - (resolved.totalGst || 0)))
 
     printThermalReceipt({
       invoiceNo: order.invoice_no || order.id,
@@ -985,17 +1037,17 @@ export default function Dashboard() {
         line_total: item.line_total || 0
       })),
       subtotal: preview.subtotal ?? subtotal,
-      shipping: order.delivery_charge || 0,
-      deliveryCharge: order.delivery_charge || 0,
-      couponDiscount: order.discount_amount || 0,
-      manualDiscount: order.manual_discount_amount || 0,
-      discountAmount: order.discount_amount || 0,
-      manualDiscountAmount: order.manual_discount_amount || 0,
+      shipping: resolved.delivery,
+      deliveryCharge: resolved.delivery,
+      couponDiscount: resolved.discount,
+      manualDiscount: resolved.manualDiscount,
+      discountAmount: resolved.discount,
+      manualDiscountAmount: resolved.manualDiscount,
       manualDiscountType: order.manual_discount_type,
       manualDiscountValue: order.manual_discount_value,
-      couponCode: order.coupon_code,
+      couponCode: resolved.coupon,
       couponPercentage: order.coupon_percentage,
-      totalGst: order.total_gst || 0,
+      totalGst: resolved.totalGst,
       gstRate: order.gst_rate,
       total: order.total,
       paymentMode: order.payment_mode,
@@ -1026,6 +1078,7 @@ export default function Dashboard() {
     }
     const preview = getOrderWhatsAppPreview(order)
     if (!preview) { alert('This order has no invoice details available.'); return }
+    const resolved = resolveOrderFields(order)
     const file = invoicePdfFile({
       invoiceNo: order.invoice_no || order.id,
       date: order.created_at,
@@ -1033,17 +1086,17 @@ export default function Dashboard() {
       phone: order.phone,
       address: order.address,
       items: preview.items as unknown as Array<Record<string, unknown>>,
-      subtotal: preview.subtotal ?? order.subtotal ?? order.total,
-      shipping: order.delivery_charge,
-      deliveryCharge: order.delivery_charge,
-      discountAmount: order.discount_amount,
-      manualDiscountAmount: order.manual_discount_amount,
+      subtotal: resolved.subtotal > 0 ? resolved.subtotal : (preview.subtotal ?? order.subtotal ?? order.total),
+      shipping: resolved.delivery,
+      deliveryCharge: resolved.delivery,
+      discountAmount: resolved.discount,
+      manualDiscountAmount: resolved.manualDiscount,
       manualDiscountType: order.manual_discount_type,
       manualDiscountValue: order.manual_discount_value,
-      couponCode: order.coupon_code,
+      couponCode: resolved.coupon,
       couponPercentage: order.coupon_percentage,
-      gstAmount: order.total_gst,
-      totalGst: order.total_gst,
+      gstAmount: resolved.totalGst,
+      totalGst: resolved.totalGst,
       gstRate: order.gst_rate,
       paymentMode: order.payment_mode,
       payments: order.payments,
@@ -3454,18 +3507,25 @@ export default function Dashboard() {
                           <p className="text-[#9BAB9A] uppercase text-[10px] sm:text-[11px] font-black">Total</p>
                           <p className="font-black text-[#111111]">{formatCurrency(getOrderTotal(o))}</p>
                         </div>
-                        <div>
-                          <p className="text-[#9BAB9A] uppercase text-[11px] font-black">Coupon</p>
-                          <p className="font-semibold text-[#374151] break-words">{o.coupon_code || '—'}</p>
-                        </div>
-                        <div>
-                          <p className="text-[#9BAB9A] uppercase text-[11px] font-black">Discount</p>
-                          <p className="font-semibold text-emerald-700">{o.discount_amount > 0 ? `-${formatCurrency(o.discount_amount)}` : '—'}</p>
-                        </div>
-                        <div>
-                          <p className="text-[#9BAB9A] uppercase text-[11px] font-black">Delivery</p>
-                          <p className="font-semibold text-[#111111]">{o.delivery_charge > 0 ? formatCurrency(o.delivery_charge) : '—'}</p>
-                        </div>
+                        {(() => {
+                          const resolved = resolveOrderFields(o)
+                          return (
+                            <>
+                              <div>
+                                <p className="text-[#9BAB9A] uppercase text-[11px] font-black">Coupon</p>
+                                <p className="font-semibold text-[#374151] break-words">{resolved.coupon || '—'}</p>
+                              </div>
+                              <div>
+                                <p className="text-[#9BAB9A] uppercase text-[11px] font-black">Discount</p>
+                                <p className="font-semibold text-emerald-700">{resolved.discount > 0 ? `-${formatCurrency(resolved.discount)}` : '—'}</p>
+                              </div>
+                              <div>
+                                <p className="text-[#9BAB9A] uppercase text-[11px] font-black">Delivery</p>
+                                <p className="font-semibold text-[#111111]">{resolved.delivery > 0 ? formatCurrency(resolved.delivery) : '—'}</p>
+                              </div>
+                            </>
+                          )
+                        })()}
                         {((o as unknown as Record<string,unknown>).reference_number as string) && (
                           <div>
                             <p className="text-[#9BAB9A] uppercase text-[11px] font-black">Ref #</p>
@@ -3540,15 +3600,22 @@ export default function Dashboard() {
                           <td className="max-w-[100px] truncate px-2 py-3 text-[11px] font-semibold text-[#111111]">{o.customer_name}</td>
                           <td className="whitespace-nowrap px-2 py-3 text-[11px] text-[#374151]">{o.phone}</td>
                           <td className="px-2 py-3"><span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase ${billTypeClass}`}>{billTypeLabel}</span></td>
-                          <td className="px-2 py-3 text-[11px]">
-                            {o.coupon_code ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">{o.coupon_code}</span> : <span className="text-[#9BAB9A]">—</span>}
-                          </td>
-                          <td className="px-2 py-3 text-[11px]">
-                            {o.discount_amount > 0 ? <span className="font-bold text-emerald-700">-{formatCurrency(o.discount_amount)}</span> : <span className="text-[#9BAB9A]">—</span>}
-                          </td>
-                          <td className="px-2 py-3 text-[11px]">
-                            {o.delivery_charge > 0 ? <span className="font-bold text-[#111111]">{formatCurrency(o.delivery_charge)}</span> : <span className="text-[#9BAB9A]">—</span>}
-                          </td>
+                          {(() => {
+                            const resolved = resolveOrderFields(o)
+                            return (
+                              <>
+                                <td className="px-2 py-3 text-[11px]">
+                                  {resolved.coupon ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">{resolved.coupon}</span> : <span className="text-[#9BAB9A]">—</span>}
+                                </td>
+                                <td className="px-2 py-3 text-[11px]">
+                                  {resolved.discount > 0 ? <span className="font-bold text-emerald-700">-{formatCurrency(resolved.discount)}</span> : <span className="text-[#9BAB9A]">—</span>}
+                                </td>
+                                <td className="px-2 py-3 text-[11px]">
+                                  {resolved.delivery > 0 ? <span className="font-bold text-[#111111]">{formatCurrency(resolved.delivery)}</span> : <span className="text-[#9BAB9A]">—</span>}
+                                </td>
+                              </>
+                            )
+                          })()}
                           <td className="whitespace-nowrap px-2 py-3 text-[11px] font-bold text-[#111111]">{formatCurrency(getOrderTotal(o))}</td>
                           <td className="whitespace-nowrap px-2 py-3 text-[11px] text-[#374151]">{new Date(o.created_at).toLocaleDateString('en-IN')}</td>
                           <td className="px-2 py-3">
@@ -4634,36 +4701,41 @@ export default function Dashboard() {
               </div>
               <div className="overflow-y-auto p-2 sm:p-5 flex-1 min-h-0">
                 <div className="mx-auto max-w-3xl overflow-hidden rounded-xl bg-white shadow-sm">
-                  <Invoice
-                    invoiceNo={formatInvoiceNo(invoicePreviewOrder.invoice_no || invoicePreviewOrder.id)}
-                    date={invoicePreviewOrder.created_at}
-                    customerName={invoicePreviewOrder.customer_name}
-                    phone={invoicePreviewOrder.phone}
-                    address={invoicePreviewOrder.address}
-                    items={preview.items as unknown as import('../components/Invoice').InvoiceItem[]}
-                    subtotal={preview.subtotal ?? invoicePreviewOrder.subtotal ?? invoicePreviewOrder.total}
-                    shipping={invoicePreviewOrder.delivery_charge}
-                    deliveryCharge={invoicePreviewOrder.delivery_charge}
-                    discountAmount={invoicePreviewOrder.discount_amount}
-                    manualDiscountAmount={invoicePreviewOrder.manual_discount_amount}
-                    manualDiscountType={invoicePreviewOrder.manual_discount_type}
-                    manualDiscountValue={invoicePreviewOrder.manual_discount_value}
-                    couponCode={invoicePreviewOrder.coupon_code}
-                    couponPercentage={invoicePreviewOrder.coupon_percentage}
-                    gstAmount={invoicePreviewOrder.total_gst}
-                    totalGst={invoicePreviewOrder.total_gst}
-                    gstRate={invoicePreviewOrder.gst_rate}
-                    paymentMode={invoicePreviewOrder.payment_mode}
-                    payments={invoicePreviewOrder.payments}
-                    changeGiven={invoicePreviewOrder.change_given}
-                    depositAmount={invoicePreviewOrder.deposit_amount}
-                    remainingBalance={invoicePreviewOrder.remaining_balance}
-                    advancePaid={invoicePreviewOrder.advance_paid}
-                    balancePaid={invoicePreviewOrder.balance_paid}
-                    balanceDue={invoicePreviewOrder.balance_due}
-                    total={invoicePreviewOrder.total}
-                    status={invoicePreviewOrder.status}
-                  />
+                  {(() => {
+                    const resolved = resolveOrderFields(invoicePreviewOrder)
+                    return (
+                      <Invoice
+                        invoiceNo={formatInvoiceNo(invoicePreviewOrder.invoice_no || invoicePreviewOrder.id)}
+                        date={invoicePreviewOrder.created_at}
+                        customerName={invoicePreviewOrder.customer_name}
+                        phone={invoicePreviewOrder.phone}
+                        address={invoicePreviewOrder.address}
+                        items={preview.items as unknown as import('../components/Invoice').InvoiceItem[]}
+                        subtotal={resolved.subtotal > 0 ? resolved.subtotal : (preview.subtotal ?? invoicePreviewOrder.subtotal ?? invoicePreviewOrder.total)}
+                        shipping={resolved.delivery}
+                        deliveryCharge={resolved.delivery}
+                        discountAmount={resolved.discount}
+                        manualDiscountAmount={resolved.manualDiscount}
+                        manualDiscountType={invoicePreviewOrder.manual_discount_type}
+                        manualDiscountValue={invoicePreviewOrder.manual_discount_value}
+                        couponCode={resolved.coupon}
+                        couponPercentage={invoicePreviewOrder.coupon_percentage}
+                        gstAmount={resolved.totalGst}
+                        totalGst={resolved.totalGst}
+                        gstRate={invoicePreviewOrder.gst_rate}
+                        paymentMode={invoicePreviewOrder.payment_mode}
+                        payments={invoicePreviewOrder.payments}
+                        changeGiven={invoicePreviewOrder.change_given}
+                        depositAmount={invoicePreviewOrder.deposit_amount}
+                        remainingBalance={invoicePreviewOrder.remaining_balance}
+                        advancePaid={invoicePreviewOrder.advance_paid}
+                        balancePaid={invoicePreviewOrder.balance_paid}
+                        balanceDue={invoicePreviewOrder.balance_due}
+                        total={invoicePreviewOrder.total}
+                        status={invoicePreviewOrder.status}
+                      />
+                    )
+                  })()}
                 </div>
               </div>
 

@@ -211,8 +211,8 @@ export function createInvoicePdf(data: InvoicePdfData): Blob {
   breakdown.rows.forEach(row => {
     if (row.type === 'total') return
 
-    const color = row.type === 'discount' ? primaryColor : ink
-    const sign = row.prefix ? `${row.prefix}` : ''
+    const color = (row.type === 'discount' || row.type === 'coupon') ? primaryColor : ink
+    const sign = row.prefix ? `${row.prefix.replace(/[\u2212\u2013\u2014]/g, '-')}` : ''
     const valText = `${sign}${money(row.amount)}`
 
     doc.setFont('helvetica', row.type === 'taxable' ? 'bold' : 'normal')

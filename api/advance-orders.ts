@@ -65,6 +65,7 @@ function normalizeOrder(row: Record<string, unknown>) {
     subtotal: row.subtotal != null ? Number(row.subtotal) : Number(row.total_amount || 0),
     discount_amount: Number(row.discount_amount || 0),
     manual_discount_amount: Number(row.manual_discount_amount || 0),
+    delivery_charge: Math.max(0, Math.round((Number(row.total_amount || 0) - ((row.subtotal != null ? Number(row.subtotal) : Number(row.total_amount || 0)) - (Number(row.discount_amount || 0) + Number(row.manual_discount_amount || 0)) + Number(row.total_gst ?? row.gst_amount ?? 0))) * 100) / 100),
     coupon_code: row.coupon_code ? String(row.coupon_code) : null,
     coupon_percentage: Number(row.coupon_percentage || 0),
     total_gst: Number(row.total_gst ?? row.gst_amount ?? 0),
@@ -333,6 +334,43 @@ async function patch(req: VercelRequest, res: VercelResponse) {
           p_gst_enabled       => ${Boolean(body.gst_enabled || Number(body.total_gst || 0) > 0)}
         )
       `
+
+      // Ensure all fields from advance order (coupon, discounts, delivery charge, subtotal, GST) are faithfully reflected in orders
+      if (rows[0]?.order_id) {
+        try {
+          const advRows = await sql`SELECT * FROM public.advance_orders WHERE id = ${id}::UUID LIMIT 1`
+          const adv = advRows[0]
+          if (adv) {
+            const advSubtotal = adv.subtotal != null ? Number(adv.subtotal) : Number(adv.total_amount || 0)
+            const advDisc = Number(adv.discount_amount || 0)
+            const advManDisc = Number(adv.manual_discount_amount || 0)
+            const advTotalDisc = advDisc + advManDisc
+            const advGst = Number(adv.total_gst ?? adv.gst_amount ?? 0)
+            const advTotalAmt = Number(adv.total_amount || 0)
+            const advDelivery = Math.max(0, Math.round((advTotalAmt - (advSubtotal - advTotalDisc + advGst)) * 100) / 100)
+
+            await sql`
+              UPDATE public.orders SET
+                subtotal = ${advSubtotal},
+                total = ${advTotalAmt},
+                discount_amount = ${advTotalDisc},
+                manual_discount_amount = ${advManDisc},
+                coupon_code = ${adv.coupon_code || null},
+                coupon_percentage = ${Number(adv.coupon_percentage || 0)},
+                delivery_charge = ${advDelivery},
+                shipping = ${advDelivery},
+                total_gst = ${advGst},
+                gst_amount = ${advGst},
+                gst_enabled = ${Boolean(adv.gst_enabled || advGst > 0)},
+                gst_rate = ${Number(adv.gst_rate || 0)}
+              WHERE id = ${rows[0].order_id}::UUID
+            `
+          }
+        } catch (updateErr) {
+          console.error('[PATCH advance-orders complete order update error]', updateErr)
+        }
+      }
+
       res.status(200).json({ data: rows[0] })
     } catch (err) {
       console.error('[PATCH advance-orders complete]', err)

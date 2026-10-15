@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { CalendarDays, CheckCircle2, Clock3, Download, Eye, FileText, MessageCircle, PackageCheck, Printer, RefreshCw, Search, X, Trash2 } from 'lucide-react'
+import { CalendarDays, CheckCircle2, Clock3, Download, Eye, FileText, MessageCircle, PackageCheck, Plus, Printer, RefreshCw, Search, X, Trash2 } from 'lucide-react'
 import { neonApi } from '../lib/neonApi'
 import { formatCurrency } from '../lib/retail'
 import { invoicePdfFile } from '../lib/invoicePdf'
@@ -26,7 +26,7 @@ const RMIcon = ({ size = 20, className = '' }: { size?: number; className?: stri
   </svg>
 )
 
-type DateFilter = 'all' | 'today' | 'week' | 'month'
+type DateFilter = 'all' | 'today' | 'week' | 'month' | 'year' | 'custom'
 type StatusFilter = 'all' | 'pending' | 'ready' | 'completed' | 'cancelled'
 
 const STATUS_LABELS: Record<AdvanceStatus, string> = {
@@ -69,6 +69,8 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [dateFilter, setDateFilter] = useState<DateFilter>('all')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
   const [selected, setSelected] = useState<AdvanceOrder | null>(null)
   const [timeline, setTimeline] = useState<AdvanceTimeline[]>([])
   const [payments, setPayments] = useState<AdvancePayment[]>([])
@@ -82,8 +84,6 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
   const [depositValidation, setDepositValidation] = useState<SplitPaymentValidationResult>({
     isValid: false, totalPaid: 0, remaining: 0, changeGiven: 0, maxQrAllowed: 0, maxCardAllowed: 0, activePayments: []
   })
-  const [manualDiscount, setManualDiscount] = useState('')
-  const [manualDiscountType, setManualDiscountType] = useState<'rm' | '%'>('rm')
   const [deleteModalConfig, setDeleteModalConfig] = useState<{
     isOpen: boolean
     title: string
@@ -114,8 +114,8 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
     const impactDetails: ImpactDetail[] = [
       { label: 'Deposit Ref', value: targetOrder?.deposit_id || orderId },
       { label: 'Customer', value: targetOrder?.customer_name || 'Customer' },
-      { label: 'Deposit Paid', value: `₹${formatCurrency(targetOrder?.deposit_amount ?? 0)}`, color: 'warning' },
-      { label: 'Total Value', value: `₹${formatCurrency(targetOrder?.total_amount ?? 0)}`, color: 'danger' },
+      { label: 'Deposit Paid', value: formatCurrency(targetOrder?.deposit_amount ?? 0), color: 'warning' },
+      { label: 'Total Value', value: formatCurrency(targetOrder?.total_amount ?? 0), color: 'danger' },
       {
         label: 'Linked Completed Bill',
         value: targetOrder?.completed_order_id ? 'Final bill will also be permanently deleted' : 'None (No bill created)',
@@ -167,14 +167,33 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
 
   const validOrders = useMemo(() => orders.filter(o => o.id && o.deposit_id && Number(o.total_amount) > 0), [orders])
 
-  const analytics = useMemo(() => ({
-    total: validOrders.length,
-    pending: validOrders.filter(o => o.status === 'pending_deposit' || o.status === 'waiting_final_payment').length,
-    deposits: validOrders.filter(o => o.status !== 'cancelled').reduce((sum, o) => sum + o.deposit_amount, 0),
-    outstanding: validOrders.filter(o => !['completed', 'cancelled'].includes(o.status)).reduce((sum, o) => sum + o.remaining_balance, 0),
-    ready: validOrders.filter(o => o.status === 'ready_for_delivery').length,
-    completed: validOrders.filter(o => o.status === 'completed').length,
-  }), [validOrders])
+  const analytics = useMemo(() => {
+    const pendingDepositOrders = validOrders.filter(o => o.status === 'pending_deposit' || o.status === 'waiting_final_payment')
+    const pendingDepositAmount = pendingDepositOrders.reduce((sum, o) => sum + (Number(o.deposit_amount) || 0), 0)
+    const pendingBillsCount = pendingDepositOrders.length
+
+    const balanceDueOrders = validOrders.filter(o => !['completed', 'cancelled'].includes(o.status) && (Number(o.remaining_balance) || 0) > 0)
+    const neededToReceive = balanceDueOrders.reduce((sum, o) => sum + (Number(o.remaining_balance) || 0), 0)
+    const neededBillsCount = balanceDueOrders.length
+
+    const nonCancelledOrders = validOrders.filter(o => o.status !== 'cancelled')
+    const totalValue = nonCancelledOrders.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0)
+    const totalOrdersCount = nonCancelledOrders.length
+
+    const readyCount = validOrders.filter(o => o.status === 'ready_for_delivery').length
+    const pendingCount = pendingDepositOrders.length
+
+    return {
+      pendingDepositAmount,
+      pendingBillsCount,
+      neededToReceive,
+      neededBillsCount,
+      totalValue,
+      totalOrdersCount,
+      readyCount,
+      pendingCount,
+    }
+  }, [validOrders])
 
   const filtered = useMemo(() => validOrders.filter(order => {
     const query = search.trim().toLowerCase()
@@ -185,7 +204,8 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
     if (statusFilter === 'completed' && order.status !== 'completed') return false
     if (statusFilter === 'cancelled' && order.status !== 'cancelled') return false
     if (dateFilter !== 'all') {
-      const created = new Date(order.created_at); const now = new Date()
+      const created = new Date(order.created_at)
+      const now = new Date()
       if (dateFilter === 'today' && dateKey(created) !== dateKey(now)) return false
       if (dateFilter === 'week') {
         // Calendar week: Monday 00:00:00 of the current week
@@ -195,9 +215,20 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
         if (created < weekStart) return false
       }
       if (dateFilter === 'month' && (created.getMonth() !== now.getMonth() || created.getFullYear() !== now.getFullYear())) return false
+      if (dateFilter === 'year' && created.getFullYear() !== now.getFullYear()) return false
+      if (dateFilter === 'custom') {
+        if (customFrom) {
+          const fromD = new Date(`${customFrom}T00:00:00`)
+          if (created < fromD) return false
+        }
+        if (customTo) {
+          const toD = new Date(`${customTo}T23:59:59`)
+          if (created > toD) return false
+        }
+      }
     }
     return true
-  }), [validOrders, search, statusFilter, dateFilter])
+  }), [validOrders, search, statusFilter, dateFilter, customFrom, customTo])
 
   const create = async (event: FormEvent) => {
     event.preventDefault(); setSaving(true); setError(''); setNotice('')
@@ -270,14 +301,8 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
     }
     setSaving(true); setError('')
     try {
-      const manualDiscountNum = Math.max(0, Number(manualDiscount) || 0)
-      const manualDisc = manualDiscountType === '%'
-        ? Math.round(paymentOrder.remaining_balance * (manualDiscountNum / 100) * 100) / 100
-        : manualDiscountNum
-      const finalAmount = Math.max(0, paymentOrder.remaining_balance - manualDisc)
-      const parts = [paymentForm.remarks]
-      if (manualDisc > 0) parts.push(`Manual Discount: ${manualDiscountType === '%' ? manualDiscountNum + '%' : '₹' + manualDiscountNum.toFixed(2)} = -INR ${manualDisc.toFixed(2)}`)
-      const finalRemarks = parts.filter(Boolean).join(' | ')
+      const finalAmount = Math.max(0, paymentOrder.remaining_balance)
+      const finalRemarks = paymentForm.remarks.trim()
 
       const effectiveMode: AdvancePaymentMethod = balanceMethod === 'split'
         ? (balanceValidation.activePayments.length > 1 ? 'split' : (balanceValidation.activePayments[0]?.mode as AdvancePaymentMethod || 'cash'))
@@ -287,75 +312,109 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
         paymentOrder.id, 
         effectiveMode, 
         finalAmount,
-        null,
+        paymentOrder.coupon_code || null,
+        paymentOrder.coupon_percentage || 0,
         0,
-        manualDisc,
         finalRemarks,
         balanceValidation.activePayments,
         balanceValidation.changeGiven
       )
-      const completed: AdvanceOrder = { ...paymentOrder, status: 'completed', remaining_balance: finalAmount, completed_at: result.completed_at, completed_order_id: result.order_id, invoice_number: result.invoice_no, final_payment_method: effectiveMode }
-      setOrders(rows => rows.map(row => row.id === completed.id ? completed : row)); onOrderCompleted?.(completed); setPaymentOrder(null); setPaymentForm({ method: 'cash', remarks: '' }); setManualDiscount(''); setManualDiscountType('rm'); setNotice(`${result.invoice_no} generated once. The full ${formatCurrency(completed.total_amount)} is now recognized as revenue.`)
+      const completed: AdvanceOrder = { 
+        ...paymentOrder, 
+        status: 'completed', 
+        remaining_balance: 0, 
+        completed_at: result.completed_at, 
+        completed_order_id: result.order_id, 
+        invoice_number: result.invoice_no, 
+        final_payment_method: effectiveMode 
+      }
+      setOrders(rows => rows.map(row => row.id === completed.id ? completed : row))
+      onOrderCompleted?.(completed)
+      setPaymentOrder(null)
+      setPaymentForm({ method: 'cash', remarks: '' })
+      setNotice(`${result.invoice_no} generated once. The full ${formatCurrency(completed.total_amount)} is now recognized as revenue.`)
 
       // Redirect to WhatsApp with final invoice URL + Instagram + Feedback form
       whatsappInvoice(completed)
     } catch (err) { setError(err instanceof Error ? err.message : 'Unable to complete payment') } finally { setSaving(false) }
   }
 
+  const getOrderBreakdownDetails = (order: AdvanceOrder) => {
+    const subtotal = Number(order.subtotal ?? order.total_amount ?? 0)
+    const discount = Number(order.discount_amount ?? 0)
+    const manualDiscount = Number(order.manual_discount_amount ?? 0)
+    const gst = Number(order.gst_amount ?? order.total_gst ?? 0)
+    const total = Number(order.total_amount ?? 0)
+    let delivery = Number(order.delivery_charge ?? 0)
+    if (!delivery && total > 0 && subtotal > 0) {
+      const computed = Math.round((total - (subtotal - (discount + manualDiscount) + gst)) * 100) / 100
+      if (computed > 0) delivery = computed
+    }
+    return { subtotal, discount, manualDiscount, gst, total, delivery }
+  }
+
   const productRows = (order: AdvanceOrder) => order.products.length ? order.products : [{ name: order.product_name, quantity: 1, base_price: order.total_amount, line_total: order.total_amount, unit: 'piece', unit_type: 'unit' }]
-  const invoiceFile = (order: AdvanceOrder) => invoicePdfFile({
-    invoiceNo: order.invoice_number || order.deposit_id,
-    date: order.completed_at || new Date().toISOString(),
-    customerName: order.customer_name,
-    phone: order.phone,
-    address: order.address,
-    items: productRows(order),
-    subtotal: order.subtotal ?? order.total_amount,
-    shipping: 0,
-    discountAmount: order.discount_amount,
-    manualDiscountAmount: order.manual_discount_amount,
-    couponCode: order.coupon_code,
-    couponPercentage: order.coupon_percentage,
-    gstAmount: order.gst_amount ?? order.total_gst,
-    totalGst: order.total_gst ?? order.gst_amount,
-    gstRate: order.gst_rate,
-    total: order.total_amount,
-    paymentMode: order.final_payment_method || 'Paid',
-    payments: order.payments,
-    depositAmount: order.deposit_amount,
-    remainingBalance: order.remaining_balance,
-    advancePaid: order.deposit_amount,
-    balancePaid: order.status === 'completed' ? (order.total_amount - order.deposit_amount) : 0,
-  })
-  const printFinal = (order: AdvanceOrder) => printThermalReceipt({
-    invoiceNo: order.invoice_number || order.deposit_id,
-    date: order.completed_at || new Date().toISOString(),
-    customerName: order.customer_name,
-    phone: order.phone,
-    items: productRows(order).map(item => ({
-      name: String(item.name || 'Product'),
-      qty: Number(item.quantity || 1),
-      unit: String(item.unit || 'piece'),
-      price: Number(item.base_price || 0),
-      line_total: Number(item.line_total || 0),
-    })),
-    subtotal: order.subtotal ?? order.total_amount,
-    shipping: 0,
-    discountAmount: order.discount_amount,
-    manualDiscountAmount: order.manual_discount_amount,
-    couponCode: order.coupon_code,
-    couponPercentage: order.coupon_percentage,
-    gstAmount: order.gst_amount ?? order.total_gst,
-    totalGst: order.total_gst ?? order.gst_amount,
-    gstRate: order.gst_rate,
-    total: order.total_amount,
-    paymentMode: order.final_payment_method || 'Paid',
-    payments: order.payments,
-    depositAmount: order.deposit_amount,
-    remainingBalance: order.remaining_balance,
-    advancePaid: order.deposit_amount,
-    balancePaid: order.status === 'completed' ? (order.total_amount - order.deposit_amount) : 0,
-  })
+  const invoiceFile = (order: AdvanceOrder) => {
+    const details = getOrderBreakdownDetails(order)
+    return invoicePdfFile({
+      invoiceNo: order.invoice_number || order.deposit_id,
+      date: order.completed_at || new Date().toISOString(),
+      customerName: order.customer_name,
+      phone: order.phone,
+      address: order.address,
+      items: productRows(order),
+      subtotal: details.subtotal,
+      shipping: details.delivery,
+      deliveryCharge: details.delivery,
+      discountAmount: details.discount,
+      manualDiscountAmount: details.manualDiscount,
+      couponCode: order.coupon_code,
+      couponPercentage: order.coupon_percentage,
+      gstAmount: details.gst,
+      totalGst: details.gst,
+      gstRate: order.gst_rate,
+      total: details.total,
+      paymentMode: order.final_payment_method || 'Paid',
+      payments: order.payments,
+      depositAmount: order.deposit_amount,
+      remainingBalance: order.remaining_balance,
+      advancePaid: order.deposit_amount,
+      balancePaid: order.status === 'completed' ? (order.total_amount - order.deposit_amount) : 0,
+    })
+  }
+  const printFinal = (order: AdvanceOrder) => {
+    const details = getOrderBreakdownDetails(order)
+    return printThermalReceipt({
+      invoiceNo: order.invoice_number || order.deposit_id,
+      date: order.completed_at || new Date().toISOString(),
+      customerName: order.customer_name,
+      phone: order.phone,
+      items: productRows(order).map(item => ({
+        name: String(item.name || 'Product'),
+        qty: Number(item.quantity || 1),
+        unit: String(item.unit || 'piece'),
+        price: Number(item.base_price || 0),
+        line_total: Number(item.line_total || 0),
+      })),
+      subtotal: details.subtotal,
+      shipping: details.delivery,
+      deliveryCharge: details.delivery,
+      discountAmount: details.discount,
+      manualDiscountAmount: details.manualDiscount,
+      couponCode: order.coupon_code,
+      couponPercentage: order.coupon_percentage,
+      gstAmount: details.gst,
+      totalGst: details.gst,
+      gstRate: order.gst_rate,
+      total: details.total,
+      paymentMode: order.final_payment_method || 'Paid',
+      payments: order.payments,
+      depositAmount: order.deposit_amount,
+      remainingBalance: order.remaining_balance,
+      advancePaid: order.deposit_amount,
+      balancePaid: order.status === 'completed' ? (order.total_amount - order.deposit_amount) : 0,
+    })
+  }
   
   const whatsappDepositReceipt = (order: AdvanceOrder) => {
     const message = buildAdvanceDepositWhatsAppMessage({
@@ -372,6 +431,7 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
 
   const whatsappInvoice = (order: AdvanceOrder) => {
     const invNum = order.invoice_number || order.deposit_id
+    const details = getOrderBreakdownDetails(order)
     const message = buildProfessionalWhatsAppMessage({
       customerName: order.customer_name,
       phone: order.phone,
@@ -385,15 +445,17 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
         rate: Number(item.base_price || 0),
         lineTotal: Number(item.line_total || 0),
       })),
-      subtotal: order.subtotal ?? order.total_amount,
-      discountAmount: order.discount_amount,
-      manualDiscountAmount: order.manual_discount_amount,
+      subtotal: details.subtotal,
+      shipping: details.delivery,
+      deliveryCharge: details.delivery,
+      discountAmount: details.discount,
+      manualDiscountAmount: details.manualDiscount,
       couponCode: order.coupon_code,
       couponPercentage: order.coupon_percentage,
-      gstAmount: order.gst_amount ?? order.total_gst,
-      totalGst: order.total_gst ?? order.gst_amount,
+      gstAmount: details.gst,
+      totalGst: details.gst,
       gstRate: order.gst_rate,
-      total: order.total_amount,
+      total: details.total,
       paymentMode: order.final_payment_method || 'Paid',
       payments: order.payments,
       depositAmount: order.deposit_amount,
@@ -408,18 +470,192 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
     try { await addAdvanceEvent(order.id, eventType, label); await openDetails(order); setNotice(`${label} added to ${order.deposit_id}.`) } catch (err) { setError(err instanceof Error ? err.message : 'Unable to add timeline event') }
   }
 
-  const cards = [
-    ['Total Deposits', analytics.total, FileText, 'text-violet-700 bg-violet-50'], ['Pending Deposit Orders', analytics.pending, Clock3, 'text-amber-700 bg-amber-50'],
-    ['Total Deposit Amount', formatCurrency(analytics.deposits), RMIcon, 'text-fuchsia-700 bg-fuchsia-50'], ['Outstanding Balance', formatCurrency(analytics.outstanding), RMIcon, 'text-red-700 bg-red-50'],
-    ['Ready For Collection', analytics.ready, PackageCheck, 'text-blue-700 bg-blue-50'], ['Completed Deposit Orders', analytics.completed, CheckCircle2, 'text-emerald-700 bg-emerald-50'],
-  ] as const
+  const summaryCards = [
+    {
+      label: 'PENDING DEPOSIT AMOUNT RECEIVED',
+      value: formatCurrency(analytics.pendingDepositAmount),
+      subtext: `${analytics.pendingBillsCount} bills with pending deposits`,
+      icon: <span className="font-bold text-xs">₹</span>,
+      iconStyle: 'text-emerald-700 bg-emerald-50 border border-emerald-200',
+    },
+    {
+      label: 'NEEDED TO RECEIVE (PENDING)',
+      value: formatCurrency(analytics.neededToReceive),
+      subtext: `${analytics.neededBillsCount} bills with Balance Due`,
+      icon: <span className="font-bold text-xs">₹</span>,
+      iconStyle: 'text-amber-700 bg-amber-50 border border-amber-200',
+    },
+    {
+      label: 'TOTAL ADVANCE ORDERS VALUE',
+      value: formatCurrency(analytics.totalValue),
+      subtext: `${analytics.totalOrdersCount} Total Advance Orders`,
+      icon: <FileText size={16} />,
+      iconStyle: 'text-fuchsia-700 bg-fuchsia-50 border border-fuchsia-200',
+    },
+    {
+      label: 'READY FOR DELIVERY',
+      value: String(analytics.readyCount),
+      subtext: 'Ready for customer pickup/delivery',
+      icon: <PackageCheck size={16} />,
+      iconStyle: 'text-blue-700 bg-blue-50 border border-blue-200',
+    },
+    {
+      label: 'PENDING ORDERS',
+      value: String(analytics.pendingCount),
+      subtext: 'Awaiting balance or confirmation',
+      icon: <Clock3 size={16} />,
+      iconStyle: 'text-rose-700 bg-rose-50 border border-rose-200',
+    },
+  ]
 
   return <div className="space-y-5">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[.18em] text-violet-600">Separate from sales</p><h2 className="text-2xl font-black text-[#273126]">Advance Orders</h2><p className="mt-1 text-sm text-[#6B7280]">Deposits never count as revenue. Full order value is recognized only after final payment.</p></div><div className="flex gap-2"><button onClick={() => void load()} className="rounded-xl border bg-white p-3 text-[#647064]" title="Refresh"><RefreshCw size={18}/></button></div></div>
+    {/* Page Header matching screenshot 4 */}
+    <div className="flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <p className="text-xs font-black uppercase tracking-[.18em] text-emerald-600">Separate from sales</p>
+        <h2 className="text-2xl font-black text-[#273126]">Advance Orders</h2>
+        <p className="mt-1 text-xs text-[#6B7280]">Deposits are tracked separately. Full order value is recognized once final payment is completed.</p>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setCreateOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 text-xs font-bold shadow-xs transition cursor-pointer"
+        >
+          <Plus size={16} />
+          <span>New Advance Order</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => void load()}
+          className="rounded-xl border border-gray-200 bg-white p-2.5 text-gray-600 hover:bg-gray-50 transition cursor-pointer"
+          title="Refresh"
+        >
+          <RefreshCw size={16} />
+        </button>
+      </div>
+    </div>
+
     {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div>}
     {notice && <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{notice}</div>}
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{cards.map(([label, value, Icon, color]) => <div key={label} className="rounded-2xl border border-[#ECE9E2] bg-white p-4 shadow-sm"><div className="flex items-center justify-between"><div><p className="text-[11px] font-black uppercase tracking-wide text-[#879086]">{label}</p><p className="mt-2 text-2xl font-black text-[#273126]">{value}</p></div><div className={`rounded-xl p-3 ${color}`}><Icon size={21}/></div></div></div>)}</div>
-    <div className="rounded-2xl border border-[#ECE9E2] bg-white p-4 shadow-sm"><div className="grid gap-3 lg:grid-cols-[1fr_auto_auto]"><label className="relative"><Search className="absolute left-3 top-3 text-[#9CA3AF]" size={17}/><input className={`${inputClass} pl-10`} value={search} onChange={e => setSearch(e.target.value)} placeholder="Search Deposit ID, customer, phone, product or status"/></label><div className="flex flex-wrap gap-2">{(['all','pending','ready','completed','cancelled'] as StatusFilter[]).map(value => <button key={value} onClick={() => setStatusFilter(value)} className={`rounded-lg px-3 py-2 text-xs font-black capitalize ${statusFilter === value ? 'bg-[#7e22ce] text-white' : 'bg-[#F5F3F7] text-[#626B61]'}`}>{value}</button>)}</div><select className={inputClass} value={dateFilter} onChange={e => setDateFilter(e.target.value as DateFilter)}><option value="all">All Dates</option><option value="today">Today</option><option value="week">This Week</option><option value="month">This Month</option></select></div></div>
+
+    {/* 5 Summary Cards */}
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      {summaryCards.map((card, i) => (
+        <div key={i} className="rounded-2xl border border-gray-100 bg-white p-4 shadow-xs flex flex-col justify-between">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-[10px] font-black uppercase tracking-wider text-gray-500 leading-tight">
+              {card.label}
+            </p>
+            <div className={`shrink-0 rounded-lg p-1.5 ${card.iconStyle}`}>
+              {card.icon}
+            </div>
+          </div>
+          <div className="mt-2">
+            <p className="text-2xl font-black text-gray-900 tracking-tight">
+              {card.value}
+            </p>
+            <p className="mt-1 text-xs text-gray-400 font-medium truncate">
+              {card.subtext}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+
+    {/* Single Filter Card matching screenshot 4 */}
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5 shadow-xs space-y-4">
+      {/* Search and Status Filters */}
+      <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+        <div className="relative flex-1">
+          <Search className="absolute left-3.5 top-3 text-gray-400" size={17} />
+          <input
+            className="w-full rounded-xl border border-gray-200 bg-white pl-10 pr-4 py-2.5 text-xs font-medium text-gray-800 placeholder-gray-400 outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 transition"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search Deposit ID, customer, phone, product or status"
+          />
+        </div>
+        <div className="flex flex-wrap gap-1.5 shrink-0">
+          {(['all', 'pending', 'ready', 'completed', 'cancelled'] as StatusFilter[]).map(val => (
+            <button
+              key={val}
+              type="button"
+              onClick={() => setStatusFilter(val)}
+              className={`rounded-lg px-3.5 py-2 text-xs font-bold capitalize transition cursor-pointer ${
+                statusFilter === val
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {val === 'all' ? 'All' : (val === 'ready' ? 'Ready' : STATUS_LABELS[val as AdvanceStatus] || val)}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Date Filter & Range */}
+      <div className="space-y-3 pt-3 border-t border-gray-100">
+        <div>
+          <p className="text-xs font-bold text-gray-700 mb-2">Filter by Date</p>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { key: 'today', label: 'Today' },
+              { key: 'week', label: 'This Week' },
+              { key: 'month', label: 'This Month' },
+              { key: 'year', label: 'This Year' },
+              { key: 'all', label: 'All' },
+              { key: 'custom', label: 'Custom' },
+            ].map(item => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setDateFilter(item.key as DateFilter)}
+                className={`rounded-lg px-3.5 py-1.5 text-xs font-bold transition cursor-pointer ${
+                  dateFilter === item.key
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-transparent'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Custom Date Pickers */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500 mb-1">
+              From Date
+            </label>
+            <input
+              type="date"
+              className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-xs text-gray-800 outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
+              value={customFrom}
+              onChange={e => {
+                setCustomFrom(e.target.value)
+                setDateFilter('custom')
+              }}
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500 mb-1">
+              To Date
+            </label>
+            <input
+              type="date"
+              className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-xs text-gray-800 outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
+              value={customTo}
+              onChange={e => {
+                setCustomTo(e.target.value)
+                setDateFilter('custom')
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
     <div className="overflow-hidden rounded-2xl border border-[#ECE9E2] bg-white shadow-sm">
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
@@ -641,59 +877,34 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
               <X size={16}/>
             </button>
           </div>
-          {(() => {
-            const manualNum = Math.max(0, Number(manualDiscount) || 0)
-            const manualDisc = manualDiscountType === '%' ? Math.round(paymentOrder.remaining_balance * (manualNum / 100) * 100) / 100 : manualNum
-            const finalAmt = Math.max(0, paymentOrder.remaining_balance - manualDisc)
-            return (
-              <form onSubmit={receivePayment} className="flex flex-col flex-1 overflow-hidden min-h-0">
-                <div className="overflow-y-auto flex-1 p-4 sm:p-6 space-y-4">
-                  <div className="rounded-2xl bg-emerald-50 py-5 text-center">
-                    <p className="text-[11px] font-black uppercase tracking-widest text-emerald-600">Remaining Amount</p>
-                    <p className={`mt-1 font-black text-emerald-800 ${manualDisc > 0 ? 'text-xl line-through opacity-60' : 'text-4xl'}`}>{formatCurrency(paymentOrder.remaining_balance)}</p>
-                    {manualDisc > 0 && (
-                      <>
-                        <div className="mt-2 space-y-0.5 text-xs text-emerald-700">
-                          <p>Manual Discount: -{formatCurrency(manualDisc)}</p>
-                        </div>
-                        <p className="mt-3 text-3xl font-black text-emerald-950">You Pay: {formatCurrency(finalAmt)}</p>
-                      </>
-                    )}
-                  </div>
-                  <div className="space-y-4">
-                    <Field label="Manual Discount">
-                      <div className="flex gap-2 items-center">
-                        <select value={manualDiscountType} onChange={e=>setManualDiscountType(e.target.value as 'rm'|'%')} className="rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-sm font-black text-[#273126] outline-none focus:border-[#7e22ce] focus:ring-2 focus:ring-violet-100 cursor-pointer">
-                          <option value="rm">₹</option>
-                          <option value="%">%</option>
-                        </select>
-                        <input type="number" min="0" step="0.01" className={`${inputClass} flex-1`} value={manualDiscount} onChange={e=>setManualDiscount(e.target.value)} placeholder="0" />
-                      </div>
-                    </Field>
+          <form onSubmit={receivePayment} className="flex flex-col flex-1 overflow-hidden min-h-0">
+            <div className="overflow-y-auto flex-1 p-4 sm:p-6 space-y-4">
+              <div className="rounded-2xl bg-emerald-50 py-5 text-center">
+                <p className="text-[11px] font-black uppercase tracking-widest text-emerald-600">Remaining Amount</p>
+                <p className="mt-1 font-black text-emerald-800 text-4xl">{formatCurrency(paymentOrder.remaining_balance)}</p>
+              </div>
+              <div className="space-y-4">
+                <SplitPaymentSelector
+                  type="balance"
+                  targetAmount={paymentOrder.remaining_balance}
+                  method={balanceMethod}
+                  onMethodChange={setBalanceMethod}
+                  onChange={setBalanceValidation}
+                  disabled={saving}
+                />
 
-                    <SplitPaymentSelector
-                      type="balance"
-                      targetAmount={finalAmt}
-                      method={balanceMethod}
-                      onMethodChange={setBalanceMethod}
-                      onChange={setBalanceValidation}
-                      disabled={saving}
-                    />
-
-                    <Field label="Payment Notes">
-                      <textarea className={inputClass} value={paymentForm.remarks} onChange={e=>setPaymentForm({...paymentForm,remarks:e.target.value})} placeholder="Notes about this payment (optional)"/>
-                    </Field>
-                    <p className="mt-2 rounded-xl bg-amber-50 p-3 text-[11px] font-semibold text-amber-800">Confirmation marks the order Completed, creates one official invoice, and recognizes the full {formatCurrency(paymentOrder.total_amount)} as revenue.</p>
-                  </div>
-                </div>
-                <div className="sticky bottom-0 z-20 shrink-0 bg-[#FBFAF6] px-4 py-3 sm:px-6 sm:py-3.5 border-t border-gray-200 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
-                  <button disabled={saving || !balanceValidation.isValid} className="w-full min-h-[48px] rounded-xl bg-emerald-600 py-3 font-black text-white shadow-lg shadow-emerald-600/30 transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer hover:bg-emerald-700 flex items-center justify-center">
-                    {saving?'Processing...':'Confirm Final Payment'}
-                  </button>
-                </div>
-              </form>
-            )
-          })()}
+                <Field label="Payment Notes">
+                  <textarea className={inputClass} value={paymentForm.remarks} onChange={e=>setPaymentForm({...paymentForm,remarks:e.target.value})} placeholder="Notes about this payment (optional)"/>
+                </Field>
+                <p className="mt-2 rounded-xl bg-amber-50 p-3 text-[11px] font-semibold text-amber-800">Confirmation marks the order Completed, creates one official invoice, and recognizes the full {formatCurrency(paymentOrder.total_amount)} as revenue.</p>
+              </div>
+            </div>
+            <div className="sticky bottom-0 z-20 shrink-0 bg-[#FBFAF6] px-4 py-3 sm:px-6 sm:py-3.5 border-t border-gray-200 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
+              <button disabled={saving || !balanceValidation.isValid} className="w-full min-h-[48px] rounded-xl bg-emerald-600 py-3 font-black text-white shadow-lg shadow-emerald-600/30 transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer hover:bg-emerald-700 flex items-center justify-center">
+                {saving?'Processing...':'Confirm Final Payment'}
+              </button>
+            </div>
+          </form>
         </div>
       </div>,
       document.body

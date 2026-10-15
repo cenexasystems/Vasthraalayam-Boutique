@@ -38,6 +38,7 @@ export type AdvanceOrder = {
   subtotal?: number
   discount_amount?: number
   manual_discount_amount?: number
+  delivery_charge?: number
   coupon_code?: string | null
   coupon_percentage?: number
   total_gst?: number
@@ -176,6 +177,7 @@ export async function createAdvanceOrder(input: {
   subtotal?: number
   discountAmount?: number
   manualDiscountAmount?: number
+  deliveryCharge?: number
   couponCode?: string | null
   couponPercentage?: number
   totalGst?: number
@@ -202,6 +204,8 @@ export async function createAdvanceOrder(input: {
       subtotal: input.subtotal,
       discount_amount: input.discountAmount,
       manual_discount_amount: input.manualDiscountAmount,
+      delivery_charge: input.deliveryCharge,
+      shipping: input.deliveryCharge,
       coupon_code: input.couponCode,
       coupon_percentage: input.couponPercentage,
       total_gst: input.totalGst,

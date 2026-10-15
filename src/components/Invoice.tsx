@@ -293,7 +293,7 @@ export const Invoice: React.FC<InvoiceProps> = ({
                 )
               }
 
-              const isDiscount = row.type === 'discount'
+              const isDiscount = row.type === 'discount' || row.type === 'coupon'
               const color = isDiscount ? 'var(--invoice-primary, #1F3A2E)' : '#555'
               const valColor = isDiscount ? 'var(--invoice-primary, #1F3A2E)' : '#111'
               const sign = row.prefix ? `${row.prefix}` : ''

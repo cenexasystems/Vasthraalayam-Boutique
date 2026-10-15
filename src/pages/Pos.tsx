@@ -877,6 +877,7 @@ export default function Pos(props: PosProps = {}) {
         subtotal: subtotal,
         discountAmount: couponDiscount,
         manualDiscountAmount: manualDiscountAmount,
+        deliveryCharge: Number(shipping || 0),
         couponCode: appliedCoupon?.code || null,
         couponPercentage: appliedCoupon?.percentage || 0,
         totalGst: totalGst,

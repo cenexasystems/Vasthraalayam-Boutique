@@ -38,7 +38,7 @@ export interface BreakdownRow {
   label: string
   amount: number
   prefix: string // '', '−', '+'
-  type: 'subtotal' | 'discount' | 'taxable' | 'tax' | 'delivery' | 'roundoff' | 'total'
+  type: 'subtotal' | 'discount' | 'coupon' | 'taxable' | 'tax' | 'delivery' | 'roundoff' | 'total'
 }
 
 export interface InvoiceBreakdown {
@@ -192,14 +192,31 @@ export function computeInvoiceBreakdown(input: InvoiceBreakdownInput): InvoiceBr
     type: 'subtotal',
   })
 
-  // 2. Discount: -Rs. X (if discount applied)
-  if (totalDiscount > 0) {
+  // 2. Discount: -Rs. X (if manual/other discount applied)
+  if (manualDiscount > 0) {
+    let manLabel = 'Discount'
+    if (input.manualDiscountType === '%' && input.manualDiscountValue && input.manualDiscountValue > 0) {
+      manLabel = `Discount (${input.manualDiscountValue}%)`
+    }
     rows.push({
       key: 'discount',
-      label: discountLabel,
-      amount: totalDiscount,
-      prefix: '−',
+      label: manLabel,
+      amount: manualDiscount,
+      prefix: '-',
       type: 'discount',
+    })
+  }
+
+  // 2b. Coupon: -Rs. X (if coupon applied)
+  if (couponDiscount > 0) {
+    const cCode = input.couponCode ? String(input.couponCode).trim() : ''
+    const couponLabel = cCode ? `Coupon (${cCode})` : 'Coupon Discount'
+    rows.push({
+      key: 'coupon',
+      label: couponLabel,
+      amount: couponDiscount,
+      prefix: '-',
+      type: 'coupon',
     })
   }
 
@@ -240,7 +257,7 @@ export function computeInvoiceBreakdown(input: InvoiceBreakdownInput): InvoiceBr
   if (deliveryCharge > 0) {
     rows.push({
       key: 'delivery',
-      label: 'Delivery',
+      label: 'Delivery Charge',
       amount: deliveryCharge,
       prefix: '+',
       type: 'delivery',
@@ -253,7 +270,7 @@ export function computeInvoiceBreakdown(input: InvoiceBreakdownInput): InvoiceBr
       key: 'roundoff',
       label: 'Round off',
       amount: Math.abs(roundOff),
-      prefix: roundOff > 0 ? '+' : '−',
+      prefix: roundOff > 0 ? '+' : '-',
       type: 'roundoff',
     })
   }
