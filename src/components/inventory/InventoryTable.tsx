@@ -156,6 +156,7 @@ export const InventoryTable: React.FC = () => {
     stock_quantity?: number
     category?: string
     has_variants?: boolean
+    gstPercent?: number
   }
 
   // Combined product options for Barcode Generator intake (storeProducts takes priority over flat items)
@@ -175,6 +176,7 @@ export const InventoryTable: React.FC = () => {
               stock_quantity: i.stock,
               category: i.category || undefined,
               has_variants: !!i.variant_id,
+              gstPercent: i.gst_percent || 0,
             },
           ]
         ),
@@ -192,6 +194,7 @@ export const InventoryTable: React.FC = () => {
               stock_quantity: p.stockQuantity ?? p.stock ?? 0,
               category: p.category,
               has_variants: p.hasVariants,
+              gstPercent: p.gstPercent || 0,
             },
           ]
         ),
@@ -622,7 +625,7 @@ export const InventoryTable: React.FC = () => {
           productName={printModalItem.name}
           variantName={printModalItem.variant_name}
           barcodeValue={printModalItem.barcode || ''}
-          price={printModalItem.price}
+          price={(printModalItem.gst_percent ?? 0) > 0 ? roundTo(printModalItem.price * (1 + (printModalItem.gst_percent ?? 0) / 100), 2) : printModalItem.price}
           mrp={printModalItem.offer_price}
           defaultQuantity={Math.max(1, printModalItem.stock)}
         />
