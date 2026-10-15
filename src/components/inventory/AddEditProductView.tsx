@@ -1606,7 +1606,7 @@ export const AddEditProductView: React.FC<{
 
                         <div className="sm:col-span-2">
                           <label className="block text-[10px] font-bold text-gray-600 mb-0.5">
-                            Price (₹)
+                            Price (₹){enableGst && Number(gstPercent) > 0 ? ' · excl. GST' : ''}
                           </label>
                           <input
                             type="number"
@@ -1618,6 +1618,11 @@ export const AddEditProductView: React.FC<{
                             onChange={(e) => handleUpdateVariantRow(v.id, 'price', parseFloat(e.target.value) || 0)}
                             className="w-full h-8 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
                           />
+                          {enableGst && Number(gstPercent) > 0 && Number(v.price) > 0 && (
+                            <p className="mt-0.5 text-[10px] font-semibold text-emerald-700">
+                              Customer pays ₹{roundTo(Number(v.price) * (1 + Number(gstPercent) / 100), 2).toFixed(2)} incl. {Number(gstPercent)}% GST
+                            </p>
+                          )}
                         </div>
 
                         <div className="sm:col-span-2">

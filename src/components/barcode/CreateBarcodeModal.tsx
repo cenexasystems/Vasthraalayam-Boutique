@@ -34,6 +34,13 @@ import { BRAND_EN } from '../../lib/brand'
 import { barcodeService } from '../../services/barcodeService'
 import { fetchVariantsByProduct, type ProductVariant } from '../../services/variantService'
 import { useProductStore } from '../../store/store'
+import { roundTo } from '../../lib/retail'
+
+// Prices are stored GST-exclusive; labels must print what the customer pays (GST-inclusive).
+const withGst = (price: number, gstPercent?: number | null): number => {
+  const pct = Number(gstPercent) || 0
+  return pct > 0 ? roundTo(Number(price) * (1 + pct / 100), 2) : Number(price)
+}
 import { BarcodeSettingsDrawer } from './BarcodeSettingsDrawer'
 import { BarcodeSheetPreviewModal } from './BarcodeSheetPreviewModal'
 
@@ -143,7 +150,7 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
     setItemCode(code)
     setLine1(prod.name)
     setLine2(prod.category || '')
-    setLine3(settings.showDiscount ? 'Discount: 0%' : `Price: ₹${prod.price}`)
+    setLine3(settings.showDiscount ? 'Discount: 0%' : `Price: ₹${withGst(prod.price, prod.gstPercent)}`)
 
     // Fetch variants if applicable
     if (prod.has_variants) {
@@ -161,7 +168,7 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
           }
           setLine2(`Size: ${chosen.variantName}`)
           const chosenPrice = chosen.price != null && Number(chosen.price) > 0 ? Number(chosen.price) : prod.price
-          setLine3(settings.showDiscount ? 'Discount: 0%' : `Price: ₹${chosenPrice}`)
+          setLine3(settings.showDiscount ? 'Discount: 0%' : `Price: ₹${withGst(chosenPrice, prod.gstPercent)}`)
         }
       } catch (err) {
         console.error('Failed to load variants:', err)
@@ -251,7 +258,7 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
     }
     setLine2(`Size: ${v.variantName}`)
     const varPrice = v.price != null && Number(v.price) > 0 ? Number(v.price) : (selectedProduct ? selectedProduct.price : 0)
-    setLine3(settings.showDiscount ? 'Discount: 0%' : `Price: ₹${varPrice}`)
+    setLine3(settings.showDiscount ? 'Discount: 0%' : `Price: ₹${withGst(varPrice, selectedProduct?.gstPercent)}`)
   }
 
   const handleAssignCode = () => {
@@ -294,9 +301,12 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
       return
     }
 
-    const itemPrice = selectedVariant?.price != null && Number(selectedVariant.price) > 0
-      ? Number(selectedVariant.price)
-      : selectedProduct.price
+    const itemPrice = withGst(
+      selectedVariant?.price != null && Number(selectedVariant.price) > 0
+        ? Number(selectedVariant.price)
+        : selectedProduct.price,
+      selectedProduct.gstPercent,
+    )
 
     const newItem: BarcodeQueueItem = {
       id: `queue_${Date.now()}_${Math.random()}`,
@@ -966,7 +976,7 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
                                       </p>
                                     </div>
                                     <div className="text-right shrink-0">
-                                      <span className="font-black text-gray-900">₹{p.price}</span>
+                                      <span className="font-black text-gray-900">₹{withGst(p.price, p.gstPercent)}</span>
                                       <span className="block text-[10px] text-gray-500 font-semibold">
                                         Stock: {p.stock_quantity ?? 0}
                                       </span>
@@ -1035,13 +1045,13 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
                               variantId: v.id,
                               variantName: v.variantName,
                               barcodeValue: `VASTHRAALAYAM${Math.floor(1000000 + Math.random() * 9000000)}`,
-                              price: v.price || selectedProduct.price,
+                              price: withGst(v.price || selectedProduct.price, selectedProduct.gstPercent),
                               costPrice: selectedProduct.cost_price || 0,
                               noOfLabels: parseInt(noOfLabels, 10) || 1,
                               header: header || BRAND_EN,
                               line1: selectedProduct.name,
                               line2: `Size: ${v.variantName}`,
-                              line3: settings.showDiscount ? 'Discount: 0%' : `Price: ₹${v.price || selectedProduct.price}`,
+                              line3: settings.showDiscount ? 'Discount: 0%' : `Price: ₹${withGst(v.price || selectedProduct.price, selectedProduct.gstPercent)}`,
                               line4: line4.trim(),
                               selected: true,
                             }))
@@ -1075,7 +1085,7 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
                           const hasVarBarcode = Boolean(v.barcode && v.barcode.trim())
                           return (
                             <option key={v.id} value={v.id}>
-                              {v.variantName} {hasVarBarcode ? `— [Barcode: ${v.barcode}] (Already Assigned)` : '— [No Barcode]'} — ₹{v.price} — Stock: {v.stock}
+                              {v.variantName} {hasVarBarcode ? `— [Barcode: ${v.barcode}] (Already Assigned)` : '— [No Barcode]'} — ₹{withGst(v.price, selectedProduct.gstPercent)} — Stock: {v.stock}
                             </option>
                           )
                         })}
@@ -1269,7 +1279,7 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
                                 className="font-black text-black truncate max-w-full leading-none"
                                 style={{ fontSize: `${Math.max(8, Math.round(previewHeightPx * (metrics.isVerySmall ? 0.11 : 0.095) * (activeProfile.font_scale || 1.0)))}px` }}
                               >
-                                {selectedProduct ? `₹${selectedProduct.price}` : '₹999'}
+                                {selectedProduct ? `₹${withGst(selectedProduct.price, selectedProduct.gstPercent)}` : '₹999'}
                               </span>
                             )}
                           </div>
