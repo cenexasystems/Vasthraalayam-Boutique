@@ -1289,10 +1289,13 @@ export const AddEditProductView: React.FC<{
                       Base Price (₹)
                     </label>
                     <input
-                      type="text"
-                      readOnly
-                      value={price ? `₹${price}` : '₹0.00'}
-                      className="w-full h-9 px-3 rounded-xl border border-gray-200 bg-gray-50 text-xs font-bold text-gray-700 outline-none cursor-default"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={price}
+                      onChange={(e) => handlePriceChange(e.target.value)}
+                      className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
                     />
                   </div>
 
