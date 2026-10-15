@@ -16,7 +16,7 @@ import { useProductStore, useSettingsStore, type Product } from '../../store/sto
 import { fetchVariantsByProduct } from '../../services/variantService'
 import { inventoryService, type CategoryRecord } from '../../services/inventoryService'
 import { normalizeBarcode } from '../../lib/barcode'
-import { calculateGstFromPercent, calculateGstFromAmount } from '../../lib/taxHelper'
+import { calculateGstFromPercent, calculateGstFromAmount, calculateBaseFromInclusive } from '../../lib/taxHelper'
 import { roundTo, formatCurrency } from '../../lib/retail'
 
 export const STANDARD_LETTER_SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', 'Free Size'] as const
@@ -117,6 +117,20 @@ export const AddEditProductView: React.FC<{
     const numBase = Math.max(0, Number(price) || 0)
     const res = calculateGstFromAmount(numBase, num)
     setGstPercent(res.gstPercent > 0 ? String(res.gstPercent) : '')
+  }
+
+  // Reverse entry: type the GST-inclusive (MRP) price and derive base + GST amount from the rate
+  const handleFinalPriceChange = (val: string) => {
+    const pct = Math.max(0, Math.min(100, Number(gstPercent) || 0))
+    if (val === '' || pct <= 0) {
+      setPrice(val)
+      setGstAmount(pct <= 0 ? '' : '0')
+      return
+    }
+    const inclusive = Math.max(0, Number(val) || 0)
+    const base = calculateBaseFromInclusive(inclusive, pct)
+    setPrice(String(base))
+    setGstAmount(String(roundTo(inclusive - base, 2)))
   }
 
   const handleToggleEnableGst = (checked: boolean) => {
@@ -1317,9 +1331,16 @@ export const AddEditProductView: React.FC<{
                     <label className="block text-[11px] font-bold text-[#7daa8f] mb-1">
                       Final Price (Incl. GST)
                     </label>
-                    <div className="w-full h-9 px-3 rounded-xl border border-emerald-300 bg-emerald-50/60 text-xs font-black text-emerald-950 flex items-center">
-                      ₹{computedFinalPrice.toFixed(2)}
-                    </div>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={computedFinalPrice === 0 ? '' : computedFinalPrice}
+                      onChange={(e) => handleFinalPriceChange(e.target.value)}
+                      title="Enter the GST-inclusive price to back-calculate the base price"
+                      className="w-full h-9 px-3 rounded-xl border border-emerald-300 bg-emerald-50/60 text-xs font-black text-emerald-950 outline-none focus:border-emerald-500"
+                    />
                   </div>
                 </div>
               )}

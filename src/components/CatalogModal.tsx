@@ -5,6 +5,7 @@ import { useProductStore, type Product } from '../store/store'
 import { neonApi } from '../lib/neonApi'
 import { useScrollLock } from '../lib/scrollLock'
 import { roundTo } from '../lib/retail'
+import { calculateBaseFromInclusive } from '../lib/taxHelper'
 
 
 interface CatalogModalProps {
@@ -102,7 +103,9 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
 
   const startEdit = (p: Product) => {
     setEditingProduct(p)
-    setEditForm({ name: p.name, category: p.category, price: String(p.price) })
+    // Catalog cards show GST-inclusive prices, so edit the inclusive figure
+    const pct = p.gstPercent ?? 0
+    setEditForm({ name: p.name, category: p.category, price: String(pct > 0 ? roundTo(p.price * (1 + pct / 100), 2) : p.price) })
     setEditError('')
   }
 
@@ -120,7 +123,9 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
     const selectedCategory = allCategoryOptions.find(c => c.name_en.trim().toLowerCase() === editForm.category.trim().toLowerCase())
     if (!selectedCategory) { setEditError('Select a valid category'); setEditLoading(false); return }
     const categoryName = selectedCategory.name_en.trim()
-    const newPrice = Number(editForm.price)
+    const gstPct = editingProduct.gstPercent ?? 0
+    const enteredPrice = Number(editForm.price)
+    const newPrice = gstPct > 0 ? calculateBaseFromInclusive(enteredPrice, gstPct) : enteredPrice
     const { error } = await neonApi.put(`/products/${editingProduct.id}`, {
       name: editForm.name.trim(),
       category: categoryName,
@@ -193,7 +198,7 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-[#374151] tracking-wider uppercase mb-1.5">Price (₹)</label>
+                  <label className="block text-[10px] font-black text-[#374151] tracking-wider uppercase mb-1.5">Price (₹){(editingProduct.gstPercent ?? 0) > 0 ? ` incl. ${editingProduct.gstPercent}% GST` : ''}</label>
                   <input type="number" value={editForm.price}
                     onChange={e => setEditForm({...editForm, price: e.target.value})}
                     className="w-full px-4 py-3 bg-[#F9FAFB] border border-[#E5E7EB]/60 rounded-xl focus:outline-none focus:border-[#7daa8f] text-[13px] font-bold text-right" placeholder="0" />

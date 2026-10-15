@@ -37,7 +37,7 @@ import {
   formatInvoiceNo,
   roundTo,
 } from '../lib/retail'
-import { computeBillTaxBreakdown } from '../lib/taxHelper'
+import { computeBillTaxBreakdown, calculateBaseFromInclusive } from '../lib/taxHelper'
 import { buildProfessionalWhatsAppMessage, buildAdvanceDepositWhatsAppMessage, publicInvoiceUrl } from '../lib/whatsappMessage'
 import { normalizePhone, toWhatsAppUrl } from '../lib/phone'
 import { useLangStore } from '../store/langStore'
@@ -706,7 +706,10 @@ export default function Pos(props: PosProps = {}) {
     setPriceEditModal({
       isOpen: true,
       item,
-      newPrice: String(item.basePrice ?? 0),
+      // Rate is displayed GST-inclusive, so edit the inclusive figure
+      newPrice: String((item.gstPercent ?? 0) > 0
+        ? roundTo(Number(item.basePrice || 0) * (1 + (item.gstPercent ?? 0) / 100), 2)
+        : (item.basePrice ?? 0)),
       isSubmitting: false,
       error: '',
     })
@@ -726,11 +729,14 @@ export default function Pos(props: PosProps = {}) {
     const { item, newPrice } = priceEditModal
     if (!item) return
 
-    const parsedPrice = parseFloat(newPrice)
-    if (isNaN(parsedPrice) || parsedPrice < 0) {
+    const enteredPrice = parseFloat(newPrice)
+    if (isNaN(enteredPrice) || enteredPrice < 0) {
       setPriceEditModal(prev => ({ ...prev, error: 'Please enter a valid price (0 or greater).' }))
       return
     }
+    const parsedPrice = (item.gstPercent ?? 0) > 0
+      ? calculateBaseFromInclusive(enteredPrice, item.gstPercent ?? 0)
+      : enteredPrice
 
     if (updateInventory) {
       setPriceEditModal(prev => ({ ...prev, isSubmitting: true, error: '' }))
@@ -2487,7 +2493,10 @@ export default function Pos(props: PosProps = {}) {
                     New Price (₹)
                   </label>
                   <span className="text-[11px] text-gray-500 font-semibold">
-                    Current: ₹{Number(priceEditModal.item.basePrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                    Current: ₹{(((priceEditModal.item.gstPercent ?? 0) > 0)
+                      ? roundTo(Number(priceEditModal.item.basePrice || 0) * (1 + (priceEditModal.item.gstPercent ?? 0) / 100), 2)
+                      : Number(priceEditModal.item.basePrice || 0)).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                    {(priceEditModal.item.gstPercent ?? 0) > 0 ? ` (incl. ${priceEditModal.item.gstPercent}% GST)` : ''}
                   </span>
                 </div>
                 <div className="relative">
