@@ -1686,7 +1686,7 @@ export default function Pos(props: PosProps = {}) {
                             </span>
                             <Edit2 size={11} className="text-[#5f6d59]" />
                           </button>
-                          {item.gstPercent && item.gstPercent > 0 && (
+                          {(item.gstPercent ?? 0) > 0 && (
                             <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
                               incl. {item.gstPercent}% GST
                             </span>
@@ -1764,11 +1764,11 @@ export default function Pos(props: PosProps = {}) {
                     </div>
 
                     {/* Price */}
-                    <div className="flex flex-col items-end justify-center px-2 py-1 text-right">
+                    <div className="relative flex flex-col items-end justify-center pl-2 pr-8 py-1 text-right">
                       <button
                         type="button"
                         onClick={() => handleOpenPriceEdit(item)}
-                        className="group flex items-center justify-end gap-1.5 px-2.5 py-1.5 rounded-lg border border-transparent hover:border-[#7daa8f]/50 hover:bg-[#7daa8f]/10 transition-all text-right cursor-pointer"
+                        className="group flex items-center justify-end px-1 py-1.5 rounded-lg border border-transparent hover:border-[#7daa8f]/50 hover:bg-[#7daa8f]/10 transition-all text-right cursor-pointer"
                         title="Click to edit price"
                       >
                         <span className="text-[13px] font-black text-[#111111] group-hover:text-[#5f6d59] tracking-tight">
@@ -1777,9 +1777,9 @@ export default function Pos(props: PosProps = {}) {
                             : Number(item.basePrice || 0)
                           ).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                         </span>
-                        <Edit2 size={12} className="text-gray-400 group-hover:text-[#5f6d59] transition-colors shrink-0" />
+                        <Edit2 size={12} className="absolute right-2 top-2.5 text-gray-400 group-hover:text-[#5f6d59] transition-colors" />
                       </button>
-                      {item.gstPercent && item.gstPercent > 0 && (
+                      {(item.gstPercent ?? 0) > 0 && (
                         <span className="text-[9px] font-bold text-emerald-700">
                           incl. {item.gstPercent}% GST
                         </span>
