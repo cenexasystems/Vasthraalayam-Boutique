@@ -26,6 +26,13 @@ export type StructuredOrderItem = {
   /** Classification must come from the catalog record, never from keywords. */
   item_type: 'product' | 'service'
   itemType?: 'product' | 'service'
+  unit_price?: number
+  gst_percent?: number
+  gst_rate?: number
+  gst_amount?: number
+  taxable_amount?: number
+  cgst?: number
+  sgst?: number
 }
 
 type UnitFactors = Record<string, number>
@@ -448,6 +455,14 @@ export const buildStructuredOrderItem = (input: {
   unitType: UnitType
   baseQuantity: number
   basePrice: number
+  unitPrice?: number
+  lineTotal?: number
+  gstPercent?: number
+  gstRate?: number
+  gstAmount?: number
+  taxableAmount?: number
+  cgst?: number
+  sgst?: number
   imageUrl?: string | null
   source?: 'catalogue' | 'manual'
   isManual?: boolean
@@ -467,6 +482,12 @@ export const buildStructuredOrderItem = (input: {
   const safeBaseQuantity = normalizeBaseQuantity(input.baseQuantity, input.unitType)
   const safeBasePrice = clampTo(toNumber(input.basePrice, 0), 0)
   const isManual = Boolean(input.isManual || input.is_manual || input.source === 'manual' || input.category === 'Unregistered')
+  const calculatedLineTotal = input.lineTotal !== undefined
+    ? roundTo(toNumber(input.lineTotal, 0), 2)
+    : calculateLineTotal(safeQuantity, input.unitType, safeBaseQuantity, safeBasePrice)
+  const effectiveUnitPrice = input.unitPrice !== undefined
+    ? roundTo(toNumber(input.unitPrice, 0), 2)
+    : safeBasePrice
 
   return {
     product_id:   input.productId,
@@ -479,7 +500,14 @@ export const buildStructuredOrderItem = (input: {
     unit_type: input.unitType,
     base_quantity: safeBaseQuantity,
     base_price: safeBasePrice,
-    line_total: calculateLineTotal(safeQuantity, input.unitType, safeBaseQuantity, safeBasePrice),
+    unit_price: effectiveUnitPrice,
+    line_total: calculatedLineTotal,
+    gst_percent: input.gstPercent !== undefined ? roundTo(toNumber(input.gstPercent, 0), 2) : undefined,
+    gst_rate: input.gstRate !== undefined ? roundTo(toNumber(input.gstRate, 0), 2) : (input.gstPercent !== undefined ? roundTo(toNumber(input.gstPercent, 0), 2) : undefined),
+    gst_amount: input.gstAmount !== undefined ? roundTo(toNumber(input.gstAmount, 0), 2) : undefined,
+    taxable_amount: input.taxableAmount !== undefined ? roundTo(toNumber(input.taxableAmount, 0), 2) : undefined,
+    cgst: input.cgst !== undefined ? roundTo(toNumber(input.cgst, 0), 2) : undefined,
+    sgst: input.sgst !== undefined ? roundTo(toNumber(input.sgst, 0), 2) : undefined,
     image_url: input.imageUrl ? String(input.imageUrl) : null,
     source: isManual ? 'manual' : (input.source || 'catalogue'),
     is_manual: isManual,

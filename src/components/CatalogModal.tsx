@@ -4,6 +4,7 @@ import { X, Search, ShoppingBag, Edit2, Trash2, Check } from 'lucide-react'
 import { useProductStore, type Product } from '../store/store'
 import { neonApi } from '../lib/neonApi'
 import { useScrollLock } from '../lib/scrollLock'
+import { roundTo } from '../lib/retail'
 
 
 interface CatalogModalProps {
@@ -307,7 +308,9 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                         <div className="flex items-center justify-between gap-2 min-w-0">
                           <div className="min-w-0 flex-1">
                             <span className="text-[13px] min-[390px]:text-[14px] font-black text-[#111111] tabular-nums block truncate">
-                              ₹{product.price}
+                              ₹{product.gstPercent && product.gstPercent > 0
+                                ? roundTo(product.price * (1 + product.gstPercent / 100), 2).toFixed(2)
+                                : product.price}
                             </span>
                           </div>
                           <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -335,6 +338,11 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                           <span className="text-[10px] font-bold text-[#374151] uppercase tracking-wider bg-[#F9FAFB] px-2 py-0.5 rounded border border-[#E5E7EB]/40 whitespace-nowrap">
                             {product.category}
                           </span>
+                          {product.gstPercent && product.gstPercent > 0 && (
+                            <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded border border-emerald-200 whitespace-nowrap">
+                              incl. {product.gstPercent}% GST
+                            </span>
+                          )}
                           {product.itemType === 'service' && (
                             <span className="text-[10px] font-black uppercase tracking-wider bg-purple-100 text-purple-800 px-2 py-0.5 rounded border border-purple-200 whitespace-nowrap">
                               Service
@@ -349,7 +357,9 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                         <div className="flex items-center justify-between gap-2 w-full min-w-0">
                           <div className="min-w-0 flex-1">
                             <span className="text-[14px] font-black text-[#111111] tabular-nums block truncate">
-                              ₹{product.price}
+                              ₹{product.gstPercent && product.gstPercent > 0
+                                ? roundTo(product.price * (1 + product.gstPercent / 100), 2).toFixed(2)
+                                : product.price}
                             </span>
                           </div>
                           <div className="flex items-center gap-2 shrink-0 static" onClick={(e) => e.stopPropagation()}>
@@ -377,6 +387,11 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                           <span className="text-[10px] sm:text-[11px] font-bold text-[#374151] uppercase tracking-wider bg-[#F9FAFB] px-2 py-0.5 rounded border border-[#E5E7EB]/40 whitespace-nowrap">
                             {product.category}
                           </span>
+                          {product.gstPercent && product.gstPercent > 0 && (
+                            <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded border border-emerald-200 whitespace-nowrap">
+                              incl. {product.gstPercent}% GST
+                            </span>
+                          )}
                           {product.itemType === 'service' && (
                             <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider bg-purple-100 text-purple-800 px-2 py-0.5 rounded border border-purple-200 whitespace-nowrap">
                               Service

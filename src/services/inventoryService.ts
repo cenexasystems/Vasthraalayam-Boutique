@@ -21,6 +21,7 @@ export interface InventoryStockItem {
   image_url?: string
   is_active: boolean
   low_stock_threshold?: number
+  gst_percent?: number
   updated_at?: string
 }
 
@@ -164,6 +165,7 @@ export const inventoryService = {
             category: p.category as string | undefined,
             image_url: p.image_url as string | undefined,
             is_active: (v.is_active as boolean) && (p.is_active as boolean),
+            gst_percent: Number(p.gst_percent) || 0,
             updated_at: (v.updated_at as string) || (p.updated_at as string | undefined),
           })
         }
@@ -189,6 +191,7 @@ export const inventoryService = {
           category: p.category as string | undefined,
           image_url: p.image_url as string | undefined,
           is_active: p.is_active as boolean,
+          gst_percent: Number(p.gst_percent) || 0,
           updated_at: p.updated_at as string | undefined,
         })
       }

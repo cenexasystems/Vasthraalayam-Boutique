@@ -32,6 +32,13 @@ function sanitizeItems(items: IncomingItem[]): IncomingItem[] {
       product_name: String(item.product_name || item.name || 'Product'),
       product_tamil_name: item.product_tamil_name ?? item.tamilName ?? item.nameTa ?? null,
       item_type: itType,
+      gst_rate: toNumber(item.gst_rate ?? item.gstRate ?? item.gst_percent ?? item.gstPercent, 0),
+      gst_percent: toNumber(item.gst_percent ?? item.gstPercent ?? item.gst_rate ?? item.gstRate, 0),
+      gst_amount: toNumber(item.gst_amount ?? item.gstAmount, 0),
+      taxable_amount: toNumber(item.taxable_amount ?? item.taxableAmount, 0),
+      cgst: toNumber(item.cgst, 0),
+      sgst: toNumber(item.sgst, 0),
+      line_total: toNumber(item.line_total ?? item.lineTotal, 0),
     }
     if (isManual) {
       normalized.product_id = null
@@ -58,19 +65,32 @@ async function checkout(req: VercelRequest, res: VercelResponse) {
 
   // Pre-calculate subtotal and estimated grand total for server-side payment validation
   let subtotal = 0
+  let itemGstSum = 0
   for (const item of items) {
     const qty = toNumber(item.quantity, 0)
     const unitPrice = toNumber(item.unit_price ?? item.base_price ?? item.price, 0)
     const lineTotal = toNumber(item.line_total, round2(qty * unitPrice))
     subtotal += lineTotal
+    const itemGst = toNumber(item.gst_amount, 0)
+    const itemRate = toNumber(item.gst_rate ?? item.gst_percent, 0)
+    if (itemRate > 0) {
+      if (itemGst > 0) {
+        itemGstSum += itemGst
+      } else {
+        const lineTaxable = round2(lineTotal / (1 + itemRate / 100))
+        itemGstSum += round2(lineTotal - lineTaxable)
+      }
+    }
   }
   subtotal = round2(subtotal)
+  itemGstSum = round2(itemGstSum)
   const shipping = toNumber(body.shipping, 0)
   const deliveryCharge = toNumber(body.delivery_charge, 0)
   const discountAmount = toNumber(body.discount_amount, 0)
   const manualDiscountAmount = toNumber(body.manual_discount_amount, 0)
   const totalGst = toNumber(body.total_gst ?? body.gst_amount, 0)
-  const grandTotal = Math.max(0, round2(subtotal + shipping + deliveryCharge + totalGst - discountAmount - manualDiscountAmount))
+  const billToggleGst = Math.max(0, round2(totalGst - itemGstSum))
+  const grandTotal = Math.max(0, round2(subtotal + shipping + deliveryCharge + billToggleGst - discountAmount - manualDiscountAmount))
 
   if (grandTotal <= 0) {
     res.status(400).json({ error: 'Total amount must be greater than 0' })

@@ -1,4 +1,5 @@
 import { toNumber, roundTo, formatCurrency } from './retail'
+import { splitGst5050, type TaxRateGroup } from './taxHelper'
 
 export interface InvoiceBreakdownInput {
   subtotal: number
@@ -12,6 +13,7 @@ export interface InvoiceBreakdownInput {
   couponPercentage?: number
   totalGst?: number
   gstAmount?: number
+  rateGroups?: TaxRateGroup[]
   gstRate?: number
   deliveryCharge?: number
   shipping?: number
@@ -53,6 +55,7 @@ export interface InvoiceBreakdown {
   cgstLabel: string
   sgstLabel: string
   gstRate?: number
+  rateGroups?: TaxRateGroup[]
   deliveryCharge: number
   roundOff: number
   total: number
@@ -124,22 +127,92 @@ export function computeInvoiceBreakdown(input: InvoiceBreakdownInput): InvoiceBr
     }
   }
 
-  const taxableAmount = Math.max(0, roundTo(safeSubtotal - totalDiscount, 2))
-  const totalGst = roundTo(toNumber(input.totalGst ?? input.gstAmount, 0), 2)
-  const hasTax = totalGst > 0
-
+  let taxableAmount = Math.max(0, roundTo(safeSubtotal - totalDiscount, 2))
+  let totalGst = roundTo(toNumber(input.totalGst ?? input.gstAmount, 0), 2)
   let cgstAmount = 0
   let sgstAmount = 0
   let cgstLabel = 'CGST'
   let sgstLabel = 'SGST'
   let cleanGstRate: number | undefined = undefined
 
-  if (hasTax) {
-    // Split total GST 50/50 exactly so CGST + SGST === totalGst
+  // ── Rate Groups Detection & Resolution ──
+  let rateGroups: TaxRateGroup[] = []
+  if (Array.isArray(input.rateGroups) && input.rateGroups.length > 0) {
+    rateGroups = input.rateGroups
+  } else if (Array.isArray(input.items) && input.items.length > 0) {
+    const rawItems = input.items
+    const hasAnyItemTax = rawItems.some(it => {
+      const r = toNumber(it.gst_rate ?? it.gstRate ?? it.gst_percent ?? it.gstPercent, 0)
+      const a = toNumber(it.gst_amount ?? it.gstAmount, 0)
+      return r > 0 || a > 0
+    })
+
+    if (hasAnyItemTax) {
+      const rateMap = new Map<number, TaxRateGroup>()
+      let allocatedDisc = 0
+      rawItems.forEach((it, idx) => {
+        const lineTot = toNumber(it.line_total ?? it.lineTotal, 0)
+        let lineDisc = 0
+        if (safeSubtotal > 0 && totalDiscount > 0) {
+          if (idx === rawItems.length - 1) {
+            lineDisc = roundTo(totalDiscount - allocatedDisc, 2)
+          } else {
+            lineDisc = roundTo((lineTot / safeSubtotal) * totalDiscount, 2)
+            allocatedDisc += lineDisc
+          }
+        }
+        const discLineTot = Math.max(0, roundTo(lineTot - lineDisc, 2))
+        const rate = toNumber(it.gst_rate ?? it.gstRate ?? it.gst_percent ?? it.gstPercent, 0)
+        if (rate > 0) {
+          let lineTaxable = toNumber(it.taxable_amount ?? it.taxableAmount, 0)
+          let lineTax = toNumber(it.gst_amount ?? it.gstAmount, 0)
+          if (!lineTaxable) {
+            lineTaxable = roundTo(discLineTot / (1 + rate / 100), 2)
+          }
+          if (!lineTax) {
+            lineTax = roundTo(discLineTot - lineTaxable, 2)
+          }
+          const { cgst, sgst } = splitGst5050(lineTax)
+          const existing = rateMap.get(rate) || {
+            rate,
+            halfRate: roundTo(rate / 2, 2),
+            taxableValue: 0,
+            cgst: 0,
+            sgst: 0,
+            totalTax: 0,
+          }
+          existing.taxableValue = roundTo(existing.taxableValue + lineTaxable, 2)
+          existing.cgst = roundTo(existing.cgst + cgst, 2)
+          existing.sgst = roundTo(existing.sgst + sgst, 2)
+          existing.totalTax = roundTo(existing.totalTax + lineTax, 2)
+          rateMap.set(rate, existing)
+        }
+      })
+      rateGroups = Array.from(rateMap.values()).sort((a, b) => a.rate - b.rate)
+    }
+  }
+
+  if (rateGroups.length > 0) {
+    totalGst = roundTo(rateGroups.reduce((sum, g) => sum + g.totalTax, 0), 2)
+    taxableAmount = roundTo(rateGroups.reduce((sum, g) => sum + g.taxableValue, 0), 2)
+    cgstAmount = roundTo(rateGroups.reduce((sum, g) => sum + g.cgst, 0), 2)
+    sgstAmount = roundTo(rateGroups.reduce((sum, g) => sum + g.sgst, 0), 2)
+    if (rateGroups.length === 1) {
+      const halfRate = rateGroups[0].halfRate
+      const formattedRate = Number.isInteger(halfRate) ? String(halfRate) : halfRate.toFixed(1)
+      cgstLabel = `CGST @ ${formattedRate}%`
+      sgstLabel = `SGST @ ${formattedRate}%`
+      cleanGstRate = rateGroups[0].rate
+    }
+  }
+
+  const hasTax = totalGst > 0
+
+  if (hasTax && rateGroups.length === 0) {
+    // Legacy / single bill-level toggle calculation
     cgstAmount = roundTo(totalGst / 2, 2)
     sgstAmount = roundTo(totalGst - cgstAmount, 2)
 
-    // Determine GST Rate percentage if known or clean
     const explicitRate = toNumber(input.gstRate, 0)
     if (explicitRate > 0) {
       cleanGstRate = explicitRate
@@ -154,8 +227,8 @@ export function computeInvoiceBreakdown(input: InvoiceBreakdownInput): InvoiceBr
     if (cleanGstRate && cleanGstRate > 0) {
       const halfRate = cleanGstRate / 2
       const formattedRate = Number.isInteger(halfRate) ? String(halfRate) : halfRate.toFixed(1)
-      cgstLabel = `CGST (${formattedRate}%)`
-      sgstLabel = `SGST (${formattedRate}%)`
+      cgstLabel = `CGST @ ${formattedRate}%`
+      sgstLabel = `SGST @ ${formattedRate}%`
     } else {
       cgstLabel = 'CGST'
       sgstLabel = 'SGST'
@@ -220,37 +293,86 @@ export function computeInvoiceBreakdown(input: InvoiceBreakdownInput): InvoiceBr
     })
   }
 
-  // 3. Taxable Amount: Rs. X (only if GST applies)
+  // 3 & 4 & 5. Tax Summary rows (only if GST applies)
   if (hasTax) {
-    rows.push({
-      key: 'taxable',
-      label: 'Taxable Amount',
-      amount: taxableAmount,
-      prefix: '',
-      type: 'taxable',
-    })
-  }
-
-  // 4. CGST: +Rs. X (show rate if known)
-  if (cgstAmount > 0) {
-    rows.push({
-      key: 'cgst',
-      label: cgstLabel,
-      amount: cgstAmount,
-      prefix: '+',
-      type: 'tax',
-    })
-  }
-
-  // 5. SGST: +Rs. X (show rate if known)
-  if (sgstAmount > 0) {
-    rows.push({
-      key: 'sgst',
-      label: sgstLabel,
-      amount: sgstAmount,
-      prefix: '+',
-      type: 'tax',
-    })
+    if (rateGroups.length > 1) {
+      // Multi-rate grouped breakdown
+      rateGroups.forEach((rg) => {
+        const fullRateStr = Number.isInteger(rg.rate) ? String(rg.rate) : rg.rate.toFixed(1)
+        const halfRateStr = Number.isInteger(rg.halfRate) ? String(rg.halfRate) : rg.halfRate.toFixed(1)
+        rows.push({
+          key: `taxable_${rg.rate}`,
+          label: `Taxable Amount @ ${fullRateStr}%`,
+          amount: rg.taxableValue,
+          prefix: '',
+          type: 'taxable',
+        })
+        rows.push({
+          key: `cgst_${rg.rate}`,
+          label: `CGST @ ${halfRateStr}%`,
+          amount: rg.cgst,
+          prefix: '+',
+          type: 'tax',
+        })
+        rows.push({
+          key: `sgst_${rg.rate}`,
+          label: `SGST @ ${halfRateStr}%`,
+          amount: rg.sgst,
+          prefix: '+',
+          type: 'tax',
+        })
+      })
+    } else if (rateGroups.length === 1) {
+      // Single rate from items
+      rows.push({
+        key: 'taxable',
+        label: 'Taxable Amount',
+        amount: rateGroups[0].taxableValue,
+        prefix: '',
+        type: 'taxable',
+      })
+      rows.push({
+        key: 'cgst',
+        label: cgstLabel,
+        amount: rateGroups[0].cgst,
+        prefix: '+',
+        type: 'tax',
+      })
+      rows.push({
+        key: 'sgst',
+        label: sgstLabel,
+        amount: rateGroups[0].sgst,
+        prefix: '+',
+        type: 'tax',
+      })
+    } else {
+      // Single/legacy rate fallback
+      rows.push({
+        key: 'taxable',
+        label: 'Taxable Amount',
+        amount: taxableAmount,
+        prefix: '',
+        type: 'taxable',
+      })
+      if (cgstAmount > 0) {
+        rows.push({
+          key: 'cgst',
+          label: cgstLabel,
+          amount: cgstAmount,
+          prefix: '+',
+          type: 'tax',
+        })
+      }
+      if (sgstAmount > 0) {
+        rows.push({
+          key: 'sgst',
+          label: sgstLabel,
+          amount: sgstAmount,
+          prefix: '+',
+          type: 'tax',
+        })
+      }
+    }
   }
 
   // 6. Delivery / Shipping: +Rs. X (if > 0)
@@ -352,6 +474,7 @@ export function computeInvoiceBreakdown(input: InvoiceBreakdownInput): InvoiceBr
     cgstLabel,
     sgstLabel,
     gstRate: cleanGstRate,
+    rateGroups,
     deliveryCharge,
     roundOff,
     total: finalTotal,

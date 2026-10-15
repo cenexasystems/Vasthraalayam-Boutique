@@ -73,6 +73,7 @@ export const buildProfessionalWhatsAppMessage = (input: BuildWhatsAppMessageInpu
   const breakdown = computeInvoiceBreakdown({
     subtotal: input.subtotal ?? 0,
     total: input.total,
+    items: input.items as unknown as Array<Record<string, unknown>>,
     discountAmount: input.discountAmount ?? input.couponDiscount,
     manualDiscountAmount: input.manualDiscountAmount,
     manualDiscountType: input.manualDiscountType,

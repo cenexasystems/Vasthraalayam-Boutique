@@ -34,7 +34,9 @@ import {
   formatCurrency,
   formatQuantityDisplay,
   formatInvoiceNo,
+  roundTo,
 } from '../lib/retail'
+import { computeBillTaxBreakdown } from '../lib/taxHelper'
 import { buildProfessionalWhatsAppMessage, buildAdvanceDepositWhatsAppMessage, publicInvoiceUrl } from '../lib/whatsappMessage'
 import { normalizePhone, toWhatsAppUrl } from '../lib/phone'
 import { useLangStore } from '../store/langStore'
@@ -100,25 +102,35 @@ const toProductId = (v: string | number): string | null => {
 }
 
 const makePosItem = (p: Product, qty?: number): PosItem => {
-  const basePrice = p.price
+  const basePrice = Number(p.price) || 0
   const q = Math.max(1, Math.round(qty ?? 1))
   const packLabel = p.predefinedOptions[0]?.label ?? p.unitLabel
   const isUnregistered = p.category === 'Unregistered'
+  const gstPct = Number(p.gstPercent) || 0
+  const effectiveUnitPrice = gstPct > 0
+    ? roundTo(basePrice * (1 + gstPct / 100), 2)
+    : basePrice
   return {
     ...p,
     qty: q,
     selectedUnit: packLabel,
     basePrice,
-    lineTotal: calculateLineTotal(q, p.unitType, p.baseQuantity, basePrice),
+    lineTotal: roundTo(q * effectiveUnitPrice, 2),
     source: isUnregistered ? 'manual' : (p.barcode ? 'catalogue' : 'catalogue'),
     stock: isUnregistered ? 999999 : p.stock,
     stockQuantity: isUnregistered ? 999999 : p.stockQuantity,
+    gstPercent: gstPct,
   }
 }
 
 const recalc = (item: PosItem, nextQty: number): PosItem => {
   const q = Math.max(1, Math.round(nextQty))
-  return { ...item, qty: q, lineTotal: calculateLineTotal(q, item.unitType, item.baseQuantity, item.basePrice) }
+  const base = Number(item.basePrice) || 0
+  const gstPct = Number(item.gstPercent) || 0
+  const effectiveUnitPrice = gstPct > 0
+    ? roundTo(base * (1 + gstPct / 100), 2)
+    : base
+  return { ...item, qty: q, lineTotal: roundTo(q * effectiveUnitPrice, 2) }
 }
 
 
@@ -278,13 +290,28 @@ export default function Pos(props: PosProps = {}) {
     : manualDiscountNumeric
 
   const discountedSubtotal = Math.max(0, subtotal - couponDiscount - manualDiscountAmount)
+  const totalDiscount = Math.max(0, roundTo(couponDiscount + manualDiscountAmount, 2))
 
-  const totalGst = billGstEnabled
-    ? (gstType === 'percent'
-      ? Math.max(0, Math.round((discountedSubtotal * (Math.max(0, Number(gstInput) || 0) / 100)) * 100) / 100)
-      : Math.max(0, Number(gstInput) || 0))
-    : 0
-  const total = Math.max(0, discountedSubtotal + (Number(shipping || 0) || 0) + totalGst)
+  const taxBreakdown = useMemo(() => {
+    return computeBillTaxBreakdown({
+      items: items.map(it => ({
+        id: it.id,
+        name: it.name,
+        qty: it.qty,
+        basePrice: Number(it.basePrice) || 0,
+        gstPercent: it.gstPercent,
+        lineTotal: it.lineTotal,
+      })),
+      discountAmount: totalDiscount,
+      deliveryCharge: Number(shipping || 0) || 0,
+      billGstEnabled,
+      billGstRate: gstType === 'percent' ? Number(gstInput) || 0 : 0,
+      billGstFlatAmount: gstType === 'flat' ? Number(gstInput) || 0 : 0,
+    })
+  }, [items, totalDiscount, shipping, billGstEnabled, gstType, gstInput])
+
+  const totalGst = taxBreakdown.totalGst
+  const total = taxBreakdown.grandTotal
 
   // ── Split payment calculations & validation ──
   const splitCashNum = Math.max(0, Number(splitCash) || 0)
@@ -476,6 +503,7 @@ export default function Pos(props: PosProps = {}) {
     setItems(cur => {
       const ex = cur.find(i => (scanned.variant_id ? i.variantId === scanned.variant_id : i.id === scanned.product_id))
       if (!ex) {
+        const catalogProd = products.find(p => Number(p.id) === Number(scanned.product_id))
         const item = makePosItem({
           id: targetId,
           name: scanned.variant_name ? `${scanned.product_name} - ${scanned.variant_name}` : scanned.product_name,
@@ -503,6 +531,7 @@ export default function Pos(props: PosProps = {}) {
           image: scanned.image_url || '/product-placeholder.svg',
           imageUrl: scanned.image_url || '/product-placeholder.svg',
           barcode: scanned.barcode,
+          gstPercent: catalogProd?.gstPercent ?? 0,
           // Forward catalog-recorded type — never derived from name/keyword
           itemType: scanned.item_type === 'service' ? 'service' : 'product',
         }, 1)
@@ -849,11 +878,20 @@ export default function Pos(props: PosProps = {}) {
           ? Math.max(0, Math.round((total - allocated) * 100) / 100)
           : Math.max(0, Math.round((allocationBase > 0 ? total * item.lineTotal / allocationBase : total / items.length) * 100) / 100)
         allocated += lineTotal
+        const itemTax = taxBreakdown.lines.find(l => l.id === item.id)
         return {
           product_id: item.parentProductId || toProductId(item.id), variant_id: item.variantId || null,
           variant_name: item.variantName || null, name: item.name, category: item.category,
           description: item.note || '', quantity: item.qty, unit: item.selectedUnit, unit_type: item.unitType,
-          base_quantity: item.baseQuantity, base_price: Number(item.basePrice) || 0, line_total: lineTotal,
+          base_quantity: item.baseQuantity, base_price: Number(item.basePrice) || 0,
+          unit_price: itemTax ? itemTax.unitPrice : (Number(item.basePrice) || 0),
+          gst_percent: item.gstPercent || 0,
+          gst_rate: itemTax ? itemTax.gstRate : 0,
+          gst_amount: itemTax ? itemTax.totalGst : 0,
+          taxable_amount: itemTax ? itemTax.taxableValue : (Number(item.basePrice) * item.qty),
+          cgst: itemTax ? itemTax.cgst : 0,
+          sgst: itemTax ? itemTax.sgst : 0,
+          line_total: lineTotal,
           source: 'advance_order', note: item.note || null,
           // Forward the catalog-recorded type — never derived from name/keyword
           item_type: item.itemType === 'service' ? 'service' : 'product',
@@ -882,7 +920,7 @@ export default function Pos(props: PosProps = {}) {
         couponPercentage: appliedCoupon?.percentage || 0,
         totalGst: totalGst,
         gstRate: gstType === 'percent' ? Number(gstInput) || 0 : 0,
-        gstEnabled: billGstEnabled,
+        gstEnabled: billGstEnabled || taxBreakdown.hasTax,
       })
       setDepositCreated(created)
       setDepositOpen(false)
@@ -949,25 +987,36 @@ export default function Pos(props: PosProps = {}) {
         customerName: customer.name.trim() || 'Walk-in Customer',
         phone: normalizedPhone,
         address: customer.address.trim() || 'POS Counter',
-        items: items.map(item => buildStructuredOrderItem({
-          productId:    item.parentProductId ? item.parentProductId : toProductId(item.id),
-          variantId:    item.variantId   ?? null,
-          variantName:  item.variantName ?? null,
-          name: item.name,
-          tamilName: item.tamilName || item.nameTa || null,
-          quantity: item.qty,
-          unit: item.selectedUnit,
-          unitType: item.unitType,
-          baseQuantity: item.baseQuantity,
-          basePrice: Number(item.basePrice) || 0,
-          imageUrl: item.imageUrl || item.image || null,
-          source: item.source || 'catalogue',
-          isManual: item.source === 'manual' || item.category === 'Unregistered',
-          category: item.category || null,
-          note: item.note || null,
-          // Forward the catalog-recorded type — never derived from name/keyword
-          itemType: item.itemType === 'service' ? 'service' : 'product',
-        })),
+        items: items.map(item => {
+          const itemTax = taxBreakdown.lines.find(l => l.id === item.id)
+          return buildStructuredOrderItem({
+            productId:    item.parentProductId ? item.parentProductId : toProductId(item.id),
+            variantId:    item.variantId   ?? null,
+            variantName:  item.variantName ?? null,
+            name: item.name,
+            tamilName: item.tamilName || item.nameTa || null,
+            quantity: item.qty,
+            unit: item.selectedUnit,
+            unitType: item.unitType,
+            baseQuantity: item.baseQuantity,
+            basePrice: Number(item.basePrice) || 0,
+            unitPrice: itemTax ? itemTax.unitPrice : (Number(item.basePrice) || 0),
+            gstPercent: item.gstPercent || 0,
+            gstRate: itemTax ? itemTax.gstRate : 0,
+            gstAmount: itemTax ? itemTax.totalGst : 0,
+            taxableAmount: itemTax ? itemTax.taxableValue : undefined,
+            cgst: itemTax ? itemTax.cgst : 0,
+            sgst: itemTax ? itemTax.sgst : 0,
+            lineTotal: item.lineTotal,
+            imageUrl: item.imageUrl || item.image || null,
+            source: item.source || 'catalogue',
+            isManual: item.source === 'manual' || item.category === 'Unregistered',
+            category: item.category || null,
+            note: item.note || null,
+            // Forward the catalog-recorded type — never derived from name/keyword
+            itemType: item.itemType === 'service' ? 'service' : 'product',
+          })
+        }),
         shipping: Number(shipping || 0),
         status: 'completed',
         orderMode: ordermode,
@@ -980,7 +1029,7 @@ export default function Pos(props: PosProps = {}) {
         couponCode: appliedCoupon?.code,
         couponPercentage: appliedCoupon?.percentage,
         totalGst,
-        gstEnabled: billGstEnabled,
+        gstEnabled: billGstEnabled || taxBreakdown.hasTax,
         paymentMethod: effectivePaymentMode,
         paymentMode: effectivePaymentMode,
         payments: activeSplitPayments,
@@ -1034,7 +1083,7 @@ export default function Pos(props: PosProps = {}) {
         orderType: getOrderType(),
         date: billingDate.trim() ? new Date(billingDate).toISOString() : created.createdAt,
         items: [...items],
-        subtotal,
+        subtotal: taxBreakdown.subtotal,
         shipping: Number(shipping || 0),
         couponCode: appliedCoupon?.code,
         couponDiscount,
@@ -1044,7 +1093,7 @@ export default function Pos(props: PosProps = {}) {
         manualDiscountValue: manualDiscountNumeric,
         gstAmount: totalGst,
         gstRate: billGstEnabled && gstType === 'percent' ? Number(gstInput || 0) : undefined,
-        total,
+        total: total,
         customerName: customer.name.trim() || 'Walk-in Customer',
         phone: normalizedPhone,
         address: customer.address.trim() || 'POS Counter',
@@ -1621,7 +1670,7 @@ export default function Pos(props: PosProps = {}) {
                           </div>
                         )}
                         {/* Clickable Unit Price Pill Badge */}
-                        <div className="mt-1.5 flex items-center gap-2">
+                        <div className="mt-1.5 flex items-center gap-2 flex-wrap">
                           <button
                             type="button"
                             onClick={() => handleOpenPriceEdit(item)}
@@ -1630,10 +1679,18 @@ export default function Pos(props: PosProps = {}) {
                           >
                             <span className="text-gray-500 font-medium">Rate:</span>
                             <span className="font-bold text-[#111111]">
-                              ₹{Number(item.basePrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                              ₹{(item.gstPercent && item.gstPercent > 0
+                                ? roundTo(Number(item.basePrice || 0) * (1 + item.gstPercent / 100), 2)
+                                : Number(item.basePrice || 0)
+                              ).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                             </span>
                             <Edit2 size={11} className="text-[#5f6d59]" />
                           </button>
+                          {item.gstPercent && item.gstPercent > 0 && (
+                            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                              incl. {item.gstPercent}% GST
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -1707,7 +1764,7 @@ export default function Pos(props: PosProps = {}) {
                     </div>
 
                     {/* Price */}
-                    <div className="flex items-center justify-end px-2 py-1 text-right">
+                    <div className="flex flex-col items-end justify-center px-2 py-1 text-right">
                       <button
                         type="button"
                         onClick={() => handleOpenPriceEdit(item)}
@@ -1715,10 +1772,18 @@ export default function Pos(props: PosProps = {}) {
                         title="Click to edit price"
                       >
                         <span className="text-[13px] font-black text-[#111111] group-hover:text-[#5f6d59] tracking-tight">
-                          ₹{Number(item.basePrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                          ₹{(item.gstPercent && item.gstPercent > 0
+                            ? roundTo(Number(item.basePrice || 0) * (1 + item.gstPercent / 100), 2)
+                            : Number(item.basePrice || 0)
+                          ).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                         </span>
                         <Edit2 size={12} className="text-gray-400 group-hover:text-[#5f6d59] transition-colors shrink-0" />
                       </button>
+                      {item.gstPercent && item.gstPercent > 0 && (
+                        <span className="text-[9px] font-bold text-emerald-700">
+                          incl. {item.gstPercent}% GST
+                        </span>
+                      )}
                     </div>
 
                     {/* Quantity Controls */}
@@ -1921,7 +1986,30 @@ export default function Pos(props: PosProps = {}) {
                   <span className="text-[12px] font-black text-[#111111]">{formatCurrency(subtotal)}</span>
                 </div>
 
-                {billGstEnabled && totalGst > 0 && (
+                {/* Multi-rate or single rate GST breakdown */}
+                {taxBreakdown.hasTax && taxBreakdown.rateGroups.length > 0 && (
+                  <div className="pt-1.5 pb-1 border-t border-gray-200 space-y-1.5">
+                    {taxBreakdown.rateGroups.map((rg) => (
+                      <div key={rg.rate} className="space-y-0.5 text-[10px] text-gray-600 bg-white/70 p-1.5 rounded-lg border border-gray-200/60">
+                        <div className="flex items-center justify-between font-bold text-gray-700">
+                          <span>Taxable Value (@ {rg.rate}%):</span>
+                          <span>{formatCurrency(rg.taxableValue)}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-[#374151]">
+                          <span>CGST ({rg.halfRate}%):</span>
+                          <span className="font-bold">{formatCurrency(rg.cgst)}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-[#374151]">
+                          <span>SGST ({rg.halfRate}%):</span>
+                          <span className="font-bold">{formatCurrency(rg.sgst)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Legacy single-line GST fallback when billGstEnabled but rateGroups is empty */}
+                {!taxBreakdown.hasTax && billGstEnabled && totalGst > 0 && (
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-black text-[#374151]">GST Amount</span>
                     <span className="text-[12px] font-black text-[#111111]">{formatCurrency(totalGst)}</span>

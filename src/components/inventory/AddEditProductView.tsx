@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   Plus,
   Trash2,
@@ -16,6 +16,8 @@ import { useProductStore, useSettingsStore, type Product } from '../../store/sto
 import { fetchVariantsByProduct } from '../../services/variantService'
 import { inventoryService, type CategoryRecord } from '../../services/inventoryService'
 import { normalizeBarcode } from '../../lib/barcode'
+import { calculateGstFromPercent, calculateGstFromAmount } from '../../lib/taxHelper'
+import { roundTo, formatCurrency } from '../../lib/retail'
 
 export const STANDARD_LETTER_SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', 'Free Size'] as const
 export const STANDARD_NUMERIC_SIZES = ['28', '30', '32', '34', '36', '38', '40', '42', '44', '46', '48'] as const
@@ -52,6 +54,9 @@ export const AddEditProductView: React.FC<{
   const [nameTa, setNameTa] = useState('')
   const [categoryId, setCategoryId] = useState<number | ''>('')
   const [price, setPrice] = useState<string>('')
+  const [enableGst, setEnableGst] = useState<boolean>(false)
+  const [gstPercent, setGstPercent] = useState<string>('')
+  const [gstAmount, setGstAmount] = useState<string>('')
   const [purchasePrice, setPurchasePrice] = useState<string>('')
   const [stockQuantity, setStockQuantity] = useState<string>('0')
   const [lowStockAlert, setLowStockAlert] = useState<string>(() => String(defaultLowStockAlert))
@@ -71,12 +76,82 @@ export const AddEditProductView: React.FC<{
     inventoryService.fetchCategories().then(setCategories).catch(console.error)
   }, [fetchProducts])
 
+  const handlePriceChange = (val: string) => {
+    setPrice(val)
+    if (enableGst) {
+      const numBase = Math.max(0, Number(val) || 0)
+      const numPct = Math.max(0, Math.min(100, Number(gstPercent) || 0))
+      if (numPct > 0 && numBase > 0) {
+        const res = calculateGstFromPercent(numBase, numPct)
+        setGstAmount(String(res.gstAmount))
+      } else if (val === '' || numBase === 0) {
+        setGstAmount('0')
+      }
+    }
+  }
+
+  const handleGstPercentChange = (val: string) => {
+    if (val === '') {
+      setGstPercent('')
+      setGstAmount('')
+      return
+    }
+    const num = Number(val)
+    if (isNaN(num)) return
+    const clamped = Math.max(0, Math.min(100, num))
+    setGstPercent(val)
+    const numBase = Math.max(0, Number(price) || 0)
+    const res = calculateGstFromPercent(numBase, clamped)
+    setGstAmount(String(res.gstAmount))
+  }
+
+  const handleGstAmountChange = (val: string) => {
+    if (val === '') {
+      setGstAmount('')
+      setGstPercent('')
+      return
+    }
+    const num = Number(val)
+    if (isNaN(num) || num < 0) return
+    setGstAmount(val)
+    const numBase = Math.max(0, Number(price) || 0)
+    const res = calculateGstFromAmount(numBase, num)
+    setGstPercent(res.gstPercent > 0 ? String(res.gstPercent) : '')
+  }
+
+  const handleToggleEnableGst = (checked: boolean) => {
+    setEnableGst(checked)
+    if (checked) {
+      const currentPct = Number(gstPercent) || 0
+      const activePct = currentPct > 0 ? currentPct : 0
+      setGstPercent(activePct > 0 ? String(activePct) : '')
+      const numBase = Math.max(0, Number(price) || 0)
+      if (activePct > 0 && numBase > 0) {
+        const res = calculateGstFromPercent(numBase, activePct)
+        setGstAmount(String(res.gstAmount))
+      }
+    } else {
+      setGstPercent('')
+      setGstAmount('')
+    }
+  }
+
+  const computedFinalPrice = useMemo(() => {
+    const numBase = Math.max(0, Number(price) || 0)
+    if (!enableGst) return numBase
+    const numAmt = Math.max(0, Number(gstAmount) || 0)
+    return roundTo(numBase + numAmt, 2)
+  }, [price, enableGst, gstAmount])
+
   const resetForm = () => {
     setSelectedProductId(null)
     setName('')
     setNameTa('')
     setCategoryId('')
     setPrice('')
+    setEnableGst(false)
+    setGstPercent('')
+    setGstAmount('')
     setPurchasePrice('')
     setStockQuantity('0')
     setLowStockAlert(String(defaultLowStockAlert))
@@ -106,7 +181,21 @@ export const AddEditProductView: React.FC<{
     }
     setCategoryId(matchedCatId)
 
-    setPrice(String(p.price || ''))
+    const basePriceStr = String(p.price || '')
+    setPrice(basePriceStr)
+    const pGst = Number(p.gstPercent || 0)
+    if (pGst > 0) {
+      setEnableGst(true)
+      setGstPercent(String(pGst))
+      const baseNum = Number(p.price || 0)
+      const res = calculateGstFromPercent(baseNum, pGst)
+      setGstAmount(String(res.gstAmount))
+    } else {
+      setEnableGst(false)
+      setGstPercent('')
+      setGstAmount('')
+    }
+
     setPurchasePrice(String(p.purchasePrice || ''))
     setStockQuantity(String(p.stockQuantity ?? p.stock ?? 0))
     setLowStockAlert(p.lowStockAlert ? String(p.lowStockAlert) : String(defaultLowStockAlert))
@@ -302,6 +391,7 @@ export const AddEditProductView: React.FC<{
 
     const selectedCat = categories.find((c) => Number(c.id) === Number(categoryId))
     const categoryName = selectedCat ? selectedCat.name_en : 'General'
+    const effectiveGstPercent = enableGst ? Math.max(0, Math.min(100, Number(gstPercent) || 0)) : 0
     const alertThreshold = Number(lowStockAlert) > 0 ? Number(lowStockAlert) : defaultLowStockAlert
 
     setLoading(true)
@@ -325,6 +415,7 @@ export const AddEditProductView: React.FC<{
             description: description.trim() || '',
             has_variants: false,
             item_type: itemType,
+            gst_percent: effectiveGstPercent,
           }
           // Services carry no stock — omit these entirely rather than
           // sending 0/null, so a product's existing stock data is left
@@ -461,6 +552,7 @@ export const AddEditProductView: React.FC<{
             item_type: itemType,
             stock_quantity: totalVariantStock,
             stock: totalVariantStock,
+            gst_percent: effectiveGstPercent,
           })
 
           setStatusMessage({
@@ -486,6 +578,7 @@ export const AddEditProductView: React.FC<{
             description: description.trim() || '',
             has_variants: false,
             item_type: itemType,
+            gst_percent: effectiveGstPercent,
           }
           // Services carry no stock — omit these so the DB's defaults apply
           // instead of writing a meaningless 0/threshold for a non-stocked item.
@@ -553,6 +646,7 @@ export const AddEditProductView: React.FC<{
             item_type: itemType,
             stock_quantity: totalVariantStock,
             stock: totalVariantStock,
+            gst_percent: effectiveGstPercent,
           })
 
           if (insErr || !newProd) throw insErr || new Error('Failed to create product')
@@ -784,7 +878,16 @@ export const AddEditProductView: React.FC<{
 
                     <div className="flex items-center gap-2 shrink-0">
                       <div className="text-right">
-                        <span className="font-black text-xs text-gray-900 tabular-nums">₹{p.price}</span>
+                        <span className="font-black text-xs text-gray-900 tabular-nums">
+                          ₹{p.gstPercent && p.gstPercent > 0
+                            ? roundTo(p.price * (1 + p.gstPercent / 100), 2).toFixed(2)
+                            : p.price}
+                        </span>
+                        {p.gstPercent && p.gstPercent > 0 ? (
+                          <span className="block text-[9px] font-bold text-emerald-700">
+                            incl. {p.gstPercent}% GST
+                          </span>
+                        ) : null}
                         {isService ? (
                           <span className="block mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-purple-100 text-purple-800 border border-purple-200">
                             Service
@@ -1082,7 +1185,7 @@ export const AddEditProductView: React.FC<{
                   required
                   placeholder="0.00"
                   value={price}
-                  onChange={(e) => setPrice(e.target.value)}
+                  onChange={(e) => handlePriceChange(e.target.value)}
                   className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
                 />
               </div>
@@ -1100,7 +1203,7 @@ export const AddEditProductView: React.FC<{
                       required={!hasVariants}
                       placeholder="0.00"
                       value={price}
-                      onChange={(e) => setPrice(e.target.value)}
+                      onChange={(e) => handlePriceChange(e.target.value)}
                       className="w-full h-10 px-3.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
                     />
                   </div>
@@ -1137,6 +1240,90 @@ export const AddEditProductView: React.FC<{
                 </div>
               )
             )}
+
+            {/* Item GST Configuration Card */}
+            <div className="p-3.5 bg-white border border-gray-200 rounded-xl space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+                    <span>Item GST</span>
+                    {enableGst && Number(gstPercent) > 0 && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-emerald-800">
+                        {gstPercent}% active
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-gray-500">
+                    Apply GST specifically to this {itemType === 'service' ? 'service' : 'item'}. If disabled, regular bill-level GST rules apply.
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={enableGst}
+                    onChange={(e) => handleToggleEnableGst(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-10 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#7daa8f]" />
+                </label>
+              </div>
+
+              {enableGst && (
+                <div className="pt-2 border-t border-gray-100 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                      Base Price (₹)
+                    </label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={price ? `₹${price}` : '₹0.00'}
+                      className="w-full h-9 px-3 rounded-xl border border-gray-200 bg-gray-50 text-xs font-bold text-gray-700 outline-none cursor-default"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                      GST Rate (%)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      placeholder="e.g. 5, 12, 18"
+                      value={gstPercent}
+                      onChange={(e) => handleGstPercentChange(e.target.value)}
+                      className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                      GST Amount (₹)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={gstAmount}
+                      onChange={(e) => handleGstAmountChange(e.target.value)}
+                      className="w-full h-9 px-3 rounded-xl border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-[#7daa8f] mb-1">
+                      Final Price (Incl. GST)
+                    </label>
+                    <div className="w-full h-9 px-3 rounded-xl border border-emerald-300 bg-emerald-50/60 text-xs font-black text-emerald-950 flex items-center">
+                      ₹{computedFinalPrice.toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Description */}
             <div>

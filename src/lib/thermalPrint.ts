@@ -86,6 +86,7 @@ export async function printThermalReceipt(data: ThermalReceiptData) {
     const breakdown = computeInvoiceBreakdown({
       subtotal: data.subtotal,
       total: data.total,
+      items: data.items as unknown as Array<Record<string, unknown>>,
       discountAmount: data.discountAmount ?? data.couponDiscount,
       manualDiscountAmount: data.manualDiscountAmount ?? data.manualDiscount,
       manualDiscountType: data.manualDiscountType,

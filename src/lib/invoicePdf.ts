@@ -187,6 +187,7 @@ export function createInvoicePdf(data: InvoicePdfData): Blob {
   const breakdown = computeInvoiceBreakdown({
     subtotal: data.subtotal,
     total: data.total,
+    items: data.items as unknown as Array<Record<string, unknown>>,
     discountAmount: data.discountAmount,
     manualDiscountAmount: data.manualDiscountAmount,
     manualDiscountType: data.manualDiscountType,

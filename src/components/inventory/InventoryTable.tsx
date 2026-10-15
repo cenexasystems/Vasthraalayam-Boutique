@@ -22,7 +22,7 @@ import { BarcodePrintModal } from '../barcode/BarcodePrintModal'
 import { AdjustStockModal } from './AdjustStockModal'
 import { StockHistoryDrawer } from './StockHistoryDrawer'
 import { QuickPriceModal } from './QuickPriceModal'
-import { formatCurrency } from '../../lib/retail'
+import { formatCurrency, roundTo } from '../../lib/retail'
 import { useProductStore, useAdminAuthStore } from '../../store/store'
 import { useAlarmStore } from '../../store/alarmStore'
 import { alarmSound } from '../../lib/alarmAudio'
@@ -480,7 +480,11 @@ export const InventoryTable: React.FC = () => {
                           {/* Price */}
                           <td className="py-3.5 px-4 text-right align-middle font-black text-xs text-gray-900 tabular-nums whitespace-nowrap">
                             <div className="inline-flex items-center justify-end gap-1.5 group">
-                              <span>{formatCurrency(item.price)}</span>
+                              <span>
+                                {item.gst_percent && item.gst_percent > 0
+                                  ? formatCurrency(roundTo(item.price * (1 + item.gst_percent / 100), 2))
+                                  : formatCurrency(item.price)}
+                              </span>
                               <button
                                 type="button"
                                 onClick={() => setPriceModalItem(item)}
@@ -490,6 +494,11 @@ export const InventoryTable: React.FC = () => {
                                 <Edit2 size={12} />
                               </button>
                             </div>
+                            {item.gst_percent && item.gst_percent > 0 ? (
+                              <div className="text-[10px] font-bold text-emerald-700">
+                                incl. {item.gst_percent}% GST
+                              </div>
+                            ) : null}
                           </td>
 
                           {/* Actions */}

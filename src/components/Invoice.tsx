@@ -97,6 +97,7 @@ export const Invoice: React.FC<InvoiceProps> = ({
   const breakdown = computeInvoiceBreakdown({
     subtotal,
     total,
+    items: items as unknown as Array<Record<string, unknown>>,
     discountAmount,
     manualDiscountAmount,
     manualDiscountType,

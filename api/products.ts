@@ -14,7 +14,7 @@ const PRODUCT_COLUMNS = `
   base_quantity, stock_quantity, stock_unit, allow_decimal_quantity,
   predefined_options, is_active, sort_order, unit, rating,
   description, description_ta, benefits, benefits_ta,
-  image_url, image, has_variants, barcode, sku, item_type, low_stock_alert
+  image_url, image, has_variants, barcode, sku, item_type, low_stock_alert, gst_percent
 `
 
 // Columns the client is allowed to write. Deliberately explicit rather than
