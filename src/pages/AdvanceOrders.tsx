@@ -205,6 +205,7 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
     if (statusFilter === 'cancelled' && order.status !== 'cancelled') return false
     if (dateFilter !== 'all') {
       const created = new Date(order.created_at)
+      if (Number.isNaN(created.getTime())) return false
       const now = new Date()
       if (dateFilter === 'today' && dateKey(created) !== dateKey(now)) return false
       if (dateFilter === 'week') {
@@ -217,12 +218,14 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
       if (dateFilter === 'month' && (created.getMonth() !== now.getMonth() || created.getFullYear() !== now.getFullYear())) return false
       if (dateFilter === 'year' && created.getFullYear() !== now.getFullYear()) return false
       if (dateFilter === 'custom') {
-        if (customFrom) {
-          const fromD = new Date(`${customFrom}T00:00:00`)
+        // Tolerate a reversed range (From later than To) by treating it as the same span
+        const [lo, hi] = customFrom && customTo && customFrom > customTo ? [customTo, customFrom] : [customFrom, customTo]
+        if (lo) {
+          const fromD = new Date(`${lo}T00:00:00`)
           if (created < fromD) return false
         }
-        if (customTo) {
-          const toD = new Date(`${customTo}T23:59:59`)
+        if (hi) {
+          const toD = new Date(`${hi}T23:59:59.999`)
           if (created > toD) return false
         }
       }
@@ -624,7 +627,11 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
               <button
                 key={item.key}
                 type="button"
-                onClick={() => setDateFilter(item.key as DateFilter)}
+                onClick={() => {
+                  setDateFilter(item.key as DateFilter)
+                  // A preset replaces any previously chosen custom range so the pickers never show stale dates
+                  if (item.key !== 'custom') { setCustomFrom(''); setCustomTo('') }
+                }}
                 className={`rounded-lg px-3.5 py-1.5 text-xs font-bold transition cursor-pointer ${
                   dateFilter === item.key
                     ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
