@@ -87,6 +87,10 @@ export const roundTo = (value: unknown, places = 2): number => {
   return Math.round((num + Number.EPSILON) * factor) / factor
 }
 
+/** Display a stock quantity without trailing decimal zeros.
+ *  Examples: 19.000 → "19", 2.5 → "2.5", 0.125 → "0.125" */
+export const fmtQty = (n: number): string => parseFloat(n.toFixed(6)).toString()
+
 export const computeOrderTotal = (order: {
   total?: unknown
   total_amount?: unknown

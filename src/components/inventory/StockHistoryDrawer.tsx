@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X, History, ArrowUpRight, ArrowDownRight, RefreshCw } from 'lucide-react'
 import { inventoryService, type InventoryMovement, type InventoryStockItem } from '../../services/inventoryService'
+import { fmtQty } from '../../lib/retail'
 import { BRAND_EN } from '../../lib/brand'
 
 export interface StockHistoryDrawerProps {
@@ -192,13 +193,13 @@ export const StockHistoryDrawer: React.FC<StockHistoryDrawerProps> = ({
                           isPositive ? 'text-emerald-700' : 'text-rose-700'
                         }`}
                       >
-                        {isPositive ? `+${m.quantity_delta}` : m.quantity_delta}
+                        {isPositive ? `+${fmtQty(m.quantity_delta)}` : fmtQty(m.quantity_delta)}
                       </span>
                     </div>
 
                     <div className="text-right text-xs font-semibold text-gray-600">
-                      <span>{m.quantity_before}</span> &rarr;{' '}
-                      <strong className="text-black font-black">{m.quantity_after}</strong>
+                      <span>{fmtQty(m.quantity_before)}</span> &rarr;{' '}
+                      <strong className="text-black font-black">{fmtQty(m.quantity_after)}</strong>
                     </div>
                   </div>
 

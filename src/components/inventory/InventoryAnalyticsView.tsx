@@ -17,6 +17,7 @@ import {
   type InventoryMovement,
   type InventoryStockItem,
 } from '../../services/inventoryService'
+import { fmtQty } from '../../lib/retail'
 
 type RangeMode = 'all' | 'today' | 'week' | 'month' | 'custom'
 
@@ -561,11 +562,11 @@ export const InventoryAnalyticsView: React.FC = () => {
                             : 'text-gray-500'
                         }
                       >
-                        {m.quantity_delta > 0 ? `+${m.quantity_delta}` : m.quantity_delta}
+                        {m.quantity_delta > 0 ? `+${fmtQty(m.quantity_delta)}` : fmtQty(m.quantity_delta)}
                       </span>
                     </td>
                     <td className="p-3 text-center font-mono text-xs text-gray-600 whitespace-nowrap">
-                      {m.quantity_before} → <strong className="text-black">{m.quantity_after}</strong>
+                      {fmtQty(m.quantity_before)} → <strong className="text-black">{fmtQty(m.quantity_after)}</strong>
                     </td>
                     <td className="p-3 text-gray-600 font-semibold text-[11px]">
                       {m.created_by_name || 'Admin'}

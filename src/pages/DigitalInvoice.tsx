@@ -21,6 +21,8 @@ export default function DigitalInvoice() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [downloadingPdf, setDownloadingPdf] = useState(false)
+  const [pdfToast, setPdfToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null)
+  const [fallbackPdfUrl, setFallbackPdfUrl] = useState<string | null>(null)
   const invoiceElementRef = useRef<HTMLDivElement>(null)
 
   const handleBack = () => {
@@ -111,9 +113,6 @@ export default function DigitalInvoice() {
     discount_amount: discountAmount,
     manual_discount_amount: manualDiscountAmount,
   })
-
-  const [pdfToast, setPdfToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null)
-  const [fallbackPdfUrl, setFallbackPdfUrl] = useState<string | null>(null)
 
   const downloadPdf = async () => {
     if (!invoiceElementRef.current || downloadingPdf) return
