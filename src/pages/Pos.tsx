@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useRef, useState, useCallback, type FormEvent } from 'react'
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { Link, useNavigate } from 'react-router-dom'
@@ -1662,7 +1663,7 @@ export default function Pos(props: PosProps = {}) {
                             <h4 className="text-[14px] font-bold text-[#111111] leading-snug break-words">
                               {item.name}
                             </h4>
-                            {item.variantName && (
+                            {item.variantName && !item.name.endsWith(item.variantName) && (
                               <span className="inline-block mt-0.5 text-[10.5px] font-semibold text-[#5f6d59] bg-[#FBFAF6] border border-[#ead7b7]/60 px-1.5 py-0.5 rounded">
                                 {item.variantName}
                               </span>
@@ -1753,7 +1754,7 @@ export default function Pos(props: PosProps = {}) {
                         />
                       ) : (
                         <div className="px-3 py-2 w-full truncate border border-transparent flex items-center gap-2">
-                          <span className="text-[13px] font-bold text-[#111111] truncate">{item.name} {item.variantName ? `- ${item.variantName}` : ''}</span>
+                          <span className="text-[13px] font-bold text-[#111111] truncate">{item.variantName && !item.name.endsWith(item.variantName) ? `${item.name} - ${item.variantName}` : item.name}</span>
                         </div>
                       )}
                       {item.source !== 'manual' && (
@@ -2367,8 +2368,8 @@ export default function Pos(props: PosProps = {}) {
       )}
 
       {/* Variant Picker Modal for Multi-Variant Products */}
-      {variantPickerProduct && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
+      {variantPickerProduct && createPortal(
+        <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
           <div className="bg-white rounded-3xl max-w-md w-full border border-[#ead7b7] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150">
             <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-[#FBFAF6]">
               <div>
@@ -2454,7 +2455,7 @@ export default function Pos(props: PosProps = {}) {
             </div>
           </div>
         </div>
-      )}
+      , document.body)}
 
       {/* Price Edit & Inventory Confirmation Modal */}
       {priceEditModal.isOpen && priceEditModal.item && (
