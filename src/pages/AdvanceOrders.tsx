@@ -167,34 +167,6 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
 
   const validOrders = useMemo(() => orders.filter(o => o.id && o.deposit_id && Number(o.total_amount) > 0), [orders])
 
-  const analytics = useMemo(() => {
-    const pendingDepositOrders = validOrders.filter(o => o.status === 'pending_deposit' || o.status === 'waiting_final_payment')
-    const pendingDepositAmount = pendingDepositOrders.reduce((sum, o) => sum + (Number(o.deposit_amount) || 0), 0)
-    const pendingBillsCount = pendingDepositOrders.length
-
-    const balanceDueOrders = validOrders.filter(o => !['completed', 'cancelled'].includes(o.status) && (Number(o.remaining_balance) || 0) > 0)
-    const neededToReceive = balanceDueOrders.reduce((sum, o) => sum + (Number(o.remaining_balance) || 0), 0)
-    const neededBillsCount = balanceDueOrders.length
-
-    const nonCancelledOrders = validOrders.filter(o => o.status !== 'cancelled')
-    const totalValue = nonCancelledOrders.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0)
-    const totalOrdersCount = nonCancelledOrders.length
-
-    const readyCount = validOrders.filter(o => o.status === 'ready_for_delivery').length
-    const pendingCount = pendingDepositOrders.length
-
-    return {
-      pendingDepositAmount,
-      pendingBillsCount,
-      neededToReceive,
-      neededBillsCount,
-      totalValue,
-      totalOrdersCount,
-      readyCount,
-      pendingCount,
-    }
-  }, [validOrders])
-
   const filtered = useMemo(() => validOrders.filter(order => {
     const query = search.trim().toLowerCase()
     const searchable = [order.deposit_id, order.customer_name, order.phone, order.product_name, STATUS_LABELS[order.status]].join(' ').toLowerCase()
@@ -232,6 +204,35 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
     }
     return true
   }), [validOrders, search, statusFilter, dateFilter, customFrom, customTo])
+
+  // Summary cards follow the active search / status / date filters
+  const analytics = useMemo(() => {
+    const pendingDepositOrders = filtered.filter(o => o.status === 'pending_deposit' || o.status === 'waiting_final_payment')
+    const pendingDepositAmount = pendingDepositOrders.reduce((sum, o) => sum + (Number(o.deposit_amount) || 0), 0)
+    const pendingBillsCount = pendingDepositOrders.length
+
+    const balanceDueOrders = filtered.filter(o => !['completed', 'cancelled'].includes(o.status) && (Number(o.remaining_balance) || 0) > 0)
+    const neededToReceive = balanceDueOrders.reduce((sum, o) => sum + (Number(o.remaining_balance) || 0), 0)
+    const neededBillsCount = balanceDueOrders.length
+
+    const nonCancelledOrders = filtered.filter(o => o.status !== 'cancelled')
+    const totalValue = nonCancelledOrders.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0)
+    const totalOrdersCount = nonCancelledOrders.length
+
+    const readyCount = filtered.filter(o => o.status === 'ready_for_delivery').length
+    const pendingCount = pendingDepositOrders.length
+
+    return {
+      pendingDepositAmount,
+      pendingBillsCount,
+      neededToReceive,
+      neededBillsCount,
+      totalValue,
+      totalOrdersCount,
+      readyCount,
+      pendingCount,
+    }
+  }, [filtered])
 
   const create = async (event: FormEvent) => {
     event.preventDefault(); setSaving(true); setError(''); setNotice('')
