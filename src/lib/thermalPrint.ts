@@ -1,5 +1,5 @@
-import { BRAND_ADDRESS, BRAND_EN, BRAND_INSTAGRAM, BRAND_PRIMARY_PHONE_DISPLAY } from './brand'
-import { LOGO_BASE64 } from './logoBase64'
+import { BRAND_ADDRESS, BRAND_EMAIL, BRAND_EN, BRAND_PRIMARY_PHONE_DISPLAY } from './brand'
+import { getMonochromeThermalLogo } from './thermalLogo'
 import { formatCurrency, formatInvoiceNo } from './retail'
 import { computeInvoiceBreakdown } from './invoiceBreakdown'
 
@@ -45,8 +45,9 @@ export interface ThermalReceiptData {
   storeEmail?: string
 }
 
-export function printThermalReceipt(data: ThermalReceiptData) {
+export async function printThermalReceipt(data: ThermalReceiptData) {
   try {
+    const thermalLogo = await getMonochromeThermalLogo()
     // Create an isolated print iframe protected from third-party extension observers
     const iframe = document.createElement('iframe')
     iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;'
@@ -119,15 +120,18 @@ export function printThermalReceipt(data: ThermalReceiptData) {
             size: 80mm auto;
           }
           body {
-            font-family: 'Courier New', Courier, monospace, sans-serif;
+            font-family: 'Courier New', Courier, monospace, Arial, sans-serif;
             font-size: 12px;
             color: #000;
-            margin: 0;
-            padding: 4mm;
-            width: 80mm;
+            margin: 0 auto;
+            padding: 3mm 4mm;
+            width: 100%;
+            max-width: 80mm;
             box-sizing: border-box;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
           }
-          .text-center { text-align: center; }
+          .text-center { text-align: center; word-break: break-word; }
           .text-right { text-align: right; }
           .text-left { text-align: left; }
           .font-bold { font-weight: bold; }
@@ -144,11 +148,11 @@ export function printThermalReceipt(data: ThermalReceiptData) {
       </head>
       <body>
         <div class="text-center mb-2">
-          <img src="${LOGO_BASE64}" style="width: 48px; height: 48px; object-fit: contain; margin: 0 auto 6px auto; display: block;" alt="VASTHRAALAYAM Logo" />
-          <div class="font-bold" style="font-size: 16px; letter-spacing: 2px;">${data.storeName || BRAND_EN}</div>
-          <div style="font-size: 10px; margin-top: 2px;">${data.storeAddress || BRAND_ADDRESS}</div>
+          ${thermalLogo ? `<img src="${thermalLogo}" style="width: 32mm; max-width: 40%; height: auto; object-fit: contain; margin: 0 auto 5px auto; display: block;" alt="VASTHRAALAYAM Logo" onerror="this.style.display='none'" />` : ''}
+          <div class="font-bold" style="font-size: 15px; letter-spacing: 1px; line-height: 1.25; text-transform: uppercase; word-break: break-word;">${data.storeName || BRAND_EN}</div>
+          <div style="font-size: 10px; margin-top: 3px; line-height: 1.35; word-break: break-word;">${data.storeAddress || BRAND_ADDRESS}</div>
           <div class="mt-1" style="font-size: 10px;">Ph: ${data.storePhone || BRAND_PRIMARY_PHONE_DISPLAY}</div>
-          <div style="font-size: 9px; color: #333;">Insta: @${BRAND_INSTAGRAM}</div>
+          ${(data.storeEmail || BRAND_EMAIL) ? `<div style="font-size: 10px; margin-top: 1px;">${data.storeEmail || BRAND_EMAIL}</div>` : ''}
         </div>
 
         <div class="border-bottom border-top" style="font-size: 11px;">
@@ -287,8 +291,7 @@ export function printThermalReceipt(data: ThermalReceiptData) {
         </div>
 
         <div class="text-center mt-2" style="font-size: 11px;">
-          <div class="font-bold">Thank you for shopping at VASTHRAALAYAM BOUTIQUE!</div>
-          <div>Follow us on Instagram: @${BRAND_INSTAGRAM}</div>
+          <div class="font-bold">Thank you for shopping at ${data.storeName || BRAND_EN}!</div>
         </div>
       </body>
     </html>

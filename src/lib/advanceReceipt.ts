@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf'
-import { BRAND_ADDRESS, BRAND_EN, BRAND_PHONE_DISPLAY, BRAND_PRIMARY_PHONE_DISPLAY, BRAND_INSTAGRAM } from './brand'
+import { BRAND_ADDRESS, BRAND_EMAIL, BRAND_EN, BRAND_PHONE_DISPLAY, BRAND_PRIMARY_PHONE_DISPLAY, BRAND_INSTAGRAM } from './brand'
 import { LOGO_BASE64 } from './logoBase64'
+import { getMonochromeThermalLogo } from './thermalLogo'
 import { formatCurrency, toNumber, roundTo } from './retail'
 import { getInvoiceTheme } from './invoiceTheme'
 import { computeInvoiceBreakdown, formatPaymentModeName } from './invoiceBreakdown'
@@ -154,8 +155,9 @@ export function advanceReceiptPdf(order: AdvanceOrder) {
   return new File([doc.output('blob')], `Advance-Receipt-${order.deposit_id}.pdf`, { type: 'application/pdf' })
 }
 
-export function printAdvanceReceipt(order: AdvanceOrder) {
+export async function printAdvanceReceipt(order: AdvanceOrder) {
   try {
+    const thermalLogo = await getMonochromeThermalLogo()
     const frame = document.createElement('iframe')
     frame.style.cssText = 'position:fixed;width:0;height:0;border:0;right:0;bottom:0;visibility:hidden;'
     frame.setAttribute('aria-hidden', 'true')
@@ -194,32 +196,53 @@ export function printAdvanceReceipt(order: AdvanceOrder) {
   @media print { @page { size: 80mm auto; margin: 0; } }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    font-family: Arial, sans-serif;
+    font-family: 'Courier New', Courier, monospace, Arial, sans-serif;
     font-size: 12px;
-    width: 72mm;
-    padding: 4mm;
-    color: #111;
+    width: 100%;
+    max-width: 80mm;
+    margin: 0 auto;
+    padding: 3mm 4mm;
+    color: #000;
+    box-sizing: border-box;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  .c { text-align: center; }
+  .c { text-align: center; word-break: break-word; }
+  .shop-title {
+    font-size: 15px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    line-height: 1.25;
+    text-transform: uppercase;
+    word-break: break-word;
+    margin: 4px 0 2px 0;
+  }
+  .shop-meta {
+    font-size: 10px;
+    color: #222;
+    line-height: 1.35;
+    word-break: break-word;
+  }
   .r { display: flex; justify-content: space-between; gap: 4px; margin: 4px 0; word-break: break-word; }
   .r span:first-child { flex-shrink: 0; max-width: 60%; }
   .r span:last-child { text-align: right; flex: 1; font-variant-numeric: tabular-nums; }
-  .line { border-top: 1px dashed #555; margin: 6px 0; }
-  .big { font-size: 15px; font-weight: bold; }
+  .line { border-top: 1px dashed #000; margin: 6px 0; }
+  .big { font-size: 14px; font-weight: bold; letter-spacing: 0.5px; }
   .bold { font-weight: bold; }
   .warn { font-size: 9px; font-weight: bold; margin-top: 8px; text-align: center; }
-  .label { font-size: 10px; color: #555; }
+  .label { font-size: 10px; color: #444; }
   .balance-row { font-size: 13px; font-weight: bold; }
 </style>
 </head><body>
-<div class="c" style="margin-bottom: 6px;">
-  <img src="${LOGO_BASE64}" style="width: 48px; height: 48px; object-fit: contain; margin: 0 auto; display: block;" alt="VASTHRAALAYAM Logo" />
+<div class="c" style="margin-bottom: 4px;">
+  ${thermalLogo ? `<img src="${thermalLogo}" style="width: 32mm; max-width: 40%; height: auto; object-fit: contain; margin: 0 auto 5px auto; display: block;" alt="VASTHRAALAYAM Logo" onerror="this.style.display='none'" />` : ''}
+  <div class="shop-title">${esc(BRAND_EN)}</div>
+  <div class="shop-meta" style="margin-top: 2px;">${esc(BRAND_ADDRESS)}</div>
+  <div class="shop-meta" style="margin-top: 1px;">Ph: ${esc(BRAND_PHONE_DISPLAY)}</div>
+  ${BRAND_EMAIL ? `<div class="shop-meta" style="margin-top: 1px;">${esc(BRAND_EMAIL)}</div>` : ''}
 </div>
-<div class="c big">${esc(BRAND_EN)}</div>
-<div class="c" style="font-size:10px;color:#555;">${esc(BRAND_ADDRESS)}</div>
-<div class="c" style="font-size:10px;color:#555;">${esc(BRAND_PHONE_DISPLAY)}</div>
 <div class="line"></div>
 <div class="c big">ADVANCE RECEIPT</div>
 <div class="c" style="font-size:10px;color:#555;">Not a final tax invoice</div>
