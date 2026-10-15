@@ -53,6 +53,7 @@ interface ProductOption {
   stock_quantity?: number
   category?: string
   has_variants?: boolean
+  gstPercent?: number
 }
 
 export interface CreateBarcodeModalProps {
@@ -1085,7 +1086,7 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
                           const hasVarBarcode = Boolean(v.barcode && v.barcode.trim())
                           return (
                             <option key={v.id} value={v.id}>
-                              {v.variantName} {hasVarBarcode ? `— [Barcode: ${v.barcode}] (Already Assigned)` : '— [No Barcode]'} — ₹{withGst(v.price, selectedProduct.gstPercent)} — Stock: {v.stock}
+                              {v.variantName} {hasVarBarcode ? `— [Barcode: ${v.barcode}] (Already Assigned)` : '— [No Barcode]'} — ₹{withGst(v.price, selectedProduct?.gstPercent)} — Stock: {v.stock}
                             </option>
                           )
                         })}
