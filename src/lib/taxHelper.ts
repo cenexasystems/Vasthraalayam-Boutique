@@ -24,6 +24,16 @@ export function calculateGstFromPercent(basePrice: number, percent: number): Tax
 }
 
 /**
+ * Reverse calculation: given a GST-inclusive price and a rate, returns the
+ * GST-exclusive base price (e.g. 840 @ 5% -> 800).
+ */
+export function calculateBaseFromInclusive(inclusivePrice: number, percent: number): number {
+  const safeInclusive = Math.max(0, roundTo(inclusivePrice, 2))
+  const safePercent = Math.max(0, Math.min(100, roundTo(percent, 2)))
+  return roundTo(safeInclusive / (1 + safePercent / 100), 2)
+}
+
+/**
  * Calculates GST percent and final price given a base price and a typed GST amount.
  */
 export function calculateGstFromAmount(basePrice: number, gstAmount: number): TaxCalculationResult {

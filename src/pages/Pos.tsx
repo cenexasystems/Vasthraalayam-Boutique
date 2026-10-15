@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useRef, useState, useCallback, type FormEvent } from 'react'
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { Link, useNavigate } from 'react-router-dom'
@@ -36,7 +37,7 @@ import {
   formatInvoiceNo,
   roundTo,
 } from '../lib/retail'
-import { computeBillTaxBreakdown } from '../lib/taxHelper'
+import { computeBillTaxBreakdown, calculateBaseFromInclusive } from '../lib/taxHelper'
 import { buildProfessionalWhatsAppMessage, buildAdvanceDepositWhatsAppMessage, publicInvoiceUrl } from '../lib/whatsappMessage'
 import { normalizePhone, toWhatsAppUrl } from '../lib/phone'
 import { useLangStore } from '../store/langStore'
@@ -705,7 +706,10 @@ export default function Pos(props: PosProps = {}) {
     setPriceEditModal({
       isOpen: true,
       item,
-      newPrice: String(item.basePrice ?? 0),
+      // Rate is displayed GST-inclusive, so edit the inclusive figure
+      newPrice: String((item.gstPercent ?? 0) > 0
+        ? roundTo(Number(item.basePrice || 0) * (1 + (item.gstPercent ?? 0) / 100), 2)
+        : (item.basePrice ?? 0)),
       isSubmitting: false,
       error: '',
     })
@@ -725,11 +729,14 @@ export default function Pos(props: PosProps = {}) {
     const { item, newPrice } = priceEditModal
     if (!item) return
 
-    const parsedPrice = parseFloat(newPrice)
-    if (isNaN(parsedPrice) || parsedPrice < 0) {
+    const enteredPrice = parseFloat(newPrice)
+    if (isNaN(enteredPrice) || enteredPrice < 0) {
       setPriceEditModal(prev => ({ ...prev, error: 'Please enter a valid price (0 or greater).' }))
       return
     }
+    const parsedPrice = (item.gstPercent ?? 0) > 0
+      ? calculateBaseFromInclusive(enteredPrice, item.gstPercent ?? 0)
+      : enteredPrice
 
     if (updateInventory) {
       setPriceEditModal(prev => ({ ...prev, isSubmitting: true, error: '' }))
@@ -1662,7 +1669,7 @@ export default function Pos(props: PosProps = {}) {
                             <h4 className="text-[14px] font-bold text-[#111111] leading-snug break-words">
                               {item.name}
                             </h4>
-                            {item.variantName && (
+                            {item.variantName && !item.name.endsWith(item.variantName) && (
                               <span className="inline-block mt-0.5 text-[10.5px] font-semibold text-[#5f6d59] bg-[#FBFAF6] border border-[#ead7b7]/60 px-1.5 py-0.5 rounded">
                                 {item.variantName}
                               </span>
@@ -1686,7 +1693,7 @@ export default function Pos(props: PosProps = {}) {
                             </span>
                             <Edit2 size={11} className="text-[#5f6d59]" />
                           </button>
-                          {item.gstPercent && item.gstPercent > 0 && (
+                          {(item.gstPercent ?? 0) > 0 && (
                             <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
                               incl. {item.gstPercent}% GST
                             </span>
@@ -1753,7 +1760,7 @@ export default function Pos(props: PosProps = {}) {
                         />
                       ) : (
                         <div className="px-3 py-2 w-full truncate border border-transparent flex items-center gap-2">
-                          <span className="text-[13px] font-bold text-[#111111] truncate">{item.name} {item.variantName ? `- ${item.variantName}` : ''}</span>
+                          <span className="text-[13px] font-bold text-[#111111] truncate">{item.variantName && !item.name.endsWith(item.variantName) ? `${item.name} - ${item.variantName}` : item.name}</span>
                         </div>
                       )}
                       {item.source !== 'manual' && (
@@ -1764,11 +1771,11 @@ export default function Pos(props: PosProps = {}) {
                     </div>
 
                     {/* Price */}
-                    <div className="flex flex-col items-end justify-center px-2 py-1 text-right">
+                    <div className="relative flex flex-col items-end justify-center pl-2 pr-8 py-1 text-right">
                       <button
                         type="button"
                         onClick={() => handleOpenPriceEdit(item)}
-                        className="group flex items-center justify-end gap-1.5 px-2.5 py-1.5 rounded-lg border border-transparent hover:border-[#7daa8f]/50 hover:bg-[#7daa8f]/10 transition-all text-right cursor-pointer"
+                        className="group flex items-center justify-end px-1 py-1.5 rounded-lg border border-transparent hover:border-[#7daa8f]/50 hover:bg-[#7daa8f]/10 transition-all text-right cursor-pointer"
                         title="Click to edit price"
                       >
                         <span className="text-[13px] font-black text-[#111111] group-hover:text-[#5f6d59] tracking-tight">
@@ -1777,9 +1784,9 @@ export default function Pos(props: PosProps = {}) {
                             : Number(item.basePrice || 0)
                           ).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                         </span>
-                        <Edit2 size={12} className="text-gray-400 group-hover:text-[#5f6d59] transition-colors shrink-0" />
+                        <Edit2 size={12} className="absolute right-2 top-2.5 text-gray-400 group-hover:text-[#5f6d59] transition-colors" />
                       </button>
-                      {item.gstPercent && item.gstPercent > 0 && (
+                      {(item.gstPercent ?? 0) > 0 && (
                         <span className="text-[9px] font-bold text-emerald-700">
                           incl. {item.gstPercent}% GST
                         </span>
@@ -2367,8 +2374,8 @@ export default function Pos(props: PosProps = {}) {
       )}
 
       {/* Variant Picker Modal for Multi-Variant Products */}
-      {variantPickerProduct && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
+      {variantPickerProduct && createPortal(
+        <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
           <div className="bg-white rounded-3xl max-w-md w-full border border-[#ead7b7] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150">
             <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-[#FBFAF6]">
               <div>
@@ -2454,7 +2461,7 @@ export default function Pos(props: PosProps = {}) {
             </div>
           </div>
         </div>
-      )}
+      , document.body)}
 
       {/* Price Edit & Inventory Confirmation Modal */}
       {priceEditModal.isOpen && priceEditModal.item && (
@@ -2486,7 +2493,10 @@ export default function Pos(props: PosProps = {}) {
                     New Price (₹)
                   </label>
                   <span className="text-[11px] text-gray-500 font-semibold">
-                    Current: ₹{Number(priceEditModal.item.basePrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                    Current: ₹{(((priceEditModal.item.gstPercent ?? 0) > 0)
+                      ? roundTo(Number(priceEditModal.item.basePrice || 0) * (1 + (priceEditModal.item.gstPercent ?? 0) / 100), 2)
+                      : Number(priceEditModal.item.basePrice || 0)).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                    {(priceEditModal.item.gstPercent ?? 0) > 0 ? ` (incl. ${priceEditModal.item.gstPercent}% GST)` : ''}
                   </span>
                 </div>
                 <div className="relative">

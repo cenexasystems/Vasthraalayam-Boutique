@@ -5,6 +5,8 @@ import { updateItemPrice } from '../../services/productService'
 import type { InventoryStockItem } from '../../services/inventoryService'
 import { useProductStore } from '../../store/store'
 import { useScrollLock } from '../../lib/scrollLock'
+import { calculateBaseFromInclusive } from '../../lib/taxHelper'
+import { roundTo } from '../../lib/retail'
 
 interface Props {
   isOpen: boolean
@@ -14,7 +16,14 @@ interface Props {
 }
 
 export const QuickPriceModal: React.FC<Props> = ({ isOpen, item, onClose, onSuccess }) => {
-  const [sellingPrice, setSellingPrice] = useState<string>(item ? String(item.price ?? '') : '')
+  // Prices are stored GST-exclusive but shown GST-inclusive everywhere, so edit the inclusive figure.
+  const gstPct = Number(item?.gst_percent) || 0
+  const toDisplayPrice = (it: InventoryStockItem) => {
+    const pct = Number(it.gst_percent) || 0
+    const base = Number(it.price ?? 0)
+    return String(pct > 0 ? roundTo(base * (1 + pct / 100), 2) : (it.price ?? ''))
+  }
+  const [sellingPrice, setSellingPrice] = useState<string>(item ? toDisplayPrice(item) : '')
   const [costPrice, setCostPrice] = useState<string>(
     item && item.purchase_price !== undefined ? String(item.purchase_price) : ''
   )
@@ -24,7 +33,7 @@ export const QuickPriceModal: React.FC<Props> = ({ isOpen, item, onClose, onSucc
   // Sync state when item changes
   useEffect(() => {
     if (item) {
-      setSellingPrice(String(item.price ?? ''))
+      setSellingPrice(toDisplayPrice(item))
       setCostPrice(item.purchase_price !== undefined ? String(item.purchase_price) : '')
       setError('')
     }
@@ -50,11 +59,13 @@ export const QuickPriceModal: React.FC<Props> = ({ isOpen, item, onClose, onSucc
     e.preventDefault()
     setError('')
 
-    const numPrice = Number(sellingPrice)
-    if (isNaN(numPrice) || numPrice < 0) {
+    const enteredPrice = Number(sellingPrice)
+    if (isNaN(enteredPrice) || enteredPrice < 0) {
       setError('Please enter a valid selling price.')
       return
     }
+
+    const numPrice = gstPct > 0 ? calculateBaseFromInclusive(enteredPrice, gstPct) : enteredPrice
 
     const numCost = costPrice.trim() !== '' ? Number(costPrice) : undefined
     if (numCost !== undefined && (isNaN(numCost) || numCost < 0)) {
@@ -156,7 +167,7 @@ export const QuickPriceModal: React.FC<Props> = ({ isOpen, item, onClose, onSucc
 
             <div>
               <label className="block font-bold text-[#374151] mb-1.5">
-                Selling Price (₹) *
+                Selling Price (₹){gstPct > 0 ? ` incl. ${gstPct}% GST` : ''} *
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-500 font-bold">
@@ -175,6 +186,9 @@ export const QuickPriceModal: React.FC<Props> = ({ isOpen, item, onClose, onSucc
                 />
               </div>
               <p className="text-[10px] text-gray-400 font-medium mt-1">
+                {gstPct > 0 && Number(sellingPrice) > 0
+                  ? `Base ₹${calculateBaseFromInclusive(Number(sellingPrice), gstPct).toFixed(2)} + GST ₹${roundTo(Number(sellingPrice) - calculateBaseFromInclusive(Number(sellingPrice), gstPct), 2).toFixed(2)}. `
+                  : ''}
                 Reflected immediately in POS scanning &amp; digital invoice
               </p>
             </div>

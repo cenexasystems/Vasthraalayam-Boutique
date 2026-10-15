@@ -479,7 +479,7 @@ export const InventoryTable: React.FC = () => {
 
                           {/* Price */}
                           <td className="py-3.5 px-4 text-right align-middle font-black text-xs text-gray-900 tabular-nums whitespace-nowrap">
-                            <div className="inline-flex items-center justify-end gap-1.5 group">
+                            <div className="relative inline-flex flex-col items-end group pr-6">
                               <span>
                                 {item.gst_percent && item.gst_percent > 0
                                   ? formatCurrency(roundTo(item.price * (1 + item.gst_percent / 100), 2))
@@ -488,17 +488,17 @@ export const InventoryTable: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => setPriceModalItem(item)}
-                                className="p-1 rounded-md text-gray-400 hover:text-amber-800 hover:bg-amber-100/70 transition-all cursor-pointer"
+                                className="absolute right-0 top-0 p-1 rounded-md text-gray-400 hover:text-amber-800 hover:bg-amber-100/70 transition-all cursor-pointer"
                                 title="Quick Edit Price"
                               >
                                 <Edit2 size={12} />
                               </button>
+                              {item.gst_percent && item.gst_percent > 0 ? (
+                                <div className="text-[10px] font-bold text-emerald-700">
+                                  incl. {item.gst_percent}% GST
+                                </div>
+                              ) : null}
                             </div>
-                            {item.gst_percent && item.gst_percent > 0 ? (
-                              <div className="text-[10px] font-bold text-emerald-700">
-                                incl. {item.gst_percent}% GST
-                              </div>
-                            ) : null}
                           </td>
 
                           {/* Actions */}
