@@ -259,12 +259,12 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
               </div>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-2.5 sm:p-4 bg-[#FAFAFA] relative">
-              {loading ? (
+              {loading && products.length === 0 ? (
                 <div className="flex min-h-48 flex-col items-center justify-center gap-3 text-[#374151]/70">
                   <span className="h-7 w-7 animate-spin rounded-full border-2 border-[#E5E7EB] border-t-[#7daa8f]" />
                   <p className="text-[13px] font-bold">Loading catalog...</p>
                 </div>
-              ) : error ? (
+              ) : error && products.length === 0 ? (
                 <div className="flex min-h-48 flex-col items-center justify-center gap-2 px-4 text-center text-red-500">
                   <p className="text-[13px] font-bold">Unable to load catalog items.</p>
                   <button type="button" onClick={() => void fetchProducts(true)} className="rounded-lg bg-[#7daa8f] px-3 py-2 text-[11px] font-black text-white">Try again</button>
@@ -308,8 +308,8 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                         <div className="flex items-center justify-between gap-2 min-w-0">
                           <div className="min-w-0 flex-1">
                             <span className="text-[13px] min-[390px]:text-[14px] font-black text-[#111111] tabular-nums block truncate">
-                              ₹{product.gstPercent && product.gstPercent > 0
-                                ? roundTo(product.price * (1 + product.gstPercent / 100), 2).toFixed(2)
+                              ₹{(product.gstPercent ?? 0) > 0
+                                ? roundTo(product.price * (1 + (product.gstPercent ?? 0) / 100), 2).toFixed(2)
                                 : product.price}
                             </span>
                           </div>
@@ -338,7 +338,7 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                           <span className="text-[10px] font-bold text-[#374151] uppercase tracking-wider bg-[#F9FAFB] px-2 py-0.5 rounded border border-[#E5E7EB]/40 whitespace-nowrap">
                             {product.category}
                           </span>
-                          {product.gstPercent && product.gstPercent > 0 && (
+                          {(product.gstPercent ?? 0) > 0 && (
                             <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded border border-emerald-200 whitespace-nowrap">
                               incl. {product.gstPercent}% GST
                             </span>
@@ -357,8 +357,8 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                         <div className="flex items-center justify-between gap-2 w-full min-w-0">
                           <div className="min-w-0 flex-1">
                             <span className="text-[14px] font-black text-[#111111] tabular-nums block truncate">
-                              ₹{product.gstPercent && product.gstPercent > 0
-                                ? roundTo(product.price * (1 + product.gstPercent / 100), 2).toFixed(2)
+                              ₹{(product.gstPercent ?? 0) > 0
+                                ? roundTo(product.price * (1 + (product.gstPercent ?? 0) / 100), 2).toFixed(2)
                                 : product.price}
                             </span>
                           </div>
@@ -387,7 +387,7 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                           <span className="text-[10px] sm:text-[11px] font-bold text-[#374151] uppercase tracking-wider bg-[#F9FAFB] px-2 py-0.5 rounded border border-[#E5E7EB]/40 whitespace-nowrap">
                             {product.category}
                           </span>
-                          {product.gstPercent && product.gstPercent > 0 && (
+                          {(product.gstPercent ?? 0) > 0 && (
                             <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded border border-emerald-200 whitespace-nowrap">
                               incl. {product.gstPercent}% GST
                             </span>
