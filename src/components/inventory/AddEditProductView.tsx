@@ -57,6 +57,9 @@ export const AddEditProductView: React.FC<{
   const [enableGst, setEnableGst] = useState<boolean>(false)
   const [gstPercent, setGstPercent] = useState<string>('')
   const [gstAmount, setGstAmount] = useState<string>('')
+  // Reverse-entry state: the GST-inclusive price the user typed (kept fixed while the rate changes)
+  const [lockedFinal, setLockedFinal] = useState<number | null>(null)
+  const [finalInput, setFinalInput] = useState<string | null>(null)
   const [purchasePrice, setPurchasePrice] = useState<string>('')
   const [stockQuantity, setStockQuantity] = useState<string>('0')
   const [lowStockAlert, setLowStockAlert] = useState<string>(() => String(defaultLowStockAlert))
@@ -77,6 +80,8 @@ export const AddEditProductView: React.FC<{
   }, [fetchProducts])
 
   const handlePriceChange = (val: string) => {
+    setLockedFinal(null)
+    setFinalInput(null)
     setPrice(val)
     if (enableGst) {
       const numBase = Math.max(0, Number(val) || 0)
@@ -100,6 +105,10 @@ export const AddEditProductView: React.FC<{
     if (isNaN(num)) return
     const clamped = Math.max(0, Math.min(100, num))
     setGstPercent(val)
+    if (lockedFinal !== null && clamped > 0) {
+      applyInclusive(lockedFinal, clamped)
+      return
+    }
     const numBase = Math.max(0, Number(price) || 0)
     const res = calculateGstFromPercent(numBase, clamped)
     setGstAmount(String(res.gstAmount))
@@ -113,28 +122,54 @@ export const AddEditProductView: React.FC<{
     }
     const num = Number(val)
     if (isNaN(num) || num < 0) return
+    setLockedFinal(null)
+    setFinalInput(null)
     setGstAmount(val)
     const numBase = Math.max(0, Number(price) || 0)
     const res = calculateGstFromAmount(numBase, num)
     setGstPercent(res.gstPercent > 0 ? String(res.gstPercent) : '')
   }
 
-  // Reverse entry: type the GST-inclusive (MRP) price and derive base + GST amount from the rate
+  // Split a GST-inclusive price into base + GST. Base is stored to 2 decimals, so pick the
+  // nearest base whose forward calculation (base + GST) lands closest to the typed price.
+  const applyInclusive = (inclusive: number, pct: number) => {
+    const b0 = calculateBaseFromInclusive(inclusive, pct)
+    let best = b0
+    let bestDiff = Infinity
+    for (const delta of [0, -0.01, 0.01, -0.02, 0.02]) {
+      const cand = Math.max(0, roundTo(b0 + delta, 2))
+      const diff = Math.abs(calculateGstFromPercent(cand, pct).finalPrice - inclusive)
+      if (diff < bestDiff - 1e-9) { best = cand; bestDiff = diff }
+    }
+    setPrice(String(best))
+    setGstAmount(String(calculateGstFromPercent(best, pct).gstAmount))
+  }
+
+  // Reverse entry: type the GST-inclusive (MRP) price; base + GST amount are derived from the rate.
+  // If the rate isn't entered yet, the price is remembered and split as soon as the rate is typed.
   const handleFinalPriceChange = (val: string) => {
+    setFinalInput(val)
     const pct = Math.max(0, Math.min(100, Number(gstPercent) || 0))
-    if (val === '' || pct <= 0) {
-      setPrice(val)
-      setGstAmount(pct <= 0 ? '' : '0')
+    if (val === '') {
+      setLockedFinal(null)
+      setPrice('')
+      setGstAmount(pct > 0 ? '0' : '')
       return
     }
     const inclusive = Math.max(0, Number(val) || 0)
-    const base = calculateBaseFromInclusive(inclusive, pct)
-    setPrice(String(base))
-    setGstAmount(String(roundTo(inclusive - base, 2)))
+    setLockedFinal(inclusive)
+    if (pct <= 0) {
+      setPrice(val)
+      setGstAmount('')
+      return
+    }
+    applyInclusive(inclusive, pct)
   }
 
   const handleToggleEnableGst = (checked: boolean) => {
     setEnableGst(checked)
+    setLockedFinal(null)
+    setFinalInput(null)
     if (checked) {
       const currentPct = Number(gstPercent) || 0
       const activePct = currentPct > 0 ? currentPct : 0
@@ -166,6 +201,8 @@ export const AddEditProductView: React.FC<{
     setEnableGst(false)
     setGstPercent('')
     setGstAmount('')
+    setLockedFinal(null)
+    setFinalInput(null)
     setPurchasePrice('')
     setStockQuantity('0')
     setLowStockAlert(String(defaultLowStockAlert))
@@ -195,6 +232,8 @@ export const AddEditProductView: React.FC<{
     }
     setCategoryId(matchedCatId)
 
+    setLockedFinal(null)
+    setFinalInput(null)
     const basePriceStr = String(p.price || '')
     setPrice(basePriceStr)
     const pGst = Number(p.gstPercent || 0)
@@ -1339,12 +1378,17 @@ export const AddEditProductView: React.FC<{
                       min="0"
                       step="0.01"
                       placeholder="0.00"
-                      value={computedFinalPrice === 0 ? '' : computedFinalPrice}
+                      value={finalInput ?? (computedFinalPrice === 0 ? '' : computedFinalPrice)}
                       onChange={(e) => handleFinalPriceChange(e.target.value)}
                       title="Enter the GST-inclusive price to back-calculate the base price"
                       className="w-full h-9 px-3 rounded-xl border border-emerald-300 bg-emerald-50/60 text-xs font-black text-emerald-950 outline-none focus:border-emerald-500"
                     />
                   </div>
+                  {lockedFinal !== null && Number(gstPercent) > 0 && Math.abs(computedFinalPrice - lockedFinal) > 0.004 && (
+                    <p className="sm:col-span-4 text-[11px] font-semibold text-amber-700">
+                      ₹{lockedFinal.toFixed(2)} cannot be split exactly into a 2-decimal base price + GST; it will bill as ₹{computedFinalPrice.toFixed(2)}.
+                    </p>
+                  )}
                 </div>
               )}
             </div>
