@@ -454,6 +454,12 @@ export default function Pos(props: PosProps = {}) {
     })
   }
 
+  // Variant prices are stored GST-exclusive; the picker shows what the customer pays (GST-inclusive)
+  const withGst = (basePrice: number) => {
+    const pct = Number(variantPickerProduct?.gstPercent) || 0
+    return pct > 0 ? roundTo(basePrice * (1 + pct / 100), 2) : basePrice
+  }
+
   const addVariantToItems = () => {
     if (!variantPickerProduct || !selectedVariant) return
     setError('')
@@ -2418,7 +2424,7 @@ export default function Pos(props: PosProps = {}) {
                         {v.variantName}
                       </div>
                       <div className="flex items-center justify-between mt-2 pt-1 border-t border-gray-100 text-[11px]">
-                        <span className="font-black text-black">₹{v.price}</span>
+                        <span className="font-black text-black">₹{withGst(v.price)}</span>
                         <span className="text-[10px] text-emerald-700 font-bold">Stock: {v.stock}</span>
                       </div>
                     </div>
@@ -2456,7 +2462,7 @@ export default function Pos(props: PosProps = {}) {
                 onClick={addVariantToItems}
                 className="w-full py-3 rounded-2xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
               >
-                Add to Order (₹{((selectedVariant?.price || variantPickerProduct.price || 0) * variantPickerQty).toFixed(2)})
+                Add to Order (₹{(withGst(selectedVariant?.price || variantPickerProduct.price || 0) * variantPickerQty).toFixed(2)})
               </button>
             </div>
           </div>
