@@ -36,6 +36,7 @@ export type InvoicePdfData = {
   advancePaid?: number
   balancePaid?: number
   balanceDue?: number
+  status?: string
 }
 
 // jsPDF's built-in Helvetica font does not include the ₹ Unicode glyph (U+20B9).
@@ -206,6 +207,7 @@ export function createInvoicePdf(data: InvoicePdfData): Blob {
     advancePaid: data.advancePaid,
     balancePaid: data.balancePaid,
     balanceDue: data.balanceDue,
+    status: data.status,
   })
 
   doc.setFontSize(9)
@@ -278,7 +280,7 @@ export function createInvoicePdf(data: InvoicePdfData): Blob {
       y += 4.5
     }
 
-    if (breakdown.balanceDue > 0) {
+    if (breakdown.showBalanceDue) {
       doc.setTextColor(primaryColor)
       doc.setFont('helvetica', 'bold')
       doc.text('Balance Due', 120, y)

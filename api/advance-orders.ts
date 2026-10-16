@@ -404,9 +404,15 @@ async function patch(req: VercelRequest, res: VercelResponse) {
 async function del(req: VercelRequest, res: VercelResponse) {
   const session = requireAuth(req, res, ['admin'])
   if (!session) return
-  const id = String(req.query.id)
+  const id = String(req.query.id || '').trim()
   if (!id) {
     res.status(400).json({ error: 'Advance order ID is required' })
+    return
+  }
+
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  if (!uuidRegex.test(id)) {
+    res.status(404).json({ error: `Advance order ${id} not found` })
     return
   }
 
@@ -423,8 +429,12 @@ async function del(req: VercelRequest, res: VercelResponse) {
     res.status(200).json({ data: result })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
-    if (msg.includes('not found') || msg.includes('not authorized')) {
+    if (msg.toLowerCase().includes('not found')) {
       res.status(404).json({ error: msg })
+      return
+    }
+    if (msg.toLowerCase().includes('not authorized')) {
+      res.status(403).json({ error: msg })
       return
     }
     console.error('[advance-orders.del] Hard delete failed:', err)

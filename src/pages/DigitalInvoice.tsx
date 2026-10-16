@@ -269,10 +269,11 @@ export default function DigitalInvoice() {
       payments: invoice.payments,
       changeGiven: toNumber(invoice.change_given, 0),
       depositAmount: invoice.deposit_amount,
-      remainingBalance: invoice.remaining_balance,
+      remainingBalance: (invoice.status === 'completed' || toNumber(invoice.balance_paid, 0) > 0) ? 0 : invoice.remaining_balance,
       advancePaid: invoice.advance_paid,
       balancePaid: invoice.balance_paid,
-      balanceDue: invoice.balance_due,
+      balanceDue: (invoice.status === 'completed' || toNumber(invoice.balance_paid, 0) > 0) ? 0 : invoice.balance_due,
+      status: invoice.status,
     })
   }
 
@@ -362,10 +363,10 @@ export default function DigitalInvoice() {
             payments={invoice.payments}
             changeGiven={toNumber(invoice.change_given, 0)}
             depositAmount={invoice.deposit_amount}
-            remainingBalance={invoice.remaining_balance}
+            remainingBalance={(invoice.status === 'completed' || toNumber(invoice.balance_paid, 0) > 0) ? 0 : invoice.remaining_balance}
             advancePaid={invoice.advance_paid}
             balancePaid={invoice.balance_paid}
-            balanceDue={invoice.balance_due}
+            balanceDue={(invoice.status === 'completed' || toNumber(invoice.balance_paid, 0) > 0) ? 0 : invoice.balance_due}
             onPrintReceipt={printReceipt}
           />
         </div>

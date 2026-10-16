@@ -39,6 +39,7 @@ export interface ThermalReceiptData {
   advancePaid?: number
   balancePaid?: number
   balanceDue?: number
+  status?: string
   storeName?: string
   storePhone?: string
   storeAddress?: string
@@ -105,6 +106,7 @@ export async function printThermalReceipt(data: ThermalReceiptData) {
       advancePaid: data.advancePaid,
       balancePaid: data.balancePaid,
       balanceDue: data.balanceDue,
+      status: data.status,
     })
 
     const html = `
@@ -242,7 +244,7 @@ export async function printThermalReceipt(data: ThermalReceiptData) {
                   <td class="text-right font-bold">${formatCurrency(breakdown.balancePaid)}</td>
                 </tr>
               ` : '')}
-              ${breakdown.balanceDue > 0 ? `
+              ${breakdown.showBalanceDue ? `
                 <tr class="font-bold">
                   <td class="text-left">Balance Due</td>
                   <td class="text-right">${formatCurrency(breakdown.balanceDue)}</td>

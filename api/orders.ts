@@ -320,10 +320,10 @@ async function getPublicInvoice(req: VercelRequest, res: VercelResponse) {
       payment_mode: adv.final_payment_method || 'Advance Payment',
       payments: mappedPayments,
       deposit_amount: depositAmt,
-      remaining_balance: remBal,
+      remaining_balance: adv.status === 'completed' ? 0 : remBal,
       advance_paid: depositAmt,
       balance_paid: adv.status === 'completed' ? Math.max(0, mappedTotal - depositAmt) : 0,
-      balance_due: remBal,
+      balance_due: adv.status === 'completed' ? 0 : remBal,
       change_given: 0,
       created_at: adv.completed_at || adv.created_at,
     }

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { CalendarDays, CheckCircle2, Clock3, Download, Eye, FileText, MessageCircle, PackageCheck, Plus, Printer, RefreshCw, Search, X, Trash2 } from 'lucide-react'
-import { neonApi } from '../lib/neonApi'
+import { CalendarDays, Clock3, Download, Eye, FileText, MessageCircle, PackageCheck, Plus, Printer, RefreshCw, Search, X, Trash2 } from 'lucide-react'
 import { formatCurrency } from '../lib/retail'
 import { invoicePdfFile } from '../lib/invoicePdf'
 import { printThermalReceipt } from '../lib/thermalPrint'
@@ -17,14 +16,6 @@ import { HardDeleteModal, type ImpactDetail } from '../components/common/HardDel
 import { SplitPaymentSelector } from '../components/SplitPaymentSelector'
 import { type PaymentMode, type SplitPaymentValidationResult } from '../lib/splitPaymentUtils'
 import { useScrollLock } from '../lib/scrollLock'
-
-// Custom Malaysian Ringgit icon
-const RMIcon = ({ size = 20, className = '' }: { size?: number; className?: string }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className} aria-label="Malaysian Ringgit">
-    <rect x="2" y="2" width="20" height="20" rx="4" />
-    <text x="12" y="16" textAnchor="middle" fontSize="9" fontWeight="bold" stroke="none" fill="currentColor" fontFamily="Arial, sans-serif">₹</text>
-  </svg>
-)
 
 type DateFilter = 'all' | 'today' | 'week' | 'month' | 'year' | 'custom'
 type StatusFilter = 'all' | 'pending' | 'ready' | 'completed' | 'cancelled'
@@ -118,7 +109,7 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
       { label: 'Total Value', value: formatCurrency(targetOrder?.total_amount ?? 0), color: 'danger' },
       {
         label: 'Linked Completed Bill',
-        value: targetOrder?.completed_order_id ? 'Final bill will also be permanently deleted' : 'None (No bill created)',
+        value: targetOrder?.completed_order_id ? 'Final bill and its stock movements will be removed' : 'None (No bill created)',
         color: targetOrder?.completed_order_id ? 'danger' : 'neutral',
       },
       { label: 'Payments & Timeline', value: 'All advance payments and timeline events purged' },
@@ -131,13 +122,23 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
       entityType: 'advance_order',
       impactDetails,
       requireTypeDelete: true,
-      warningText: 'This advance order, all recorded advance/balance payments, timeline logs, and any completed invoice created from it will be permanently deleted from Neon.',
+      warningText: targetOrder?.completed_order_id
+        ? 'This advance order, all recorded payments, timeline logs, and the linked completed invoice (including stock restorations) will be permanently deleted from Neon.'
+        : 'This advance order, all recorded advance/balance payments, and timeline logs will be permanently deleted from Neon.',
       onConfirm: async () => {
-        await deleteAdvanceOrder(orderId)
+        const res = await deleteAdvanceOrder(orderId)
         setOrders(prev => prev.filter(o => o.id !== orderId))
-        setNotice('Advance order permanently deleted')
-        setTimeout(() => setNotice(''), 3000)
+        if (selected?.id === orderId) {
+          setSelected(null)
+        }
+        if (res?.localOnly) {
+          setNotice(`Advance order ${targetOrder?.deposit_id || ''} removed from local storage (not found on server).`)
+        } else {
+          setNotice(`Advance order ${targetOrder?.deposit_id || ''} permanently deleted.`)
+        }
+        setTimeout(() => setNotice(''), 4000)
         await load()
+        return res
       },
     })
   }
@@ -381,9 +382,11 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
       paymentMode: order.final_payment_method || 'Paid',
       payments: order.payments,
       depositAmount: order.deposit_amount,
-      remainingBalance: order.remaining_balance,
+      remainingBalance: order.status === 'completed' ? 0 : order.remaining_balance,
       advancePaid: order.deposit_amount,
       balancePaid: order.status === 'completed' ? (order.total_amount - order.deposit_amount) : 0,
+      balanceDue: order.status === 'completed' ? 0 : order.remaining_balance,
+      status: order.status,
     })
   }
   const printFinal = (order: AdvanceOrder) => {
@@ -421,9 +424,11 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
       paymentMode: order.final_payment_method || 'Paid',
       payments: order.payments,
       depositAmount: order.deposit_amount,
-      remainingBalance: order.remaining_balance,
+      remainingBalance: order.status === 'completed' ? 0 : order.remaining_balance,
       advancePaid: order.deposit_amount,
       balancePaid: order.status === 'completed' ? (order.total_amount - order.deposit_amount) : 0,
+      balanceDue: order.status === 'completed' ? 0 : order.remaining_balance,
+      status: order.status,
     })
   }
   
@@ -477,9 +482,11 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
       paymentMode: order.final_payment_method || 'Paid',
       payments: order.payments,
       depositAmount: order.deposit_amount,
-      remainingBalance: order.remaining_balance,
+      remainingBalance: order.status === 'completed' ? 0 : order.remaining_balance,
       advancePaid: order.deposit_amount,
       balancePaid: order.status === 'completed' ? (order.total_amount - order.deposit_amount) : 0,
+      balanceDue: order.status === 'completed' ? 0 : order.remaining_balance,
+      status: order.status,
     })
     window.open(toWhatsAppUrl(order.phone, message), '_blank', 'noopener,noreferrer')
   }

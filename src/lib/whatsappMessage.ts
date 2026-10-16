@@ -39,6 +39,7 @@ export type BuildWhatsAppMessageInput = {
   advancePaid?: number
   balancePaid?: number
   balanceDue?: number
+  status?: string
   items?: WhatsAppLineItem[]
   subtotal?: number
   discountAmount?: number
@@ -104,6 +105,7 @@ export const buildProfessionalWhatsAppMessage = (input: BuildWhatsAppMessageInpu
     advancePaid: input.advancePaid,
     balancePaid: input.balancePaid,
     balanceDue: input.balanceDue,
+    status: input.status,
   })
 
   const itemsText = input.items && input.items.length > 0
@@ -135,7 +137,7 @@ export const buildProfessionalWhatsAppMessage = (input: BuildWhatsAppMessageInpu
       depositLines.push(`• Balance Paid: ₹ ${breakdown.balancePaid.toFixed(2)}`)
     }
 
-    if (breakdown.balanceDue > 0) {
+    if (breakdown.showBalanceDue) {
       depositLines.push(`• Balance Due: ₹ ${breakdown.balanceDue.toFixed(2)}`)
     }
     depositLines.push(`--------------------------\n*Total Paid:* ₹ ${breakdown.paymentDisplay.totalPaid.toFixed(2)}`)

@@ -175,14 +175,19 @@ DECLARE
   v_timeline JSONB;
   v_backup JSONB;
   v_completed_deleted JSONB := NULL;
+  v_backup_id BIGINT;
 BEGIN
   -- 1. Fetch advance order
   SELECT * INTO v_adv
   FROM public.advance_orders
-  WHERE id = p_advance_order_id AND (business_id = p_business_id OR p_business_id IS NULL OR p_business_id = '1');
+  WHERE id = p_advance_order_id;
 
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'Advance order % not found or not authorized for deletion', p_advance_order_id;
+    RAISE EXCEPTION 'Advance order % not found', p_advance_order_id;
+  END IF;
+
+  IF NOT (v_adv.business_id = p_business_id OR v_adv.business_id IS NULL OR p_business_id IS NULL OR p_business_id = '1') THEN
+    RAISE EXCEPTION 'Not authorized to delete advance order %', p_advance_order_id;
   END IF;
 
   -- 2. If it has a completed order in orders table, delete that completed order first
@@ -207,13 +212,15 @@ BEGIN
   );
 
   INSERT INTO public.delete_backups (business_id, entity_type, entity_id, entity_identifier, deleted_by, backup_data)
-  VALUES (COALESCE(p_business_id, '1'), 'advance_order', p_advance_order_id::TEXT, v_adv.deposit_id, p_user_name, v_backup);
+  VALUES (COALESCE(p_business_id, '1'), 'advance_order', p_advance_order_id::TEXT, v_adv.deposit_id, p_user_name, v_backup)
+  RETURNING id INTO v_backup_id;
 
   -- 4. Delete advance order (cascades advance_order_payments and advance_order_timeline)
   DELETE FROM public.advance_orders WHERE id = p_advance_order_id;
 
   RETURN jsonb_build_object(
     'success', true,
+    'backup_id', v_backup_id,
     'deleted_advance_order_id', p_advance_order_id,
     'deposit_id', v_adv.deposit_id,
     'customer_name', v_adv.customer_name,

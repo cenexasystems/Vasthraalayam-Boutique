@@ -1058,10 +1058,11 @@ export default function Dashboard() {
       payments: order.payments,
       changeGiven: order.change_given,
       depositAmount: order.deposit_amount,
-      remainingBalance: order.remaining_balance,
+      remainingBalance: (order.status === 'completed' || toNumber(order.balance_paid, 0) > 0 || order.order_type === 'advance_order') ? 0 : order.remaining_balance,
       advancePaid: order.advance_paid,
       balancePaid: order.balance_paid,
-      balanceDue: order.balance_due,
+      balanceDue: (order.status === 'completed' || toNumber(order.balance_paid, 0) > 0 || order.order_type === 'advance_order') ? 0 : order.balance_due,
+      status: order.status,
     })
   }
 
@@ -1106,10 +1107,11 @@ export default function Dashboard() {
       payments: order.payments,
       changeGiven: order.change_given,
       depositAmount: order.deposit_amount,
-      remainingBalance: order.remaining_balance,
+      remainingBalance: (order.status === 'completed' || toNumber(order.balance_paid, 0) > 0 || order.order_type === 'advance_order') ? 0 : order.remaining_balance,
       advancePaid: order.advance_paid,
       balancePaid: order.balance_paid,
-      balanceDue: order.balance_due,
+      balanceDue: (order.status === 'completed' || toNumber(order.balance_paid, 0) > 0 || order.order_type === 'advance_order') ? 0 : order.balance_due,
+      status: order.status,
       total: order.total,
     })
     const url = URL.createObjectURL(file)
@@ -4739,10 +4741,10 @@ export default function Dashboard() {
                         payments={invoicePreviewOrder.payments}
                         changeGiven={invoicePreviewOrder.change_given}
                         depositAmount={invoicePreviewOrder.deposit_amount}
-                        remainingBalance={invoicePreviewOrder.remaining_balance}
+                        remainingBalance={(invoicePreviewOrder.status === 'completed' || toNumber(invoicePreviewOrder.balance_paid, 0) > 0 || invoicePreviewOrder.order_type === 'advance_order') ? 0 : invoicePreviewOrder.remaining_balance}
                         advancePaid={invoicePreviewOrder.advance_paid}
                         balancePaid={invoicePreviewOrder.balance_paid}
-                        balanceDue={invoicePreviewOrder.balance_due}
+                        balanceDue={(invoicePreviewOrder.status === 'completed' || toNumber(invoicePreviewOrder.balance_paid, 0) > 0 || invoicePreviewOrder.order_type === 'advance_order') ? 0 : invoicePreviewOrder.balance_due}
                         total={invoicePreviewOrder.total}
                         status={invoicePreviewOrder.status}
                       />

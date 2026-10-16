@@ -117,16 +117,34 @@ const throwIfError = <T>(result: { data: T | null; error: Error | null }, label:
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-export async function deleteAdvanceOrder(orderId: string): Promise<void> {
-  await throwIfError(
-    await neonApi.delete<{ id: string }>(`/advance-orders?id=${encodeURIComponent(orderId)}`),
-    'deleteAdvanceOrder'
+export async function deleteAdvanceOrder(orderId: string): Promise<{ localOnly: boolean; backupId?: string | number }> {
+  const result = await neonApi.delete<{ backup_id?: string | number; backup?: { id?: string | number }; success?: boolean }>(
+    `/advance-orders?id=${encodeURIComponent(orderId)}`
   )
-  // Clean up local cache
+
+  const isNotFound = Boolean(
+    result.error && (
+      result.error.message.toLowerCase().includes('not found') ||
+      result.error.message.includes('404')
+    )
+  )
+
+  // If error is not a 404 (e.g. 401 Unauthorized, 403 Forbidden, 500 DB error), rethrow so UI can display it
+  if (result.error && !isNotFound) {
+    throw result.error
+  }
+
+  // Clean up local cache (for both successful remote deletes and local-only records)
   saveLocalOrders(loadLocalOrders().filter(o => o.id !== orderId))
   saveLocalTimeline(loadLocalTimeline().filter(t => t.advance_order_id !== orderId))
   saveLocalPayments(loadLocalPayments().filter(p => p.advance_order_id !== orderId))
+
+  return {
+    localOnly: isNotFound,
+    backupId: result.data?.backup_id || result.data?.backup?.id,
+  }
 }
+
 
 export async function listAdvanceOrders(): Promise<AdvanceOrder[]> {
   const result = await neonApi.get<AdvanceOrder[]>('/advance-orders')

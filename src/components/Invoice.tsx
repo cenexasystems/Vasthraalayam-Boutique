@@ -1,7 +1,7 @@
 import React from 'react'
 import { BRAND_ADDRESS, BRAND_EN, BRAND_INSTAGRAM, BRAND_PRIMARY_PHONE_DISPLAY, BRAND_ICON } from '../lib/brand'
 import { formatCurrency, formatQuantityDisplay, normalizeStructuredOrderItem, formatInvoiceNo, toNumber } from '../lib/retail'
-import { computeInvoiceBreakdown, formatPaymentModeName } from '../lib/invoiceBreakdown'
+import { computeInvoiceBreakdown } from '../lib/invoiceBreakdown'
 
 export interface InvoiceItem {
   id: string | number
@@ -116,6 +116,7 @@ export const Invoice: React.FC<InvoiceProps> = ({
     advancePaid,
     balancePaid,
     balanceDue,
+    status,
   })
 
   return (
@@ -358,7 +359,7 @@ export const Invoice: React.FC<InvoiceProps> = ({
                       </div>
                     ) : null}
 
-                    {breakdown.balanceDue > 0 && (
+                    {breakdown.showBalanceDue && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--invoice-primary, #1F3A2E)', fontWeight: 700 }}>
                         <span>Balance Due</span>
                         <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(breakdown.balanceDue)}</span>

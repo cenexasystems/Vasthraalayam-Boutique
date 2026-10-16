@@ -25,6 +25,7 @@ export interface InvoiceBreakdownInput {
   advancePaid?: number
   balancePaid?: number
   balanceDue?: number
+  status?: string
 }
 
 export interface TaxRateSummary {
@@ -63,6 +64,7 @@ export interface InvoiceBreakdown {
   advancePaid: number
   balancePaid: number
   balanceDue: number
+  showBalanceDue: boolean
   rows: BreakdownRow[]
   paymentDisplay: {
     isSplit: boolean
@@ -412,8 +414,7 @@ export function computeInvoiceBreakdown(input: InvoiceBreakdownInput): InvoiceBr
     (input.advancePaid != null && input.advancePaid > 0)
 
   const advancePaid = roundTo(toNumber(input.depositAmount ?? input.advancePaid, 0), 2)
-  const balanceDue = roundTo(toNumber(input.remainingBalance ?? input.balanceDue, 0), 2)
-  const balancePaid = roundTo(toNumber(input.balancePaid, 0), 2)
+  let balancePaid = roundTo(toNumber(input.balancePaid, 0), 2)
 
   // Payments classification
   const rawPayments = Array.isArray(input.payments) ? input.payments : []
@@ -447,6 +448,12 @@ export function computeInvoiceBreakdown(input: InvoiceBreakdownInput): InvoiceBr
       }
     })
 
+  if (balancePaid <= 0 && balancePayments.length > 0) {
+    balancePaid = roundTo(balancePayments.reduce((s, p) => s + p.amount, 0), 2)
+  } else if (balancePaid <= 0 && String(input.status || '').toLowerCase() === 'completed' && isDepositInvoice && finalTotal > advancePaid) {
+    balancePaid = roundTo(finalTotal - advancePaid, 2)
+  }
+
   const splitPayments = activePayments.map(p => ({
     mode: String(p.mode || 'cash').toLowerCase(),
     label: formatPaymentModeName(p.mode),
@@ -456,6 +463,15 @@ export function computeInvoiceBreakdown(input: InvoiceBreakdownInput): InvoiceBr
   const totalPaid = activePayments.length > 0
     ? roundTo(activePayments.reduce((s, p) => s + toNumber(p.amount, 0), 0), 2)
     : (isDepositInvoice ? roundTo(advancePaid + balancePaid, 2) || finalTotal : finalTotal)
+
+  const isCompletedInvoice = String(input.status || '').toLowerCase() === 'completed' ||
+    balancePaid > 0 ||
+    balancePayments.length > 0 ||
+    (isDepositInvoice && totalPaid >= finalTotal && totalPaid > 0)
+
+  const rawBalanceDue = roundTo(toNumber(input.remainingBalance ?? input.balanceDue, Math.max(0, finalTotal - totalPaid)), 2)
+  const balanceDue = isCompletedInvoice ? 0 : rawBalanceDue
+  const showBalanceDue = !isCompletedInvoice && isDepositInvoice && balanceDue > 0
 
   const isSplit = (input.paymentMode?.toLowerCase() === 'split') ||
     (activePayments.length > 1 && !isDepositInvoice)
@@ -482,6 +498,7 @@ export function computeInvoiceBreakdown(input: InvoiceBreakdownInput): InvoiceBr
     advancePaid,
     balancePaid,
     balanceDue,
+    showBalanceDue,
     rows,
     paymentDisplay: {
       isSplit,
