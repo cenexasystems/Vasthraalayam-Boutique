@@ -16,8 +16,8 @@ import { useProductStore, useSettingsStore, type Product } from '../../store/sto
 import { fetchVariantsByProduct } from '../../services/variantService'
 import { inventoryService, type CategoryRecord } from '../../services/inventoryService'
 import { normalizeBarcode } from '../../lib/barcode'
-import { calculateGstFromPercent, calculateGstFromAmount, calculateBaseFromInclusive } from '../../lib/taxHelper'
-import { roundTo, formatCurrency } from '../../lib/retail'
+import { calculateGstFromPercent, calculateGstFromAmount, calculateGstFromFinal, calculateGstFromBase } from '../../lib/taxHelper'
+import { roundTo } from '../../lib/retail'
 
 export const STANDARD_LETTER_SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', 'Free Size'] as const
 export const STANDARD_NUMERIC_SIZES = ['28', '30', '32', '34', '36', '38', '40', '42', '44', '46', '48'] as const
@@ -33,6 +33,10 @@ export interface VariantInputRow {
   costPrice: number
   stock: number
   customBarcode?: string
+  finalPrice?: number | string
+  gstRate?: number | string
+  gstAmount?: number | string
+  lastEditedField?: 'final' | 'base'
 }
 
 export const AddEditProductView: React.FC<{
@@ -130,19 +134,11 @@ export const AddEditProductView: React.FC<{
     setGstPercent(res.gstPercent > 0 ? String(res.gstPercent) : '')
   }
 
-  // Split a GST-inclusive price into base + GST. Base is stored to 2 decimals, so pick the
-  // nearest base whose forward calculation (base + GST) lands closest to the typed price.
+  // Split a GST-inclusive price into base + GST using shared helper.
   const applyInclusive = (inclusive: number, pct: number) => {
-    const b0 = calculateBaseFromInclusive(inclusive, pct)
-    let best = b0
-    let bestDiff = Infinity
-    for (const delta of [0, -0.01, 0.01, -0.02, 0.02]) {
-      const cand = Math.max(0, roundTo(b0 + delta, 2))
-      const diff = Math.abs(calculateGstFromPercent(cand, pct).finalPrice - inclusive)
-      if (diff < bestDiff - 1e-9) { best = cand; bestDiff = diff }
-    }
-    setPrice(String(best))
-    setGstAmount(String(calculateGstFromPercent(best, pct).gstAmount))
+    const res = calculateGstFromFinal(inclusive, pct)
+    setPrice(String(res.basePrice))
+    setGstAmount(String(res.gstAmount))
   }
 
   // Reverse entry: type the GST-inclusive (MRP) price; base + GST amount are derived from the rate.
@@ -179,6 +175,29 @@ export const AddEditProductView: React.FC<{
         const res = calculateGstFromPercent(numBase, activePct)
         setGstAmount(String(res.gstAmount))
       }
+      // Carry existing variant prices across to basePrice and calculate GST fields
+      setVariantRows((prev) =>
+        prev.map((r) => {
+          const vRate = r.gstRate !== undefined && r.gstRate !== '' ? Number(r.gstRate) : activePct
+          const vBase = Number(r.price) || 0
+          if (vRate > 0 && vBase > 0) {
+            const res = calculateGstFromBase(vBase, vRate)
+            return {
+              ...r,
+              gstRate: r.gstRate !== undefined && r.gstRate !== '' ? r.gstRate : (activePct > 0 ? String(activePct) : ''),
+              finalPrice: String(res.finalPrice),
+              gstAmount: String(res.gstAmount),
+              lastEditedField: r.lastEditedField || 'base',
+            }
+          }
+          return {
+            ...r,
+            gstRate: r.gstRate !== undefined && r.gstRate !== '' ? r.gstRate : (activePct > 0 ? String(activePct) : ''),
+            finalPrice: r.finalPrice !== undefined && r.finalPrice !== '' ? r.finalPrice : (vBase > 0 ? String(vBase) : ''),
+            gstAmount: r.gstAmount || '',
+          }
+        })
+      )
     } else {
       setGstPercent('')
       setGstAmount('')
@@ -261,16 +280,33 @@ export const AddEditProductView: React.FC<{
     if (p.hasVariants) {
       try {
         const vars = await fetchVariantsByProduct(String(p.id))
+        const pGst = Number(p.gstPercent || 0)
         setVariantRows(
-          vars.map((v) => ({
-            id: v.id,
-            variantName: v.variantName,
-            sizeLabel: v.sizeLabel || v.variantName,
-            price: v.price,
-            costPrice: v.purchasePrice || 0,
-            stock: v.stock || 0,
-            customBarcode: v.barcode || '',
-          }))
+          vars.map((v) => {
+            const vPrice = Number(v.price) || 0
+            let finalPriceStr = ''
+            let gstAmountStr = ''
+            if (pGst > 0 && vPrice > 0) {
+              const res = calculateGstFromBase(vPrice, pGst)
+              finalPriceStr = String(res.finalPrice)
+              gstAmountStr = String(res.gstAmount)
+            } else if (v.mrp && Number(v.mrp) > 0) {
+              finalPriceStr = String(v.mrp)
+            }
+            return {
+              id: v.id,
+              variantName: v.variantName,
+              sizeLabel: v.sizeLabel || v.variantName,
+              price: vPrice,
+              costPrice: v.purchasePrice || 0,
+              stock: v.stock || 0,
+              customBarcode: v.barcode || '',
+              gstRate: pGst > 0 ? String(pGst) : '',
+              finalPrice: finalPriceStr,
+              gstAmount: gstAmountStr,
+              lastEditedField: 'base' as const,
+            }
+          })
         )
       } catch (err) {
         console.error('Failed to load variants for edit:', err)
@@ -293,6 +329,16 @@ export const AddEditProductView: React.FC<{
   const handleAddVariantRow = () => {
     const baseP = parseFloat(price) || 0
     const baseC = parseFloat(purchasePrice) || 0
+    const pRate = enableGst && Number(gstPercent) > 0 ? String(gstPercent) : ''
+    let finalStr = ''
+    let gstAmtStr = ''
+    if (enableGst && Number(pRate) > 0 && baseP > 0) {
+      const res = calculateGstFromBase(baseP, Number(pRate))
+      finalStr = String(res.finalPrice)
+      gstAmtStr = String(res.gstAmount)
+    } else if (baseP > 0) {
+      finalStr = String(baseP)
+    }
     setVariantRows((prev) => [
       ...prev,
       {
@@ -303,6 +349,10 @@ export const AddEditProductView: React.FC<{
         costPrice: baseC,
         stock: 0,
         customBarcode: '',
+        gstRate: pRate,
+        finalPrice: finalStr,
+        gstAmount: gstAmtStr,
+        lastEditedField: 'base',
       },
     ])
   }
@@ -317,7 +367,108 @@ export const AddEditProductView: React.FC<{
     value: string | number
   ) => {
     setVariantRows((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, [field]: value } : r))
+      prev.map((r) => {
+        if (r.id !== id) return r
+
+        if (field === 'finalPrice') {
+          const strVal = String(value ?? '')
+          const rateNum = Math.max(0, Math.min(100, Number(r.gstRate ?? gstPercent) || 0))
+          if (strVal === '') {
+            return {
+              ...r,
+              finalPrice: '',
+              price: 0,
+              gstAmount: rateNum > 0 ? '0' : '',
+              lastEditedField: 'final',
+            }
+          }
+          const finalNum = Math.max(0, parseFloat(strVal) || 0)
+          if (rateNum <= 0) {
+            return {
+              ...r,
+              finalPrice: strVal,
+              price: finalNum,
+              gstAmount: '0',
+              lastEditedField: 'final',
+            }
+          }
+          const res = calculateGstFromFinal(finalNum, rateNum)
+          return {
+            ...r,
+            finalPrice: strVal,
+            price: res.basePrice,
+            gstAmount: String(res.gstAmount),
+            lastEditedField: 'final',
+          }
+        }
+
+        if (field === 'price') {
+          const strVal = String(value ?? '')
+          const rateNum = Math.max(0, Math.min(100, Number(r.gstRate ?? gstPercent) || 0))
+          if (strVal === '') {
+            return {
+              ...r,
+              price: 0,
+              finalPrice: '',
+              gstAmount: rateNum > 0 ? '0' : '',
+              lastEditedField: 'base',
+            }
+          }
+          const baseNum = Math.max(0, parseFloat(strVal) || 0)
+          if (rateNum <= 0) {
+            return {
+              ...r,
+              price: baseNum,
+              finalPrice: strVal,
+              gstAmount: '0',
+              lastEditedField: 'base',
+            }
+          }
+          const res = calculateGstFromBase(baseNum, rateNum)
+          return {
+            ...r,
+            price: baseNum,
+            finalPrice: String(res.finalPrice),
+            gstAmount: String(res.gstAmount),
+            lastEditedField: 'base',
+          }
+        }
+
+        if (field === 'gstRate') {
+          const strVal = String(value ?? '')
+          if (strVal === '') {
+            const baseNum = Number(r.price) || 0
+            return {
+              ...r,
+              gstRate: '',
+              gstAmount: '',
+              finalPrice: r.lastEditedField === 'final' ? r.finalPrice : (baseNum > 0 ? String(baseNum) : ''),
+            }
+          }
+          const rateNum = Math.max(0, Math.min(100, Number(strVal) || 0))
+          if (r.lastEditedField === 'final' && r.finalPrice !== '' && r.finalPrice != null) {
+            const finalNum = Math.max(0, parseFloat(String(r.finalPrice)) || 0)
+            const res = calculateGstFromFinal(finalNum, rateNum)
+            return {
+              ...r,
+              gstRate: strVal,
+              price: res.basePrice,
+              gstAmount: String(res.gstAmount),
+            }
+          } else {
+            const baseNum = Math.max(0, Number(r.price) || 0)
+            const res = calculateGstFromBase(baseNum, rateNum)
+            return {
+              ...r,
+              gstRate: strVal,
+              finalPrice: String(res.finalPrice),
+              gstAmount: String(res.gstAmount),
+            }
+          }
+        }
+
+        return { ...r, [field]: value }
+      })
     )
   }
 
@@ -330,6 +481,16 @@ export const AddEditProductView: React.FC<{
     }
     const baseP = parseFloat(price) || 0
     const baseC = parseFloat(purchasePrice) || 0
+    const pRate = enableGst && Number(gstPercent) > 0 ? String(gstPercent) : ''
+    let finalStr = ''
+    let gstAmtStr = ''
+    if (enableGst && Number(pRate) > 0 && baseP > 0) {
+      const res = calculateGstFromBase(baseP, Number(pRate))
+      finalStr = String(res.finalPrice)
+      gstAmtStr = String(res.gstAmount)
+    } else if (baseP > 0) {
+      finalStr = String(baseP)
+    }
 
     // If there is already a blank row with no size and 0 stock, fill that row instead of adding a new one!
     const blankRowIndex = variantRows.findIndex((r) => !r.variantName.trim() && !r.stock)
@@ -337,7 +498,17 @@ export const AddEditProductView: React.FC<{
       setVariantRows((prev) =>
         prev.map((r, idx) =>
           idx === blankRowIndex
-            ? { ...r, variantName: trimmed, sizeLabel: trimmed, price: r.price || baseP, costPrice: r.costPrice || baseC }
+            ? {
+                ...r,
+                variantName: trimmed,
+                sizeLabel: trimmed,
+                price: r.price || baseP,
+                costPrice: r.costPrice || baseC,
+                gstRate: r.gstRate ?? pRate,
+                finalPrice: r.finalPrice ?? finalStr,
+                gstAmount: r.gstAmount ?? gstAmtStr,
+                lastEditedField: r.lastEditedField || 'base',
+              }
             : r
         )
       )
@@ -354,6 +525,10 @@ export const AddEditProductView: React.FC<{
         costPrice: baseC,
         stock: 0,
         customBarcode: '',
+        gstRate: pRate,
+        finalPrice: finalStr,
+        gstAmount: gstAmtStr,
+        lastEditedField: 'base',
       },
     ])
   }
@@ -374,6 +549,17 @@ export const AddEditProductView: React.FC<{
         : ['Free Size', 'One Size', 'Semi-Stitched', 'Unstitched']
     const baseP = parseFloat(price) || 0
     const baseC = parseFloat(purchasePrice) || 0
+    const pRate = enableGst && Number(gstPercent) > 0 ? String(gstPercent) : ''
+    let finalStr = ''
+    let gstAmtStr = ''
+    if (enableGst && Number(pRate) > 0 && baseP > 0) {
+      const res = calculateGstFromBase(baseP, Number(pRate))
+      finalStr = String(res.finalPrice)
+      gstAmtStr = String(res.gstAmount)
+    } else if (baseP > 0) {
+      finalStr = String(baseP)
+    }
+
     setVariantRows((prev) => {
       // Remove any unedited blank row when adding a full pack
       const cleaned = prev.filter((r) => r.variantName.trim() !== '' || r.stock > 0)
@@ -389,6 +575,10 @@ export const AddEditProductView: React.FC<{
             costPrice: baseC,
             stock: 0,
             customBarcode: '',
+            gstRate: pRate,
+            finalPrice: finalStr,
+            gstAmount: gstAmtStr,
+            lastEditedField: 'base',
           })
         }
       }
@@ -530,6 +720,8 @@ export const AddEditProductView: React.FC<{
             const vStock = Math.max(0, Number(v.stock) || 0)
             totalVariantStock += vStock
 
+            const vFinal = Number(v.finalPrice) > 0 ? Number(v.finalPrice) : null
+
             if (v.id.startsWith('var_')) {
               // Insert new variant
               const { data: createdVar, error: vErr } = await neonApi.post<{ id: string }>('/variants', {
@@ -537,6 +729,7 @@ export const AddEditProductView: React.FC<{
                 variant_name: v.variantName.trim(),
                 size_label: v.sizeLabel?.trim() || v.variantName.trim(),
                 price: vPrice,
+                mrp: vFinal,
                 purchase_price: vCost,
                 stock: vStock,
                 barcode: v.customBarcode?.trim() || null,
@@ -567,6 +760,7 @@ export const AddEditProductView: React.FC<{
                 variant_name: v.variantName.trim(),
                 size_label: v.sizeLabel?.trim() || v.variantName.trim(),
                 price: vPrice,
+                mrp: vFinal,
                 purchase_price: vCost,
                 stock: vStock,
                 barcode: v.customBarcode?.trim() || null,
@@ -710,11 +904,14 @@ export const AddEditProductView: React.FC<{
             const vCost = Number(v.costPrice) > 0 ? Number(v.costPrice) : costNum
             const vStock = Math.max(0, Number(v.stock) || 0)
 
+            const vFinal = Number(v.finalPrice) > 0 ? Number(v.finalPrice) : null
+
             const { data: createdVar } = await neonApi.post<{ id: string }>('/variants', {
               product_id: newProd.id,
               variant_name: v.variantName.trim(),
               size_label: v.sizeLabel?.trim() || v.variantName.trim(),
               price: vPrice,
+              mrp: vFinal,
               purchase_price: vCost,
               stock: vStock,
               barcode: v.customBarcode?.trim() || null,
@@ -1587,102 +1784,398 @@ export const AddEditProductView: React.FC<{
                     {variantRows.map((v) => (
                       <div
                         key={v.id}
-                        className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 p-3 rounded-xl bg-[#FBFAF6] border border-gray-200 items-center"
+                        className="p-3 rounded-xl bg-[#FBFAF6] border border-gray-200"
                       >
-                        <div className="sm:col-span-3">
-                          <label className="block text-[10px] font-bold text-gray-600 mb-0.5">
-                            Size / Variant
-                          </label>
-                          <input
-                            type="text"
-                            list="standard-clothing-sizes"
-                            required
-                            placeholder="e.g. M, L, 32, 34"
-                            value={v.variantName}
-                            onChange={(e) => handleUpdateVariantRow(v.id, 'variantName', e.target.value)}
-                            className="w-full h-8 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
-                          />
-                        </div>
+                        {!enableGst ? (
+                          /* GST OFF: Existing 6-field row unchanged */
+                          <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
+                            <div className="sm:col-span-3">
+                              <label className="block text-[10px] font-bold text-gray-600 mb-0.5">
+                                Size / Variant
+                              </label>
+                              <input
+                                type="text"
+                                list="standard-clothing-sizes"
+                                required
+                                placeholder="e.g. M, L, 32, 34"
+                                value={v.variantName}
+                                onChange={(e) => handleUpdateVariantRow(v.id, 'variantName', e.target.value)}
+                                className="w-full h-8 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
+                              />
+                            </div>
 
-                        <div className="sm:col-span-2">
-                          <label className="block text-[10px] font-bold text-gray-600 mb-0.5 whitespace-nowrap">
-                            Price (₹){enableGst && Number(gstPercent) > 0 ? ' excl. GST' : ''}
-                          </label>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            required
-                            placeholder="0.00"
-                            value={v.price || ''}
-                            onChange={(e) => handleUpdateVariantRow(v.id, 'price', parseFloat(e.target.value) || 0)}
-                            className="w-full h-8 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
-                          />
-                        </div>
+                            <div className="sm:col-span-2">
+                              <label className="block text-[10px] font-bold text-gray-600 mb-0.5 whitespace-nowrap">
+                                Price (₹)
+                              </label>
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                min="0"
+                                step="0.01"
+                                required
+                                placeholder="0.00"
+                                value={v.price || ''}
+                                onChange={(e) => handleUpdateVariantRow(v.id, 'price', e.target.value)}
+                                className="w-full h-8 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
+                              />
+                            </div>
 
-                        <div className="sm:col-span-2">
-                          <label className="block text-[10px] font-bold text-gray-600 mb-0.5">
-                            Cost (₹)
-                          </label>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            placeholder="0.00"
-                            value={v.costPrice || ''}
-                            onChange={(e) => handleUpdateVariantRow(v.id, 'costPrice', parseFloat(e.target.value) || 0)}
-                            className="w-full h-8 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
-                          />
-                        </div>
+                            <div className="sm:col-span-2">
+                              <label className="block text-[10px] font-bold text-gray-600 mb-0.5">
+                                Cost (₹)
+                              </label>
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                min="0"
+                                step="0.01"
+                                placeholder="0.00"
+                                value={v.costPrice || ''}
+                                onChange={(e) => handleUpdateVariantRow(v.id, 'costPrice', parseFloat(e.target.value) || 0)}
+                                className="w-full h-8 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
+                              />
+                            </div>
 
-                        <div className="sm:col-span-2">
-                          <label className="block text-[10px] font-bold text-emerald-800 mb-0.5">
-                            Received Stock
-                          </label>
-                          <input
-                            type="number"
-                            min="0"
-                            placeholder="0"
-                            value={v.stock || ''}
-                            onChange={(e) => handleUpdateVariantRow(v.id, 'stock', parseInt(e.target.value) || 0)}
-                            className="w-full h-8 px-2.5 rounded-lg border border-emerald-300 bg-emerald-50/40 text-xs font-black text-emerald-950 outline-none focus:border-emerald-600"
-                          />
-                        </div>
+                            <div className="sm:col-span-2">
+                              <label className="block text-[10px] font-bold text-emerald-800 mb-0.5">
+                                Received Stock
+                              </label>
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                min="0"
+                                placeholder="0"
+                                value={v.stock || ''}
+                                onChange={(e) => handleUpdateVariantRow(v.id, 'stock', parseInt(e.target.value) || 0)}
+                                className="w-full h-8 px-2.5 rounded-lg border border-emerald-300 bg-emerald-50/40 text-xs font-black text-emerald-950 outline-none focus:border-emerald-600"
+                              />
+                            </div>
 
-                        <div className="sm:col-span-2">
-                          <label className="block text-[10px] font-bold text-gray-600 mb-0.5">
-                            Barcode (Opt)
-                          </label>
-                          <input
-                            type="text"
-                            placeholder="Optional"
-                            value={v.customBarcode || ''}
-                            onChange={(e) => handleUpdateVariantRow(v.id, 'customBarcode', e.target.value)}
-                            className="w-full h-8 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
-                          />
-                        </div>
+                            <div className="sm:col-span-2">
+                              <label className="block text-[10px] font-bold text-gray-600 mb-0.5">
+                                Barcode (Opt)
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="Optional"
+                                value={v.customBarcode || ''}
+                                onChange={(e) => handleUpdateVariantRow(v.id, 'customBarcode', e.target.value)}
+                                className="w-full h-8 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
+                              />
+                            </div>
 
-                        <div className="sm:col-span-1 flex justify-end">
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveVariantRow(v.id)}
-                            className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
-                            title="Remove variant"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
+                            <div className="sm:col-span-1 flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveVariantRow(v.id)}
+                                className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
+                                title="Remove variant"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          /* GST ON: 8-field layout with GST-inclusive pricing */
+                          <div>
+                            {/* Mobile (< sm): Clean 2-column card layout */}
+                            <div className="grid grid-cols-2 gap-2.5 sm:hidden">
+                              <div className="col-span-2 flex items-center justify-between gap-2">
+                                <div className="flex-1">
+                                  <label className="block text-[10px] font-bold text-gray-600 mb-0.5">
+                                    Size / Variant
+                                  </label>
+                                  <input
+                                    type="text"
+                                    list="standard-clothing-sizes"
+                                    required
+                                    placeholder="e.g. M, L, 32, 34"
+                                    value={v.variantName}
+                                    onChange={(e) => handleUpdateVariantRow(v.id, 'variantName', e.target.value)}
+                                    className="w-full h-9 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
+                                  />
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveVariantRow(v.id)}
+                                  className="p-2 mt-3.5 rounded-lg text-red-500 hover:bg-red-50 transition-colors cursor-pointer shrink-0"
+                                  title="Remove variant"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
 
-                        {enableGst && Number(gstPercent) > 0 && Number(v.price) > 0 && (() => {
-                          const base = Number(v.price)
-                          const total = roundTo(base * (1 + Number(gstPercent) / 100), 2)
-                          return (
-                            <p className="sm:col-span-12 -mt-1 text-[11px] font-semibold text-emerald-700">
-                              Customer pays <span className="font-black">₹{total.toFixed(2)}</span> incl. {Number(gstPercent)}% GST
-                              <span className="text-gray-500 font-medium"> (₹{base.toFixed(2)} + ₹{roundTo(total - base, 2).toFixed(2)} GST)</span>
-                            </p>
-                          )
-                        })()}
+                              <div>
+                                <label className="block text-[10px] font-bold text-[#7daa8f] mb-0.5 truncate">
+                                  Final Price (Incl. GST)
+                                </label>
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  min="0"
+                                  step="0.01"
+                                  placeholder="0.00"
+                                  value={v.finalPrice ?? ''}
+                                  onChange={(e) => handleUpdateVariantRow(v.id, 'finalPrice', e.target.value)}
+                                  className="w-full h-9 px-2.5 rounded-lg border border-emerald-300 bg-emerald-50/60 text-xs font-black text-emerald-950 outline-none focus:border-emerald-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] font-bold text-gray-600 mb-0.5 truncate">
+                                  GST Rate (%)
+                                </label>
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  min="0"
+                                  max="100"
+                                  step="0.01"
+                                  placeholder="e.g. 5, 12, 18"
+                                  value={v.gstRate ?? (gstPercent || '')}
+                                  onChange={(e) => handleUpdateVariantRow(v.id, 'gstRate', e.target.value)}
+                                  className="w-full h-9 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] font-bold text-gray-600 mb-0.5 truncate">
+                                  Base Price (₹)
+                                </label>
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  min="0"
+                                  step="0.01"
+                                  required
+                                  placeholder="0.00"
+                                  value={v.price || ''}
+                                  onChange={(e) => handleUpdateVariantRow(v.id, 'price', e.target.value)}
+                                  className="w-full h-9 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] font-bold text-gray-600 mb-0.5 truncate">
+                                  GST Amount (₹)
+                                </label>
+                                <input
+                                  type="number"
+                                  readOnly
+                                  tabIndex={-1}
+                                  placeholder="0.00"
+                                  value={v.gstAmount ?? ''}
+                                  className="w-full h-9 px-2.5 rounded-lg border border-gray-200 bg-gray-100 text-xs font-bold text-gray-600 outline-none cursor-not-allowed [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] font-bold text-gray-600 mb-0.5 truncate">
+                                  Cost (₹)
+                                </label>
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  min="0"
+                                  step="0.01"
+                                  placeholder="0.00"
+                                  value={v.costPrice || ''}
+                                  onChange={(e) => handleUpdateVariantRow(v.id, 'costPrice', parseFloat(e.target.value) || 0)}
+                                  className="w-full h-9 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] font-bold text-emerald-800 mb-0.5 truncate">
+                                  Received Stock
+                                </label>
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  min="0"
+                                  placeholder="0"
+                                  value={v.stock || ''}
+                                  onChange={(e) => handleUpdateVariantRow(v.id, 'stock', parseInt(e.target.value) || 0)}
+                                  className="w-full h-9 px-2.5 rounded-lg border border-emerald-300 bg-emerald-50/40 text-xs font-black text-emerald-950 outline-none focus:border-emerald-600 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                              </div>
+
+                              <div className="col-span-2">
+                                <label className="block text-[10px] font-bold text-gray-600 mb-0.5 truncate">
+                                  Barcode (Opt)
+                                </label>
+                                <input
+                                  type="text"
+                                  placeholder="Optional"
+                                  value={v.customBarcode || ''}
+                                  onChange={(e) => handleUpdateVariantRow(v.id, 'customBarcode', e.target.value)}
+                                  className="w-full h-9 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
+                                />
+                              </div>
+                            </div>
+
+                            {/* Desktop (>= sm): All fields in one straight horizontal row with ample room */}
+                            <div className="hidden sm:flex items-center gap-2 overflow-x-auto overflow-y-visible pb-1 pt-0.5">
+                              {/* 1. Size / Variant */}
+                              <div className="w-[105px] shrink-0">
+                                <label className="block text-[10px] font-bold text-gray-600 mb-0.5 truncate">
+                                  Size / Variant
+                                </label>
+                                <input
+                                  type="text"
+                                  list="standard-clothing-sizes"
+                                  required
+                                  placeholder="e.g. M, L"
+                                  value={v.variantName}
+                                  onChange={(e) => handleUpdateVariantRow(v.id, 'variantName', e.target.value)}
+                                  className="w-full h-8 px-2 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
+                                />
+                              </div>
+
+                              {/* 2. Final Price (Incl. GST) */}
+                              <div className="w-[118px] shrink-0">
+                                <label className="block text-[10px] font-bold text-[#7daa8f] mb-0.5 truncate" title="Final Price (Incl. GST)">
+                                  Final Price (Incl. GST)
+                                </label>
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  min="0"
+                                  step="0.01"
+                                  placeholder="0.00"
+                                  value={v.finalPrice ?? ''}
+                                  onChange={(e) => handleUpdateVariantRow(v.id, 'finalPrice', e.target.value)}
+                                  title="Enter GST-inclusive price"
+                                  className="w-full h-8 px-2 rounded-lg border border-emerald-300 bg-emerald-50/60 text-xs font-black text-emerald-950 outline-none focus:border-emerald-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                              </div>
+
+                              {/* 3. GST Rate (%) */}
+                              <div className="w-[66px] shrink-0">
+                                <label className="block text-[10px] font-bold text-gray-600 mb-0.5 text-center truncate" title="GST Rate (%)">
+                                  GST (%)
+                                </label>
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  min="0"
+                                  max="100"
+                                  step="0.01"
+                                  placeholder="Rate %"
+                                  value={v.gstRate ?? (gstPercent || '')}
+                                  onChange={(e) => handleUpdateVariantRow(v.id, 'gstRate', e.target.value)}
+                                  className="w-full h-8 px-1 text-center rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                              </div>
+
+                              {/* 4. Base Price (₹) */}
+                              <div className="w-[98px] shrink-0">
+                                <label className="block text-[10px] font-bold text-gray-600 mb-0.5 truncate" title="Base Price (₹)">
+                                  Base (₹)
+                                </label>
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  min="0"
+                                  step="0.01"
+                                  required
+                                  placeholder="0.00"
+                                  value={v.price || ''}
+                                  onChange={(e) => handleUpdateVariantRow(v.id, 'price', e.target.value)}
+                                  className="w-full h-8 px-2 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                              </div>
+
+                              {/* 5. GST Amount (₹) */}
+                              <div className="w-[86px] shrink-0">
+                                <label className="block text-[10px] font-bold text-gray-600 mb-0.5 truncate" title="GST Amount (₹)">
+                                  GST (₹)
+                                </label>
+                                <input
+                                  type="number"
+                                  readOnly
+                                  tabIndex={-1}
+                                  placeholder="0.00"
+                                  value={v.gstAmount ?? ''}
+                                  className="w-full h-8 px-2 text-gray-600 bg-gray-100 rounded-lg border border-gray-200 text-xs font-bold outline-none cursor-not-allowed [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                              </div>
+
+                              {/* 6. Cost Price (₹) */}
+                              <div className="w-[86px] shrink-0">
+                                <label className="block text-[10px] font-bold text-gray-600 mb-0.5 truncate" title="Cost Price (₹)">
+                                  Cost (₹)
+                                </label>
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  min="0"
+                                  step="0.01"
+                                  placeholder="0.00"
+                                  value={v.costPrice || ''}
+                                  onChange={(e) => handleUpdateVariantRow(v.id, 'costPrice', parseFloat(e.target.value) || 0)}
+                                  className="w-full h-8 px-2 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                              </div>
+
+                              {/* 7. Received Stock */}
+                              <div className="w-[78px] shrink-0">
+                                <label className="block text-[10px] font-bold text-emerald-800 mb-0.5 truncate">
+                                  Stock
+                                </label>
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  min="0"
+                                  placeholder="0"
+                                  value={v.stock || ''}
+                                  onChange={(e) => handleUpdateVariantRow(v.id, 'stock', parseInt(e.target.value) || 0)}
+                                  className="w-full h-8 px-2 rounded-lg border border-emerald-300 bg-emerald-50/40 text-xs font-black text-emerald-950 outline-none focus:border-emerald-600 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                              </div>
+
+                              {/* 8. Barcode (Opt) */}
+                              <div className="flex-1 min-w-[130px]">
+                                <label className="block text-[10px] font-bold text-gray-600 mb-0.5 truncate">
+                                  Barcode (Opt)
+                                </label>
+                                <input
+                                  type="text"
+                                  placeholder="Scan / Optional"
+                                  value={v.customBarcode || ''}
+                                  onChange={(e) => handleUpdateVariantRow(v.id, 'customBarcode', e.target.value)}
+                                  className="w-full h-8 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black"
+                                />
+                              </div>
+
+                              {/* 9. Delete Button */}
+                              <div className="w-8 shrink-0 flex justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveVariantRow(v.id)}
+                                  className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
+                                  title="Remove variant"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
+                            </div>
+
+                            {Number(v.gstRate || gstPercent) > 0 && Number(v.price) > 0 && (() => {
+                              const base = Number(v.price)
+                              const rate = Number(v.gstRate || gstPercent)
+                              const total = Number(v.finalPrice) || roundTo(base * (1 + rate / 100), 2)
+                              const gstAmt = roundTo(total - base, 2)
+                              return (
+                                <p className="mt-1 text-[11px] font-semibold text-emerald-700">
+                                  Customer pays <span className="font-black">₹{total.toFixed(2)}</span> incl. {rate}% GST
+                                  <span className="text-gray-500 font-medium"> (₹{base.toFixed(2)} + ₹{gstAmt.toFixed(2)} GST)</span>
+                                </p>
+                              )
+                            })()}
+                          </div>
+                        )}
                       </div>
                     ))}
                     </div>

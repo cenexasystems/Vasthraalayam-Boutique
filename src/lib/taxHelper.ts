@@ -1,4 +1,4 @@
-import { roundTo, toNumber } from './retail'
+import { roundTo } from './retail'
 
 export interface TaxCalculationResult {
   basePrice: number
@@ -32,6 +32,55 @@ export function calculateBaseFromInclusive(inclusivePrice: number, percent: numb
   const safePercent = Math.max(0, Math.min(100, roundTo(percent, 2)))
   return roundTo(safeInclusive / (1 + safePercent / 100), 2)
 }
+
+/**
+ * Calculates base price and GST amount from a GST-inclusive final price and GST percent.
+ * Resolves to the nearest 2-decimal base price whose base + GST is closest to finalPrice.
+ */
+export function calculateGstFromFinal(
+  finalPrice: number,
+  percent: number
+): TaxCalculationResult {
+  const safeFinal = Math.max(0, roundTo(finalPrice, 2))
+  const safePercent = Math.max(0, Math.min(100, roundTo(percent, 2)))
+  if (safePercent <= 0) {
+    return {
+      basePrice: safeFinal,
+      gstPercent: 0,
+      gstAmount: 0,
+      finalPrice: safeFinal,
+    }
+  }
+  const b0 = calculateBaseFromInclusive(safeFinal, safePercent)
+  let best = b0
+  let bestDiff = Infinity
+  for (const delta of [0, -0.01, 0.01, -0.02, 0.02]) {
+    const cand = Math.max(0, roundTo(b0 + delta, 2))
+    const diff = Math.abs(calculateGstFromPercent(cand, safePercent).finalPrice - safeFinal)
+    if (diff < bestDiff - 1e-9) {
+      best = cand
+      bestDiff = diff
+    }
+  }
+  const res = calculateGstFromPercent(best, safePercent)
+  return {
+    basePrice: best,
+    gstPercent: safePercent,
+    gstAmount: res.gstAmount,
+    finalPrice: res.finalPrice,
+  }
+}
+
+/**
+ * Calculates GST amount and GST-inclusive final price from a base price and GST percent.
+ */
+export function calculateGstFromBase(
+  basePrice: number,
+  percent: number
+): TaxCalculationResult {
+  return calculateGstFromPercent(basePrice, percent)
+}
+
 
 /**
  * Calculates GST percent and final price given a base price and a typed GST amount.

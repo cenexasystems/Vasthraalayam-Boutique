@@ -22,18 +22,24 @@
  *    - Scoped by business_id.
  */
 
+import { roundTo } from '../lib/retail'
+
 export type LineItemType = 'product' | 'service'
 
 export interface AnalyticsLineItem {
   id?: string | number
   order_id: string
   product_id?: string | number | null
+  variant_id?: string | null
   product_name: string
   variant_name?: string
   category: string
   quantity: number
   unit_price: number
+  base_price?: number
   line_total: number
+  gst_rate?: number
+  gst_amount?: number
   item_type: LineItemType
   is_manual?: boolean
   source?: string
@@ -97,6 +103,17 @@ export interface AnalyticsCoupon {
   business_id?: string
 }
 
+export interface AnalyticsVariantInput {
+  id?: string
+  productId?: string | number
+  product_id?: string | number
+  variantName?: string
+  variant_name?: string
+  purchasePrice?: number | null
+  purchase_price?: number | null
+  sku?: string | null
+}
+
 export interface CatalogItemMetric {
   name: string
   variant: string
@@ -107,6 +124,13 @@ export interface CatalogItemMetric {
   billCount: number
   avgPrice: number
   share: number
+  costPrice: number | null
+  totalCost: number | null
+  netProfit: number | null
+  margin: number | null
+  gstRate: number | string | null
+  gstAmount: number | null
+  revenueExclGst: number
 }
 
 export interface CatalogMetricsSummary {
@@ -294,6 +318,7 @@ export function computeAnalytics({
   coupons = [],
   expenses = [],
   productsCatalog = [],
+  variants = [],
   businessId = '1',
   dateFrom = '',
   dateTo = '',
@@ -303,7 +328,8 @@ export function computeAnalytics({
   advanceOrders?: AnalyticsAdvanceOrder[]
   coupons?: AnalyticsCoupon[]
   expenses?: Array<{ expense_date: string; amount: number; business_id?: string }>
-  productsCatalog?: Array<{ id: string | number; name: string; sku?: string; item_type?: string; itemType?: string; purchasePrice?: number; purchase_price?: number }>
+  productsCatalog?: Array<{ id: string | number; name: string; sku?: string; item_type?: string; itemType?: string; purchasePrice?: number; purchase_price?: number; gstPercent?: number; gst_percent?: number }>
+  variants?: AnalyticsVariantInput[]
   businessId?: string
   dateFrom?: string
   dateTo?: string
@@ -337,6 +363,7 @@ export function computeAnalytics({
   // 3. Resolve Items for Dated Completed Orders
   // Map catalog product costs and SKUs for COGS and lookups
   const prodCostById = new Map<string, number>()
+  const prodCostByName = new Map<string, number>()
   const prodSkuById = new Map<string, string>()
   const prodTypeById = new Map<string, LineItemType>()
   const prodTypeByName = new Map<string, LineItemType>()
@@ -344,7 +371,10 @@ export function computeAnalytics({
   productsCatalog.forEach(p => {
     const idKey = String(p.id)
     const cost = toNumber(p.purchasePrice ?? p.purchase_price, 0)
-    prodCostById.set(idKey, cost)
+    if (cost > 0) {
+      prodCostById.set(idKey, cost)
+      prodCostByName.set(String(p.name || '').trim().toLowerCase(), cost)
+    }
     if (p.sku) prodSkuById.set(idKey, p.sku)
     const rawType = (p as { itemType?: string; item_type?: string }).itemType || p.item_type
     const itType = (rawType === 'service' ? 'service' : 'product') as LineItemType
@@ -352,8 +382,30 @@ export function computeAnalytics({
     prodTypeByName.set(String(p.name || '').trim().toLowerCase(), itType)
   })
 
+  // Map variant costs and SKUs for variant-level profit calculations
+  const variantCostById = new Map<string, number>()
+  const variantCostByProductAndName = new Map<string, number>()
+  const variantCostByNameOnly = new Map<string, number>()
+  const variantSkuByProductAndName = new Map<string, string>()
+
+  variants.forEach(v => {
+    const cost = toNumber(v.purchasePrice ?? v.purchase_price, 0)
+    const pId = String(v.productId ?? v.product_id ?? '').trim()
+    const vName = String(v.variantName ?? v.variant_name ?? '').trim().toLowerCase()
+    if (v.id && cost > 0) {
+      variantCostById.set(String(v.id), cost)
+    }
+    if (pId && vName) {
+      if (cost > 0) variantCostByProductAndName.set(`${pId}___${vName}`, cost)
+      if (v.sku) variantSkuByProductAndName.set(`${pId}___${vName}`, v.sku)
+    }
+    if (vName && cost > 0 && !variantCostByNameOnly.has(vName)) {
+      variantCostByNameOnly.set(vName, cost)
+    }
+  })
+
   // Collect items belonging to dated billable orders
-  const itemsForDated = orderItems.length > 0
+  const itemsForDated: AnalyticsLineItem[] = orderItems.length > 0
     ? orderItems.filter(it => datedOrderIds.has(it.order_id))
     : datedBillable.flatMap(order => {
         const parsed = parseOrderItemsFallback(order.items)
@@ -364,11 +416,15 @@ export function computeAnalytics({
           return {
             order_id: order.id,
             product_id: r.product_id as string | number | null | undefined,
+            variant_id: (r.variant_id ?? r.variantId) as string | null | undefined,
             product_name: String(r.product_name || r.name || 'Product'),
             variant_name: String(r.variant_name || ''),
             category: String(r.category || 'Uncategorized'),
             quantity: toNumber(r.quantity ?? r.qty, 1),
             line_total: toNumber(r.line_total ?? r.lineTotal, 0),
+            unit_price: toNumber(r.unit_price ?? r.base_price ?? r.price, 0),
+            gst_rate: toNumber(r.gst_rate ?? r.gstRate ?? r.gst_percent ?? r.gstPercent, 0),
+            gst_amount: toNumber(r.gst_amount ?? r.gstAmount, 0),
             item_type: validItemType,
             is_manual: Boolean(r.is_manual),
             source: String(r.source || ''),
@@ -387,6 +443,7 @@ export function computeAnalytics({
   interface ResolvedEnrichedItem {
     order_id: string
     product_id?: string | number | null
+    variant_id?: string | null
     rawKey: string
     mainName: string
     variantName: string
@@ -395,6 +452,8 @@ export function computeAnalytics({
     qty: number
     grossRevenue: number
     netRevenue: number
+    gstRate: number
+    gstAmount: number
     resolvedType: LineItemType
     is_manual: boolean
   }
@@ -423,14 +482,14 @@ export function computeAnalytics({
       const variantName = it.variant_name || variantFromKey
 
       const idKey = it.product_id != null ? String(it.product_id) : ''
-      const sku = (idKey && prodSkuById.get(idKey)) || ''
+      const vKey = variantName ? `${idKey}___${variantName.toLowerCase().trim()}` : ''
+      const sku = (vKey && variantSkuByProductAndName.get(vKey)) || (idKey && prodSkuById.get(idKey)) || ''
       const catName = it.category || 'Uncategorized'
 
       // STRICT CLASSIFICATION:
       // 1. Line item explicit item_type if valid ('service' | 'product')
       // 2. Catalog product item_type lookup by id or name
       // 3. Fallback to 'product'
-      // A service must never appear in the Products table or totals, and a product never in Services.
       const catalogTypeById = idKey ? prodTypeById.get(idKey) : undefined
       const catalogTypeByName = prodTypeByName.get(mainName.toLowerCase())
       const catalogType = catalogTypeById || catalogTypeByName
@@ -439,7 +498,6 @@ export function computeAnalytics({
       if (it.item_type === 'service') {
         resolvedType = 'service'
       } else if (catalogType === 'service') {
-        // Catalog explicitly defines this as a service (e.g. "Test Tailoring Service")
         resolvedType = 'service'
       } else if (it.item_type === 'product') {
         resolvedType = 'product'
@@ -449,13 +507,28 @@ export function computeAnalytics({
         resolvedType = 'product'
       }
 
+      // GST extraction and calculation
+      let itemGstRate = toNumber(it.gst_rate, 0)
+      let itemGstAmt = toNumber(it.gst_amount, 0)
+      if (itemGstRate > 0 && itemGstAmt <= 0 && netRev > 0) {
+        const lineBase = roundTo(netRev / (1 + itemGstRate / 100), 2)
+        itemGstAmt = roundTo(netRev - lineBase, 2)
+      } else if (itemGstRate <= 0 && itemGstAmt > 0 && netRev > 0) {
+        const lineBase = Math.max(0, netRev - itemGstAmt)
+        if (lineBase > 0) {
+          itemGstRate = roundTo((itemGstAmt / lineBase) * 100, 1)
+        }
+      }
+
       if (resolvedType === 'product') {
-        cogs += (idKey ? (prodCostById.get(idKey) || 0) : 0) * qty
+        const vCost = (vKey && variantCostByProductAndName.get(vKey)) || (idKey ? (prodCostById.get(idKey) || 0) : 0)
+        cogs += vCost * qty
       }
 
       enrichedItems.push({
         order_id: orderId,
         product_id: it.product_id,
+        variant_id: it.variant_id,
         rawKey,
         mainName,
         variantName,
@@ -464,6 +537,8 @@ export function computeAnalytics({
         qty,
         grossRevenue: grossRev,
         netRevenue: netRev,
+        gstRate: itemGstRate,
+        gstAmount: itemGstAmt,
         resolvedType,
         is_manual: Boolean(it.is_manual),
       })
@@ -480,7 +555,11 @@ export function computeAnalytics({
       sku: string
       qty: number
       revenue: number
+      gstAmountSum: number
+      gstRatesSet: Set<number>
       orderSet: Set<string>
+      productId?: string | number | null
+      variantId?: string | null
     }>()
 
     let totalRevenue = 0
@@ -497,11 +576,23 @@ export function computeAnalytics({
         sku: it.sku,
         qty: 0,
         revenue: 0,
+        gstAmountSum: 0,
+        gstRatesSet: new Set<number>(),
         orderSet: new Set<string>(),
+        productId: it.product_id,
+        variantId: it.variant_id,
       }
       existing.qty += it.qty
       existing.revenue += it.netRevenue
+      if (it.gstAmount > 0) {
+        existing.gstAmountSum += it.gstAmount
+      }
+      if (it.gstRate > 0) {
+        existing.gstRatesSet.add(it.gstRate)
+      }
       if (!existing.sku && it.sku) existing.sku = it.sku
+      if (!existing.productId && it.product_id) existing.productId = it.product_id
+      if (!existing.variantId && it.variant_id) existing.variantId = it.variant_id
       if ((!existing.category || existing.category === 'Uncategorized') && it.categoryName) {
         existing.category = it.categoryName
       }
@@ -510,17 +601,73 @@ export function computeAnalytics({
     })
 
     const sortedItems: CatalogItemMetric[] = Array.from(itemMap.values())
-      .map(it => ({
-        name: it.name,
-        variant: it.variant,
-        category: it.category,
-        sku: it.sku,
-        qty: it.qty,
-        revenue: it.revenue,
-        billCount: it.orderSet.size,
-        avgPrice: it.qty > 0 ? it.revenue / it.qty : 0,
-        share: totalRevenue > 0 ? (it.revenue / totalRevenue) * 100 : 0,
-      }))
+      .map(it => {
+        // Resolve unit cost for this item
+        let unitCost: number | null = null
+        const pIdStr = it.productId ? String(it.productId) : ''
+        const vNameLower = (it.variant || '').toLowerCase().trim()
+
+        if (it.variantId && variantCostById.has(String(it.variantId))) {
+          unitCost = variantCostById.get(String(it.variantId))!
+        } else if (pIdStr && vNameLower && variantCostByProductAndName.has(`${pIdStr}___${vNameLower}`)) {
+          unitCost = variantCostByProductAndName.get(`${pIdStr}___${vNameLower}`)!
+        } else if (vNameLower && variantCostByNameOnly.has(vNameLower)) {
+          unitCost = variantCostByNameOnly.get(vNameLower)!
+        }
+
+        if (unitCost === null || unitCost === undefined || unitCost <= 0) {
+          if (pIdStr && prodCostById.has(pIdStr)) {
+            unitCost = prodCostById.get(pIdStr)!
+          } else if (prodCostByName.has(it.name.toLowerCase().trim())) {
+            unitCost = prodCostByName.get(it.name.toLowerCase().trim())!
+          }
+        }
+
+        const hasCost = unitCost !== null && unitCost !== undefined && unitCost > 0
+        const validCost = hasCost && typeof unitCost === 'number' ? unitCost : null
+        const costPrice = validCost !== null ? roundTo(validCost, 2) : null
+        const totalCost = validCost !== null ? roundTo(validCost * it.qty, 2) : null
+
+        const hasGst = it.gstAmountSum > 0 || it.gstRatesSet.size > 0
+        const gstAmount = hasGst ? roundTo(it.gstAmountSum, 2) : null
+        let gstRate: number | string | null = null
+        if (it.gstRatesSet.size === 1) {
+          gstRate = Array.from(it.gstRatesSet)[0]
+        } else if (it.gstRatesSet.size > 1) {
+          gstRate = 'Mixed'
+        }
+
+        // Revenue (excl. GST) - so GST collected is not counted as profit
+        const revenueExclGst = Math.max(0, roundTo(it.revenue - (gstAmount || 0), 2))
+
+        // Net Profit = Revenue (excl. GST) - Total Cost
+        const netProfit = totalCost !== null ? roundTo(revenueExclGst - totalCost, 2) : null
+
+        // Margin % = (Net Profit / Revenue excl. GST) * 100
+        let margin: number | null = null
+        if (netProfit !== null) {
+          margin = revenueExclGst > 0 ? roundTo((netProfit / revenueExclGst) * 100, 1) : 0
+        }
+
+        return {
+          name: it.name,
+          variant: it.variant,
+          category: it.category,
+          sku: it.sku,
+          qty: it.qty,
+          revenue: it.revenue,
+          billCount: it.orderSet.size,
+          avgPrice: it.qty > 0 ? it.revenue / it.qty : 0,
+          share: totalRevenue > 0 ? (it.revenue / totalRevenue) * 100 : 0,
+          costPrice,
+          totalCost,
+          netProfit,
+          margin,
+          gstRate,
+          gstAmount,
+          revenueExclGst,
+        }
+      })
       .sort((a, b) => (b.revenue !== a.revenue ? b.revenue - a.revenue : b.qty - a.qty))
 
     const averageRevenue = totalSold > 0 ? totalRevenue / totalSold : 0
@@ -605,7 +752,7 @@ export function computeAnalytics({
     return true
   })
   const totalExpenses = datedExpenses.reduce((s, e) => s + toNumber(e.amount, 0), 0)
-  const netProfit = totalRevenue - cogs - totalExpenses
+  const netProfit = totalRevenue - totalExpenses
   const isProfitable = netProfit >= 0
 
   // Category Distribution
@@ -818,7 +965,7 @@ export function computeAnalytics({
     parseOrderItemsFallback(order.items).forEach(item => {
       const n = String((item as Record<string, unknown>).name || (item as Record<string, unknown>).product_name || '').trim()
       if (n) {
-        const mainName = n.includes(' - ') ? n.split(' - ')[0] : n
+        const _mainName = n.includes(' - ') ? n.split(' - ')[0] : n
         const catName = 'Uncategorized'
         waCategoryMap.set(catName, (waCategoryMap.get(catName) || 0) + 1)
       }

@@ -96,11 +96,16 @@ type DashboardOrder = {
 type DashboardOrderItem = {
   order_id: string
   product_id?: string | number | null
+  variant_id?: string | null
   product_name: string
   variant_name?: string
   category?: string
   quantity: number
+  unit_price?: number
+  base_price?: number
   line_total: number
+  gst_rate?: number
+  gst_amount?: number
   item_type?: 'product' | 'service'
   is_manual?: boolean | null
   source?: string
@@ -211,6 +216,28 @@ const DEFAULT_OPTIONS_FOR_TYPE: Record<UnitType, string> = {
   bundle: '',
 }
 
+// Margin thresholds constant for easy tuning
+export const MARGIN_THRESHOLDS = {
+  healthy: 30, // >= 30% healthy (green)
+  moderate: 15, // >= 15% and < 30% moderate (blue)
+  // < 15% or <= 0% low/negative (red)
+}
+
+function renderMarginBadge(margin: number | null | undefined) {
+  if (margin === null || margin === undefined || !Number.isFinite(margin)) return null
+  let colorClass = 'bg-rose-50 text-rose-700 border-rose-200'
+  if (margin >= MARGIN_THRESHOLDS.healthy) {
+    colorClass = 'bg-emerald-50 text-emerald-800 border-emerald-200'
+  } else if (margin >= MARGIN_THRESHOLDS.moderate) {
+    colorClass = 'bg-blue-50 text-blue-700 border-blue-200'
+  }
+  return (
+    <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${colorClass} whitespace-nowrap`}>
+      {margin.toFixed(1)}% margin
+    </span>
+  )
+}
+
 interface CatalogItemData {
   name: string
   variant?: string
@@ -221,6 +248,13 @@ interface CatalogItemData {
   billCount: number
   avgPrice?: number
   share?: number
+  costPrice?: number | null
+  totalCost?: number | null
+  netProfit?: number | null
+  margin?: number | null
+  gstRate?: number | string | null
+  gstAmount?: number | null
+  revenueExclGst?: number
 }
 
 interface CatalogAnalyticsViewProps {
@@ -248,7 +282,7 @@ const CatalogAnalyticsView: React.FC<CatalogAnalyticsViewProps> = ({
   const entityLabel = isProduct ? 'Product' : 'Service'
   const pluralLabel = isProduct ? 'products' : 'services'
 
-  type SortField = 'revenue' | 'qty' | 'bills' | 'avg' | 'name'
+  type SortField = 'revenue' | 'qty' | 'bills' | 'avg' | 'name' | 'netProfit' | 'margin'
   const [sortField, setSortField] = useState<SortField>('revenue')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
 
@@ -291,6 +325,12 @@ const CatalogAnalyticsView: React.FC<CatalogAnalyticsViewProps> = ({
       } else if (sortField === 'name') {
         valA = a.name.toLowerCase()
         valB = b.name.toLowerCase()
+      } else if (sortField === 'netProfit') {
+        valA = a.netProfit ?? -Infinity
+        valB = b.netProfit ?? -Infinity
+      } else if (sortField === 'margin') {
+        valA = a.margin ?? -Infinity
+        valB = b.margin ?? -Infinity
       }
       if (typeof valA === 'string' && typeof valB === 'string') {
         return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA)
@@ -301,6 +341,40 @@ const CatalogAnalyticsView: React.FC<CatalogAnalyticsViewProps> = ({
     return list
   }, [items, searchQuery, sortField, sortOrder])
 
+  // Dynamic KPI totals across filtered items
+  const kpiStats = useMemo(() => {
+    const isFiltered = Boolean(searchQuery.trim())
+    const curRevenue = isFiltered ? filteredItems.reduce((s, it) => s + (it.revenue || 0), 0) : totalRevenue
+    const curSold = isFiltered ? filteredItems.reduce((s, it) => s + (it.qty || 0), 0) : totalSold
+    const curAvgRev = curSold > 0 ? curRevenue / curSold : (isFiltered ? 0 : averageRevenue)
+    const curBest = isFiltered ? (filteredItems[0]?.name || 'No sales yet') : bestItem
+
+    let totalProfit = 0
+    let hasAnyProfit = false
+    let totalGst = 0
+    let hasAnyGst = false
+
+    filteredItems.forEach(it => {
+      if (it.netProfit !== null && it.netProfit !== undefined) {
+        totalProfit += it.netProfit
+        hasAnyProfit = true
+      }
+      if (it.gstAmount !== null && it.gstAmount !== undefined && it.gstAmount > 0) {
+        totalGst += it.gstAmount
+        hasAnyGst = true
+      }
+    })
+
+    return {
+      revenue: curRevenue,
+      sold: curSold,
+      avgRevenue: curAvgRev,
+      bestItem: curBest,
+      netProfit: hasAnyProfit ? totalProfit : null,
+      totalGst: hasAnyGst ? totalGst : null,
+    }
+  }, [filteredItems, searchQuery, totalRevenue, totalSold, averageRevenue, bestItem])
+
   const renderSortIndicator = (field: SortField) => {
     if (sortField !== field) return null
     return <span className="ml-1 text-[#7daa8f]">{sortOrder === 'desc' ? '↓' : '↑'}</span>
@@ -308,49 +382,63 @@ const CatalogAnalyticsView: React.FC<CatalogAnalyticsViewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* 4 KPI Cards matching Products & Services exact specifications */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      {/* KPI Cards: 6 cards for Products, 4 cards for Services */}
+      <div className={`grid ${isProduct ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-6' : 'grid-cols-2 sm:grid-cols-4'} gap-3 sm:gap-4`}>
         {[
           {
             label: isProduct ? 'Total Product Revenue' : 'Total Service Revenue',
-            value: formatCurrency(totalRevenue),
+            value: formatCurrency(kpiStats.revenue),
             icon: <RMIcon size={18} />,
             from: 'from-emerald-500 to-teal-600',
           },
           {
             label: isProduct ? 'Total Products Sold' : 'Total Services Sold',
-            value: String(Math.round(totalSold)),
+            value: String(Math.round(kpiStats.sold)),
             icon: isProduct ? <Package size={18} /> : <Scissors size={18} />,
             from: 'from-blue-500 to-indigo-600',
           },
           {
             label: isProduct ? 'Average Product Revenue' : 'Average Service Revenue',
-            value: formatCurrency(averageRevenue),
+            value: formatCurrency(kpiStats.avgRevenue),
             icon: <RMIcon size={18} />,
             from: 'from-violet-500 to-purple-600',
           },
           {
             label: isProduct ? 'Top Product' : 'Top Service',
-            value: bestItem || 'No sales yet',
+            value: kpiStats.bestItem || 'No sales yet',
             icon: <Trophy size={18} />,
             from: 'from-amber-500 to-orange-600',
           },
+          ...(isProduct ? [
+            {
+              label: 'Total Net Profit',
+              value: kpiStats.netProfit !== null ? formatCurrency(kpiStats.netProfit) : '—',
+              icon: <TrendingUp size={18} />,
+              from: 'from-teal-600 to-emerald-700',
+            },
+            {
+              label: 'Total GST Collected',
+              value: kpiStats.totalGst !== null ? formatCurrency(kpiStats.totalGst) : '—',
+              icon: <Receipt size={18} />,
+              from: 'from-rose-500 to-pink-600',
+            },
+          ] : []),
         ].map((card, i) => (
           <div
             key={i}
-            className={`relative overflow-hidden rounded-2xl p-5 shadow-lg border border-white/20 bg-gradient-to-br ${card.from} flex flex-col justify-between min-h-[120px]`}
+            className={`relative overflow-hidden rounded-2xl p-4 sm:p-5 shadow-lg border border-white/20 bg-gradient-to-br ${card.from} flex flex-col justify-between min-h-[125px] sm:min-h-[135px]`}
           >
             <div className="absolute inset-0 bg-gradient-to-tl from-white/30 via-white/10 to-transparent" />
             <div className="relative z-10 flex flex-col justify-between h-full">
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <p className="text-[10px] uppercase font-black text-white/80 tracking-wider">
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <p className="text-[10px] sm:text-[11px] uppercase font-black text-white/90 tracking-wide leading-snug whitespace-normal break-words flex-1">
                   {card.label}
                 </p>
-                <div className="w-9 h-9 rounded-xl bg-white/25 backdrop-blur-sm flex items-center justify-center text-white shadow-sm shrink-0">
+                <div className="w-8 h-8 rounded-xl bg-white/25 backdrop-blur-sm flex items-center justify-center text-white shadow-sm shrink-0">
                   {card.icon}
                 </div>
               </div>
-              <p className="text-[18px] sm:text-[22px] font-extrabold text-white drop-shadow-sm break-words leading-tight">
+              <p className="text-[16px] sm:text-[20px] font-extrabold text-white drop-shadow-sm break-words leading-tight mt-auto pt-1">
                 {card.value}
               </p>
             </div>
@@ -358,8 +446,8 @@ const CatalogAnalyticsView: React.FC<CatalogAnalyticsViewProps> = ({
         ))}
       </div>
 
-      {/* All Products / All Services Analytics Table */}
-      <div className="bg-white rounded-2xl border border-[#E5E7EB]/30 p-5 shadow-sm">
+      {/* All Products / All Services Analytics Container */}
+      <div className="bg-white rounded-2xl border border-[#E5E7EB]/30 p-4 sm:p-5 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           <div>
             <h3 className="text-[15px] font-bold text-[#111111]">
@@ -385,96 +473,250 @@ const CatalogAnalyticsView: React.FC<CatalogAnalyticsViewProps> = ({
         </div>
 
         {filteredItems.length > 0 ? (
-          <div className="relative">
-            <div className="flex items-center justify-between text-[11px] font-bold text-[#6B7280] mb-2 sm:hidden px-1">
-              <span>{filteredItems.length} {pluralLabel}</span>
-              <span className="text-[#7daa8f] flex items-center gap-1 font-semibold">Swipe for more →</span>
-            </div>
-            <div className="overflow-x-auto rounded-xl border border-[#E5E7EB]/40 [webkit-overflow-scrolling:touch]">
-              <table className="w-full min-w-[640px] text-left text-[12px] sm:text-[13px] border-collapse bg-white">
-                <thead className="bg-[#F9FAFB] text-[10px] sm:text-[11px] uppercase tracking-wider text-[#374151] select-none border-b border-[#E5E7EB]/30">
-                  <tr>
-                    <th className="sticky left-0 z-20 bg-[#F9FAFB] w-10 min-w-[40px] px-2 sm:px-4 py-2.5 font-black text-center text-[#9BAB9A]">
-                      #
-                    </th>
-                    <th
-                      onClick={() => handleSort('name')}
-                      className="sticky left-[40px] z-20 bg-[#F9FAFB] min-w-[140px] sm:min-w-[180px] px-2.5 sm:px-4 py-2.5 font-black text-left cursor-pointer hover:text-[#111111] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] whitespace-nowrap"
-                    >
-                      {entityLabel.toUpperCase()}
-                      {renderSortIndicator('name')}
-                    </th>
-                    <th className="px-2.5 sm:px-4 py-2.5 font-black text-left whitespace-nowrap min-w-[110px]">
-                      {isProduct ? 'VARIANT / SKU' : 'CATEGORY'}
-                    </th>
-                    <th
-                      onClick={() => handleSort('qty')}
-                      className="px-2.5 sm:px-4 py-2.5 font-black text-right whitespace-nowrap cursor-pointer hover:text-[#111111]"
-                    >
-                      QTY SOLD
-                      {renderSortIndicator('qty')}
-                    </th>
-                    <th
-                      onClick={() => handleSort('revenue')}
-                      className="px-2.5 sm:px-4 py-2.5 font-black text-right whitespace-nowrap cursor-pointer hover:text-[#111111]"
-                    >
-                      REVENUE
-                      {renderSortIndicator('revenue')}
-                    </th>
-                    <th
-                      onClick={() => handleSort('bills')}
-                      className="px-2.5 sm:px-4 py-2.5 font-black text-right whitespace-nowrap cursor-pointer hover:text-[#111111]"
-                    >
-                      BILLS
-                      {renderSortIndicator('bills')}
-                    </th>
-                    <th
-                      onClick={() => handleSort('avg')}
-                      className="px-2.5 sm:px-4 py-2.5 font-black text-right whitespace-nowrap cursor-pointer hover:text-[#111111]"
-                    >
-                      AVG REVENUE/BILL
-                      {renderSortIndicator('avg')}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#E5E7EB]/20">
-                  {filteredItems.slice(0, 100).map((it, i) => (
-                    <tr
-                      key={`${it.name}-${it.variant || it.sku || i}`}
-                      className="group hover:bg-[#F9FAFB]/50 transition-colors"
-                    >
-                      <td className="sticky left-0 z-10 bg-white group-hover:bg-[#F9FAFB] w-10 min-w-[40px] px-2 sm:px-4 py-2 sm:py-2.5 text-[11px] sm:text-[12px] text-[#9BAB9A] font-bold text-center">
-                        {i + 1}
-                      </td>
-                      <td className="sticky left-[40px] z-10 bg-white group-hover:bg-[#F9FAFB] min-w-[140px] sm:min-w-[180px] max-w-[200px] sm:max-w-none px-2.5 sm:px-4 py-2 sm:py-2.5 font-bold text-[#111111] text-[12px] sm:text-[13px] leading-snug break-words whitespace-normal shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">
-                        <div className="line-clamp-2 break-words" title={it.name}>
-                          {it.name}
+          <div>
+            {/* ── MOBILE VIEW: Rich Card Layout (matches Screenshot 2) ── */}
+            <div className="md:hidden space-y-3">
+              {filteredItems.slice(0, 100).map((it, i) => {
+                const variantDisplay = isProduct
+                  ? (it.variant && it.variant !== '-' ? it.variant : (it.sku || 'No variant'))
+                  : (it.category || 'No variant')
+                const hasCost = it.totalCost !== null && it.totalCost !== undefined
+                const hasProfit = it.netProfit !== null && it.netProfit !== undefined
+                const hasMargin = it.margin !== null && it.margin !== undefined
+                const hasGst = it.gstAmount !== null && it.gstAmount !== undefined
+
+                return (
+                  <div
+                    key={`${it.name}-${it.variant || it.sku || i}`}
+                    className="bg-white rounded-2xl border border-[#E5E7EB]/70 p-4 shadow-sm hover:shadow-md transition-shadow"
+                  >
+                    {/* Top Row: #Rank + Name on left, Revenue + Margin badge on right */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-[12px] font-black text-gray-400 shrink-0">#{i + 1}</span>
+                          <h4 className="text-[15px] font-black text-[#111111] leading-snug break-words">
+                            {it.name}
+                          </h4>
                         </div>
-                      </td>
-                      <td className="px-2.5 sm:px-4 py-2 sm:py-2.5 text-[11px] sm:text-[12px] text-[#6B7280] whitespace-nowrap font-mono">
-                        {isProduct
-                          ? (it.variant && it.variant !== '-' ? it.variant : (it.sku || '-'))
-                          : (it.category || 'Uncategorized')}
-                      </td>
-                      <td className="px-2.5 sm:px-4 py-2 sm:py-2.5 font-bold text-[#111111] text-right whitespace-nowrap">
-                        {Math.round(it.qty)}
-                      </td>
-                      <td className="px-2.5 sm:px-4 py-2 sm:py-2.5 font-bold text-emerald-700 text-right whitespace-nowrap">
-                        {formatCurrency(it.revenue)}
-                      </td>
-                      <td className="px-2.5 sm:px-4 py-2 sm:py-2.5 font-bold text-[#111111] text-right whitespace-nowrap">
-                        {it.billCount}
-                      </td>
-                      <td className="px-2.5 sm:px-4 py-2 sm:py-2.5 font-bold text-[#111111] text-right whitespace-nowrap">
-                        {formatCurrency(it.billCount > 0 ? it.revenue / it.billCount : it.revenue)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        <p className="text-[12px] font-medium text-gray-500 mt-0.5">
+                          {variantDisplay}
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-[16px] font-black text-emerald-700">
+                          {formatCurrency(it.revenue)}
+                        </p>
+                        <div className="mt-1 flex justify-end">
+                          {hasMargin ? renderMarginBadge(it.margin) : null}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 3-Column Stats Grid matching Screenshot 2 */}
+                    <div className="grid grid-cols-3 gap-y-3 gap-x-2 pt-3 mt-3 border-t border-gray-100/90 text-left">
+                      {/* Row 1: Qty Sold | Total Cost | Net Profit */}
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-wider text-gray-600">QTY SOLD</p>
+                        <p className="text-[13px] font-black text-gray-900 mt-0.5">{Math.round(it.qty)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-wider text-gray-600">TOTAL COST</p>
+                        <p className="text-[13px] font-black text-gray-900 mt-0.5">
+                          {hasCost ? formatCurrency(it.totalCost!) : '—'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-wider text-gray-600">NET PROFIT</p>
+                        <p className={`text-[13px] font-black mt-0.5 ${hasProfit ? (it.netProfit! >= 0 ? 'text-emerald-700' : 'text-rose-600') : 'text-gray-400'}`}>
+                          {hasProfit ? formatCurrency(it.netProfit!) : '—'}
+                        </p>
+                      </div>
+
+                      {/* Row 2: Margin | Bills | Avg/Bill */}
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-wider text-gray-600">MARGIN</p>
+                        <p className={`text-[13px] font-black mt-0.5 ${hasMargin ? (it.margin! >= MARGIN_THRESHOLDS.healthy ? 'text-emerald-700' : it.margin! >= MARGIN_THRESHOLDS.moderate ? 'text-blue-700' : 'text-rose-600') : 'text-gray-400'}`}>
+                          {hasMargin ? `${it.margin!.toFixed(1)}%` : '—'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-wider text-gray-600">BILLS</p>
+                        <p className="text-[13px] font-black text-gray-900 mt-0.5">{it.billCount}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-wider text-gray-600">AVG/BILL</p>
+                        <p className="text-[13px] font-black text-gray-900 mt-0.5">
+                          {formatCurrency(it.billCount > 0 ? it.revenue / it.billCount : it.revenue)}
+                        </p>
+                      </div>
+
+                      {/* Row 3: GST % | GST Amount | Tax Basis */}
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-wider text-gray-600">GST %</p>
+                        <p className="text-[13px] font-black text-gray-900 mt-0.5">
+                          {it.gstRate !== null && it.gstRate !== undefined
+                            ? (typeof it.gstRate === 'number' ? `${it.gstRate}%` : it.gstRate)
+                            : '—'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-wider text-gray-600">GST AMOUNT</p>
+                        <p className="text-[13px] font-black text-gray-900 mt-0.5">
+                          {hasGst ? formatCurrency(it.gstAmount!) : '—'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-wider text-gray-600">TAX BASIS</p>
+                        <p className="text-[11px] font-bold text-gray-700 mt-1">
+                          {hasGst ? 'Excl. GST profit' : 'Non-GST'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-            {/* Subtle edge fade indicator on right for mobile swipe */}
-            <div className="pointer-events-none absolute right-0 top-7 bottom-0 w-6 bg-gradient-to-l from-white to-transparent sm:hidden" />
+
+            {/* ── DESKTOP & TABLET VIEW: Complete 12-Column Table (matches Screenshot 1) ── */}
+            <div className="hidden md:block">
+              <div className="overflow-x-auto rounded-xl border border-[#E5E7EB]/40 [webkit-overflow-scrolling:touch]">
+                <table className="w-full min-w-[1000px] text-left text-[12px] sm:text-[13px] border-collapse bg-white">
+                  <thead className="bg-[#F9FAFB] text-[10px] sm:text-[11px] uppercase tracking-wider text-[#374151] select-none border-b border-[#E5E7EB]/30">
+                    <tr>
+                      <th className="sticky left-0 z-20 bg-[#F9FAFB] w-10 min-w-[40px] px-2.5 py-2.5 font-black text-center text-[#9BAB9A]">
+                        #
+                      </th>
+                      <th
+                        onClick={() => handleSort('name')}
+                        className="sticky left-[40px] z-20 bg-[#F9FAFB] min-w-[150px] sm:min-w-[170px] px-3 py-2.5 font-black text-left cursor-pointer hover:text-[#111111] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] whitespace-nowrap"
+                      >
+                        {entityLabel.toUpperCase()}
+                        {renderSortIndicator('name')}
+                      </th>
+                      <th className="px-3 py-2.5 font-black text-left whitespace-nowrap min-w-[110px]">
+                        {isProduct ? 'VARIANT / SKU' : 'CATEGORY'}
+                      </th>
+                      <th
+                        onClick={() => handleSort('qty')}
+                        className="px-3 py-2.5 font-black text-right whitespace-nowrap cursor-pointer hover:text-[#111111]"
+                      >
+                        QTY SOLD
+                        {renderSortIndicator('qty')}
+                      </th>
+                      <th
+                        onClick={() => handleSort('revenue')}
+                        className="px-3 py-2.5 font-black text-right whitespace-nowrap cursor-pointer hover:text-[#111111]"
+                        title="Total gross revenue from sales"
+                      >
+                        REVENUE
+                        {renderSortIndicator('revenue')}
+                      </th>
+                      <th className="px-3 py-2.5 font-black text-right whitespace-nowrap">
+                        TOTAL COST
+                      </th>
+                      <th
+                        onClick={() => handleSort('netProfit')}
+                        className="px-3 py-2.5 font-black text-right whitespace-nowrap cursor-pointer hover:text-[#111111]"
+                        title="Revenue (excl. GST) minus Total Cost"
+                      >
+                        NET PROFIT
+                        {renderSortIndicator('netProfit')}
+                      </th>
+                      <th
+                        onClick={() => handleSort('margin')}
+                        className="px-3 py-2.5 font-black text-right whitespace-nowrap cursor-pointer hover:text-[#111111]"
+                        title="Net Profit / Revenue (excl. GST) * 100"
+                      >
+                        MARGIN
+                        {renderSortIndicator('margin')}
+                      </th>
+                      <th className="px-3 py-2.5 font-black text-right whitespace-nowrap">
+                        GST %
+                      </th>
+                      <th className="px-3 py-2.5 font-black text-right whitespace-nowrap">
+                        GST (₹)
+                      </th>
+                      <th
+                        onClick={() => handleSort('bills')}
+                        className="px-3 py-2.5 font-black text-right whitespace-nowrap cursor-pointer hover:text-[#111111]"
+                      >
+                        BILLS
+                        {renderSortIndicator('bills')}
+                      </th>
+                      <th
+                        onClick={() => handleSort('avg')}
+                        className="px-3 py-2.5 font-black text-right whitespace-nowrap cursor-pointer hover:text-[#111111]"
+                      >
+                        AVG REVENUE/BILL
+                        {renderSortIndicator('avg')}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#E5E7EB]/20">
+                    {filteredItems.slice(0, 100).map((it, i) => {
+                      const hasCost = it.totalCost !== null && it.totalCost !== undefined
+                      const hasProfit = it.netProfit !== null && it.netProfit !== undefined
+                      const hasMargin = it.margin !== null && it.margin !== undefined
+                      const hasGst = it.gstAmount !== null && it.gstAmount !== undefined
+
+                      return (
+                        <tr
+                          key={`${it.name}-${it.variant || it.sku || i}`}
+                          className="group hover:bg-[#F9FAFB]/50 transition-colors"
+                        >
+                          <td className="sticky left-0 z-10 bg-white group-hover:bg-[#F9FAFB] w-10 min-w-[40px] px-2.5 py-2.5 text-[11px] sm:text-[12px] text-[#9BAB9A] font-bold text-center">
+                            {i + 1}
+                          </td>
+                          <td className="sticky left-[40px] z-10 bg-white group-hover:bg-[#F9FAFB] min-w-[150px] sm:min-w-[170px] max-w-[220px] px-3 py-2.5 font-bold text-[#111111] text-[12px] sm:text-[13px] leading-snug break-words whitespace-normal shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">
+                            <div className="line-clamp-2 break-words" title={it.name}>
+                              {it.name}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 text-[11px] sm:text-[12px] text-[#6B7280] whitespace-nowrap font-mono">
+                            {isProduct
+                              ? (it.variant && it.variant !== '-' ? it.variant : (it.sku || '-'))
+                              : (it.category || 'Uncategorized')}
+                          </td>
+                          <td className="px-3 py-2.5 font-bold text-[#111111] text-right whitespace-nowrap">
+                            {Math.round(it.qty)}
+                          </td>
+                          <td className="px-3 py-2.5 font-bold text-emerald-700 text-right whitespace-nowrap">
+                            {formatCurrency(it.revenue)}
+                          </td>
+                          <td className="px-3 py-2.5 font-bold text-[#111111] text-right whitespace-nowrap">
+                            {hasCost ? formatCurrency(it.totalCost!) : '—'}
+                          </td>
+                          <td className={`px-3 py-2.5 font-bold text-right whitespace-nowrap ${hasProfit ? (it.netProfit! >= 0 ? 'text-emerald-700' : 'text-rose-600') : 'text-gray-400'}`}>
+                            {hasProfit ? formatCurrency(it.netProfit!) : '—'}
+                          </td>
+                          <td className="px-3 py-2.5 font-bold text-right whitespace-nowrap">
+                            {hasMargin ? renderMarginBadge(it.margin) : <span className="text-gray-400 font-bold">—</span>}
+                          </td>
+                          <td className="px-3 py-2.5 font-bold text-gray-700 text-right whitespace-nowrap">
+                            {it.gstRate !== null && it.gstRate !== undefined
+                              ? (typeof it.gstRate === 'number' ? `${it.gstRate}%` : it.gstRate)
+                              : '—'}
+                          </td>
+                          <td className="px-3 py-2.5 font-bold text-gray-700 text-right whitespace-nowrap">
+                            {hasGst ? formatCurrency(it.gstAmount!) : '—'}
+                          </td>
+                          <td className="px-3 py-2.5 font-bold text-[#111111] text-right whitespace-nowrap">
+                            {it.billCount}
+                          </td>
+                          <td className="px-3 py-2.5 font-bold text-[#111111] text-right whitespace-nowrap">
+                            {formatCurrency(it.billCount > 0 ? it.revenue / it.billCount : it.revenue)}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p className="mt-2 text-[11px] text-gray-600 font-medium italic">
+                * Revenue shows total customer billings. Net Profit & Margin % are computed on base revenue (excl. GST) minus Total Cost. Hyphen (—) indicates cost or GST is not applicable.
+              </p>
+            </div>
           </div>
         ) : (
           <p className="text-center text-[13px] text-[#374151] py-8 font-semibold">
@@ -552,7 +794,7 @@ export default function Dashboard() {
   const [editingCouponId, setEditingCouponId] = useState<number | null>(null)
 
   // Variant management state
-  const { getVariants, refetchVariants } = useVariantStore()
+  const { getVariants, refetchVariants, variantsMap, fetchVariants: fetchStoreVariants } = useVariantStore()
   const [variantForm, setVariantForm] = useState({ name: '', sizeLabel: '', price: '', purchasePrice: '', mrp: '', sku: '', barcode: '', stock: '50', weightValue: '', weightUnit: '', isDefault: false })
   const [editingVariantId, setEditingVariantId] = useState<string | null>(null)
   const [variantNotice, setVariantNotice] = useState('')
@@ -776,6 +1018,10 @@ export default function Dashboard() {
     ])
   }, [user?.id])
 
+  const allVariants = useMemo(() => {
+    return Object.values(variantsMap).flat()
+  }, [variantsMap])
+
   // Analytics (single shared engine - date & IST aware)
   const analytics = useMemo(() => {
     return computeAnalytics({
@@ -785,11 +1031,12 @@ export default function Dashboard() {
       coupons: coupons as unknown as AnalyticsCoupon[],
       expenses,
       productsCatalog: products,
+      variants: allVariants,
       businessId: getCurrentBusinessId(),
       dateFrom: analyticsDateFrom,
       dateTo: analyticsDateTo,
     })
-  }, [orders, orderItems, advanceOrders, coupons, expenses, products, analyticsDateFrom, analyticsDateTo])
+  }, [orders, orderItems, advanceOrders, coupons, expenses, products, allVariants, analyticsDateFrom, analyticsDateTo])
 
   // Bill-type filtered results for Order Management table (client-side, instant)
   const filteredSearchResults = useMemo(() => {
@@ -811,6 +1058,7 @@ export default function Dashboard() {
     // require Supabase — that part is a no-op until Supabase is configured.
     setLoading(true)
     try {
+      void fetchStoreVariants()
       const productsPromise = fetchProducts(true)
       const [cRes, couponRes, oRes, advRes] = await Promise.all([
         neonApi.get<Category[]>('/categories'),
@@ -836,11 +1084,16 @@ export default function Dashboard() {
         setOrderItems((oi || []).map(r => ({
           order_id: String((r as Record<string,unknown>).order_id || ''),
           product_id: (r as Record<string,unknown>).product_id as string | number | null,
+          variant_id: (r as Record<string,unknown>).variant_id ? String((r as Record<string,unknown>).variant_id) : null,
           product_name: String((r as Record<string,unknown>).product_name || (r as Record<string,unknown>).name || 'Product'),
           variant_name: String((r as Record<string,unknown>).variant_name || ''),
           category: String((r as Record<string,unknown>).category || ''),
           quantity: toNumber((r as Record<string,unknown>).quantity, 0),
+          unit_price: toNumber((r as Record<string,unknown>).unit_price, 0),
+          base_price: toNumber((r as Record<string,unknown>).base_price, 0),
           line_total: toNumber((r as Record<string,unknown>).line_total, 0),
+          gst_rate: toNumber((r as Record<string,unknown>).gst_rate, 0),
+          gst_amount: toNumber((r as Record<string,unknown>).gst_amount, 0),
           item_type: ((r as Record<string,unknown>).item_type === 'service' || (r as Record<string,unknown>).item_type === 'product')
             ? ((r as Record<string,unknown>).item_type as 'product' | 'service')
             : undefined,
@@ -853,7 +1106,7 @@ export default function Dashboard() {
       await productsPromise
     } catch (err) { console.error('Dashboard load error', err) }
     finally { setLoading(false) }
-  }, [fetchProducts])
+  }, [fetchProducts, fetchStoreVariants])
 
   const loadUsers = useCallback(async () => {
     if (!isSupabaseConfigured) return
@@ -2646,7 +2899,7 @@ export default function Dashboard() {
                     },
                     {
                       label: analytics.isProfitable ? 'Net Profit' : 'Net Loss',
-                      helper: `Revenue (${formatCurrency(analytics.totalCompletedRevenue)}) − COGS (${formatCurrency(analytics.cogs)}) − Expenses (${formatCurrency(analytics.totalExpenses)})`,
+                      helper: `Revenue (${formatCurrency(analytics.totalCompletedRevenue)}) − Expenses (${formatCurrency(analytics.totalExpenses)})`,
                       value: formatCurrency(Math.abs(analytics.netProfit)),
                       icon: analytics.isProfitable ? <TrendingUp size={16} /> : <TrendingDown size={16} />,
                       color: analytics.isProfitable ? 'text-emerald-600' : 'text-rose-600',

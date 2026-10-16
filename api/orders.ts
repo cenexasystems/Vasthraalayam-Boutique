@@ -194,7 +194,7 @@ async function listOrderItems(req: VercelRequest, res: VercelResponse) {
   }
 
   const rows = await sql`
-    SELECT order_id, product_id, product_name, variant_name, category, quantity, line_total, is_manual, source, item_type, business_id
+    SELECT order_id, product_id, variant_id, product_name, variant_name, category, quantity, unit_price, base_price, line_total, gst_rate, gst_amount, is_manual, source, item_type, business_id
     FROM public.order_items
     WHERE order_id IN ${sql(orderIds)}
   `
