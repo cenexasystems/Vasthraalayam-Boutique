@@ -1094,6 +1094,8 @@ export default function Pos(props: PosProps = {}) {
             itemType: item.itemType === 'service' ? 'service' : 'product',
           })
         }),
+        total,
+        subtotal,
         shipping: Number(shipping || 0),
         status: 'completed',
         orderMode: ordermode,

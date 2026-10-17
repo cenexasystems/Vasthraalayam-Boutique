@@ -84,13 +84,18 @@ async function checkout(req: VercelRequest, res: VercelResponse) {
   }
   subtotal = round2(subtotal)
   itemGstSum = round2(itemGstSum)
-  const shipping = toNumber(body.shipping, 0)
-  const deliveryCharge = toNumber(body.delivery_charge, 0)
+  const rawShipping = toNumber(body.shipping, 0)
+  const rawDelivery = toNumber(body.delivery_charge, 0)
+  // In POS billing, shipping and delivery_charge refer to the same delivery fee.
+  // Never add them twice: if both are sent, take the single delivery fee.
+  const deliveryCharge = (rawDelivery > 0 && rawShipping > 0 && rawDelivery === rawShipping)
+    ? rawDelivery
+    : (rawDelivery > 0 ? rawDelivery : rawShipping)
   const discountAmount = toNumber(body.discount_amount, 0)
   const manualDiscountAmount = toNumber(body.manual_discount_amount, 0)
   const totalGst = toNumber(body.total_gst ?? body.gst_amount, 0)
   const billToggleGst = Math.max(0, round2(totalGst - itemGstSum))
-  const grandTotal = Math.max(0, round2(subtotal + shipping + deliveryCharge + billToggleGst - discountAmount - manualDiscountAmount))
+  const grandTotal = Math.max(0, round2(subtotal + deliveryCharge + billToggleGst - discountAmount - manualDiscountAmount))
 
   if (grandTotal <= 0) {
     res.status(400).json({ error: 'Total amount must be greater than 0' })
@@ -188,7 +193,7 @@ async function checkout(req: VercelRequest, res: VercelResponse) {
           p_phone => ${body.phone ?? ''},
           p_address => ${body.address ?? ''},
           p_items => ${tx.json(items as unknown as JSONValue)},
-          p_shipping => ${shipping},
+          p_shipping => 0,
           p_status => ${body.status ?? 'completed'},
           p_order_mode => ${body.order_mode ?? 'offline'},
           p_order_type => ${body.order_type ?? 'pos_sale'},
@@ -222,6 +227,7 @@ async function checkout(req: VercelRequest, res: VercelResponse) {
             payment_mode = ${paymentMode},
             payment_method = ${paymentMode},
             delivery_charge = ${deliveryCharge},
+            shipping = ${deliveryCharge},
             discount_amount = ${discountAmount},
             manual_discount_amount = ${manualDiscountAmount},
             total_gst = ${totalGst},

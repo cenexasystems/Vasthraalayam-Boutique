@@ -21,9 +21,11 @@ type CreateOrderInput = {
   // POS additions
   paymentMethod?: string
   paymentMode?: string
-  splitDetails?: Record<string, unknown>
   payments?: Array<{ mode: 'cash' | 'qr' | 'card' | 'online' | string; amount: number }>
   changeGiven?: number
+  splitDetails?: Record<string, unknown>
+  total?: number
+  subtotal?: number
   totalGst?: number
   gstEnabled?: boolean
 }
@@ -91,6 +93,8 @@ export const createOrderWithStock = async (input: CreateOrderInput): Promise<Cre
     gst_enabled: gstEnabled,
     payment_method: paymentMethod,
     payment_mode: input.paymentMode || paymentMethod,
+    total: input.total,
+    subtotal: input.subtotal,
     payments: input.payments,
     change_given: input.changeGiven ?? 0,
     split_details: splitDetails,
