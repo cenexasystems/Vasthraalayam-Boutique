@@ -15,6 +15,8 @@ export interface BarcodeRegistryRecord {
     name: string
     name_ta?: string
     price: number
+    mrp?: number
+    gst_percent?: number
     offer_price?: number
     image_url?: string
     category?: string
@@ -24,6 +26,7 @@ export interface BarcodeRegistryRecord {
     id: string
     variant_name: string
     price?: number
+    mrp?: number
     stock?: number
     sku?: string
   } | null

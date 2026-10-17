@@ -37,7 +37,7 @@ import {
   formatInvoiceNo,
   roundTo,
 } from '../lib/retail'
-import { computeBillTaxBreakdown, calculateBaseFromInclusive } from '../lib/taxHelper'
+import { computeBillTaxBreakdown, calculateBaseFromInclusive, calculateGstFromFinal, resolveItemTax } from '../lib/taxHelper'
 import { buildProfessionalWhatsAppMessage, buildAdvanceDepositWhatsAppMessage, buildPublicInvoiceUrl } from '../lib/whatsappMessage'
 import { normalizePhone, toWhatsAppUrl } from '../lib/phone'
 import { useLangStore } from '../store/langStore'
@@ -51,7 +51,14 @@ type PosItem = Product & {
   qty: number
   selectedUnit: string
   basePrice: number | string
+  finalPrice?: number
+  unitPrice?: number
+  hasItemGst?: boolean
+  gstRate?: number
+  gstAmount?: number
   lineTotal: number
+  lineBaseTotal?: number
+  lineGstTotal?: number
   source?: 'catalogue' | 'manual'
   note?: string | null
   variantId?: string         // product_variants.id
@@ -102,36 +109,49 @@ const toProductId = (v: string | number): string | null => {
   return null
 }
 
-const makePosItem = (p: Product, qty?: number): PosItem => {
-  const basePrice = Number(p.price) || 0
+const makePosItem = (p: Product, qty?: number, specificVariant?: { price?: number | string | null; mrp?: number | string | null } | null): PosItem => {
   const q = Math.max(1, Math.round(qty ?? 1))
   const packLabel = p.predefinedOptions[0]?.label ?? p.unitLabel
   const isUnregistered = p.category === 'Unregistered'
-  const gstPct = Number(p.gstPercent) || 0
-  const effectiveUnitPrice = gstPct > 0
-    ? roundTo(basePrice * (1 + gstPct / 100), 2)
-    : basePrice
+  const taxRes = resolveItemTax({
+    price: p.price,
+    gstPercent: p.gstPercent,
+    mrp: (p as any).mrp,
+    variantPrice: specificVariant?.price,
+    variantMrp: specificVariant?.mrp,
+  })
   return {
     ...p,
     qty: q,
     selectedUnit: packLabel,
-    basePrice,
-    lineTotal: roundTo(q * effectiveUnitPrice, 2),
+    basePrice: taxRes.basePrice,
+    finalPrice: taxRes.finalPrice,
+    unitPrice: taxRes.finalPrice,
+    hasItemGst: taxRes.hasItemGst,
+    gstRate: taxRes.gstRate,
+    gstAmount: taxRes.gstAmount,
+    lineTotal: roundTo(q * taxRes.finalPrice, 2),
+    lineBaseTotal: roundTo(q * taxRes.basePrice, 2),
+    lineGstTotal: roundTo(q * taxRes.gstAmount, 2),
     source: isUnregistered ? 'manual' : (p.barcode ? 'catalogue' : 'catalogue'),
     stock: isUnregistered ? 999999 : p.stock,
     stockQuantity: isUnregistered ? 999999 : p.stockQuantity,
-    gstPercent: gstPct,
+    gstPercent: taxRes.gstRate,
   }
 }
 
 const recalc = (item: PosItem, nextQty: number): PosItem => {
   const q = Math.max(1, Math.round(nextQty))
-  const base = Number(item.basePrice) || 0
-  const gstPct = Number(item.gstPercent) || 0
-  const effectiveUnitPrice = gstPct > 0
-    ? roundTo(base * (1 + gstPct / 100), 2)
-    : base
-  return { ...item, qty: q, lineTotal: roundTo(q * effectiveUnitPrice, 2) }
+  const finalP = Number(item.finalPrice ?? item.unitPrice ?? item.price) || 0
+  const baseP = Number(item.basePrice) || 0
+  const gstP = Number(item.gstAmount) || 0
+  return {
+    ...item,
+    qty: q,
+    lineTotal: roundTo(q * finalP, 2),
+    lineBaseTotal: roundTo(q * baseP, 2),
+    lineGstTotal: roundTo(q * gstP, 2),
+  }
 }
 
 
@@ -300,7 +320,10 @@ export default function Pos(props: PosProps = {}) {
         name: it.name,
         qty: it.qty,
         basePrice: Number(it.basePrice) || 0,
-        gstPercent: it.gstPercent,
+        unitPrice: Number(it.unitPrice ?? it.finalPrice ?? it.price) || 0,
+        finalPrice: Number(it.finalPrice ?? it.unitPrice ?? it.price) || 0,
+        hasItemGst: Boolean(it.hasItemGst ?? ((Number(it.gstPercent) || 0) > 0)),
+        gstPercent: it.gstPercent ?? it.gstRate,
         lineTotal: it.lineTotal,
       })),
       discountAmount: totalDiscount,
@@ -394,11 +417,17 @@ export default function Pos(props: PosProps = {}) {
     setMobilePanelView('catalogue')
 
     if (specificVariant) {
+      const taxRes = resolveItemTax({
+        price: product.price,
+        gstPercent: product.gstPercent,
+        variantPrice: specificVariant.price,
+        variantMrp: specificVariant.mrp,
+      })
       const variantProduct: Product = {
         ...product,
         id: specificVariant.id,
         name: `${product.name} - ${specificVariant.variantName}`,
-        price: specificVariant.price,
+        price: taxRes.finalPrice,
         offerPrice: null,
         stock: specificVariant.stock,
         stockQuantity: specificVariant.stock,
@@ -410,7 +439,7 @@ export default function Pos(props: PosProps = {}) {
       setItems(cur => {
         const ex = cur.find(i => (i.variantId === specificVariant.id || String(i.id) === String(specificVariant.id)))
         if (!ex) {
-          const item = makePosItem(variantProduct, 1)
+          const item = makePosItem(variantProduct, 1, specificVariant)
           item.variantId = specificVariant.id
           item.variantName = specificVariant.variantName
           item.parentProductId = String(product.id)
@@ -454,20 +483,30 @@ export default function Pos(props: PosProps = {}) {
     })
   }
 
-  // Variant prices are stored GST-exclusive; the picker shows what the customer pays (GST-inclusive)
-  const withGst = (basePrice: number) => {
-    const pct = Number(variantPickerProduct?.gstPercent) || 0
-    return pct > 0 ? roundTo(basePrice * (1 + pct / 100), 2) : basePrice
+  // Variant prices: compute customer-facing final price & GST rate using shared taxHelper
+  const getVariantDisplayPricing = (v: ProductVariant, parent?: Product | null) => {
+    return resolveItemTax({
+      price: parent?.price,
+      gstPercent: parent?.gstPercent,
+      variantPrice: v.price,
+      variantMrp: v.mrp,
+    })
   }
 
   const addVariantToItems = () => {
     if (!variantPickerProduct || !selectedVariant) return
     setError('')
+    const taxRes = resolveItemTax({
+      price: variantPickerProduct.price,
+      gstPercent: variantPickerProduct.gstPercent,
+      variantPrice: selectedVariant.price,
+      variantMrp: selectedVariant.mrp,
+    })
     const variantProduct: Product = {
       ...variantPickerProduct,
       id: selectedVariant.id,
       name: `${variantPickerProduct.name} - ${selectedVariant.variantName}`,
-      price: selectedVariant.price,
+      price: taxRes.finalPrice,
       offerPrice: null,
       stock: selectedVariant.stock,
       stockQuantity: selectedVariant.stock,
@@ -480,7 +519,7 @@ export default function Pos(props: PosProps = {}) {
     setItems(cur => {
       const ex = cur.find(i => (i.variantId === selectedVariant.id || String(i.id) === String(selectedVariant.id)))
       if (!ex) {
-        const item = makePosItem(variantProduct, addQty)
+        const item = makePosItem(variantProduct, addQty, selectedVariant)
         item.variantId = selectedVariant.id
         item.variantName = selectedVariant.variantName
         item.parentProductId = String(variantPickerProduct.id)
@@ -498,8 +537,9 @@ export default function Pos(props: PosProps = {}) {
   // Barcode scanner item handler (Consecutive scan increments cart quantity)
   const handleScannedItem = (scanned: ScannedItemPayload) => {
     setError('')
+    const cleanScannedProdId = String(scanned.product_id).trim()
     if (!scanned.variant_id) {
-      const catalogProd = products.find(p => Number(p.id) === Number(scanned.product_id))
+      const catalogProd = products.find(p => String(p.id).trim() === cleanScannedProdId)
       if (catalogProd?.hasVariants) {
         void addItem(catalogProd)
         return
@@ -508,9 +548,15 @@ export default function Pos(props: PosProps = {}) {
     const targetId = scanned.variant_id ? scanned.variant_id : scanned.product_id
 
     setItems(cur => {
-      const ex = cur.find(i => (scanned.variant_id ? i.variantId === scanned.variant_id : i.id === scanned.product_id))
+      const ex = cur.find(i => (scanned.variant_id ? i.variantId === scanned.variant_id : String(i.id) === String(scanned.product_id)))
       if (!ex) {
-        const catalogProd = products.find(p => Number(p.id) === Number(scanned.product_id))
+        const catalogProd = products.find(p => String(p.id).trim() === cleanScannedProdId)
+        const taxRes = resolveItemTax({
+          price: catalogProd?.price ?? scanned.price,
+          gstPercent: catalogProd?.gstPercent ?? scanned.gst_percent,
+          variantPrice: scanned.variant_id ? scanned.price : undefined,
+          variantMrp: scanned.mrp,
+        })
         const item = makePosItem({
           id: targetId,
           name: scanned.variant_name ? `${scanned.product_name} - ${scanned.variant_name}` : scanned.product_name,
@@ -518,7 +564,7 @@ export default function Pos(props: PosProps = {}) {
           tamilName: scanned.name_ta || undefined,
           category: scanned.category || 'Apparel',
           remedy: [],
-          price: scanned.price,
+          price: taxRes.finalPrice,
           offerPrice: scanned.variant_id ? null : (scanned.offer_price || null),
           stock: scanned.stock,
           stockQuantity: scanned.stock,
@@ -538,10 +584,10 @@ export default function Pos(props: PosProps = {}) {
           image: scanned.image_url || '/product-placeholder.svg',
           imageUrl: scanned.image_url || '/product-placeholder.svg',
           barcode: scanned.barcode,
-          gstPercent: catalogProd?.gstPercent ?? 0,
+          gstPercent: taxRes.gstRate,
           // Forward catalog-recorded type — never derived from name/keyword
           itemType: scanned.item_type === 'service' ? 'service' : 'product',
-        }, 1)
+        }, 1, { price: scanned.price, mrp: scanned.mrp })
         item.variantId = scanned.variant_id || undefined
         item.variantName = scanned.variant_name || undefined
         item.parentProductId = String(scanned.product_id)
@@ -550,7 +596,7 @@ export default function Pos(props: PosProps = {}) {
 
       // Existing item: increment quantity by 1
       return cur.map(i => {
-        if ((scanned.variant_id && i.variantId === scanned.variant_id) || (!scanned.variant_id && i.id === scanned.product_id)) {
+        if ((scanned.variant_id && i.variantId === scanned.variant_id) || (!scanned.variant_id && String(i.id) === String(scanned.product_id))) {
           return recalc(i, i.qty + 1)
         }
         return i
@@ -709,13 +755,12 @@ export default function Pos(props: PosProps = {}) {
   }
 
   const handleOpenPriceEdit = (item: PosItem) => {
+    const finalPriceVal = Number((item.finalPrice ?? item.unitPrice ?? item.price) || 0)
     setPriceEditModal({
       isOpen: true,
       item,
       // Rate is displayed GST-inclusive, so edit the inclusive figure
-      newPrice: String((item.gstPercent ?? 0) > 0
-        ? roundTo(Number(item.basePrice || 0) * (1 + (item.gstPercent ?? 0) / 100), 2)
-        : (item.basePrice ?? 0)),
+      newPrice: String(finalPriceVal),
       isSubmitting: false,
       error: '',
     })
@@ -740,9 +785,16 @@ export default function Pos(props: PosProps = {}) {
       setPriceEditModal(prev => ({ ...prev, error: 'Please enter a valid price (0 or greater).' }))
       return
     }
-    const parsedPrice = (item.gstPercent ?? 0) > 0
-      ? calculateBaseFromInclusive(enteredPrice, item.gstPercent ?? 0)
-      : enteredPrice
+
+    const effectiveRate = Number(item.gstRate ?? item.gstPercent ?? 0)
+    const hasGst = Boolean(item.hasItemGst ?? (effectiveRate > 0))
+    const taxCalc = (hasGst && effectiveRate > 0)
+      ? calculateGstFromFinal(enteredPrice, effectiveRate)
+      : { basePrice: enteredPrice, finalPrice: enteredPrice, gstAmount: 0, gstPercent: 0 }
+
+    const newFinalPrice = taxCalc.finalPrice
+    const newBasePrice = taxCalc.basePrice
+    const newGstAmount = taxCalc.gstAmount
 
     if (updateInventory) {
       setPriceEditModal(prev => ({ ...prev, isSubmitting: true, error: '' }))
@@ -759,7 +811,8 @@ export default function Pos(props: PosProps = {}) {
         await updateItemPrice({
           entityType,
           id: entityId,
-          newPrice: parsedPrice,
+          newPrice: newBasePrice,
+          newMrp: hasGst ? newFinalPrice : undefined,
           businessId: bizId,
         })
 
@@ -778,7 +831,19 @@ export default function Pos(props: PosProps = {}) {
     }
 
     // Update the item price in the active billing cart
-    updateItem(item.id, 'basePrice', parsedPrice)
+    setItems(cur => cur.map(i => {
+      if (i.id !== item.id) return i
+      const updated: PosItem = {
+        ...i,
+        basePrice: newBasePrice,
+        finalPrice: newFinalPrice,
+        unitPrice: newFinalPrice,
+        gstRate: effectiveRate,
+        gstAmount: newGstAmount,
+        hasItemGst: hasGst,
+      }
+      return recalc(updated, updated.qty)
+    }))
     handleClosePriceEdit()
   }
 
@@ -896,9 +961,11 @@ export default function Pos(props: PosProps = {}) {
           product_id: item.parentProductId || toProductId(item.id), variant_id: item.variantId || null,
           variant_name: item.variantName || null, name: item.name, category: item.category,
           description: item.note || '', quantity: item.qty, unit: item.selectedUnit, unit_type: item.unitType,
-          base_quantity: item.baseQuantity, base_price: Number(item.basePrice) || 0,
-          unit_price: itemTax ? itemTax.unitPrice : (Number(item.basePrice) || 0),
-          gst_percent: item.gstPercent || 0,
+          base_quantity: item.baseQuantity,
+          base_price: itemTax ? itemTax.basePrice : (Number(item.basePrice) || 0),
+          unit_price: itemTax ? itemTax.unitPrice : (Number(item.finalPrice ?? item.unitPrice ?? item.basePrice) || 0),
+          final_price: itemTax ? itemTax.finalPrice : (Number(item.finalPrice ?? item.unitPrice ?? item.basePrice) || 0),
+          gst_percent: itemTax ? itemTax.gstRate : (item.gstPercent || 0),
           gst_rate: itemTax ? itemTax.gstRate : 0,
           gst_amount: itemTax ? itemTax.totalGst : 0,
           taxable_amount: itemTax ? itemTax.taxableValue : (Number(item.basePrice) * item.qty),
@@ -1012,9 +1079,10 @@ export default function Pos(props: PosProps = {}) {
             unit: item.selectedUnit,
             unitType: item.unitType,
             baseQuantity: item.baseQuantity,
-            basePrice: Number(item.basePrice) || 0,
-            unitPrice: itemTax ? itemTax.unitPrice : (Number(item.basePrice) || 0),
-            gstPercent: item.gstPercent || 0,
+            basePrice: itemTax ? itemTax.basePrice : (Number(item.basePrice) || 0),
+            unitPrice: itemTax ? itemTax.unitPrice : (Number(item.finalPrice ?? item.unitPrice ?? item.basePrice) || 0),
+            finalPrice: itemTax ? itemTax.finalPrice : (Number(item.finalPrice ?? item.unitPrice ?? item.basePrice) || 0),
+            gstPercent: itemTax ? itemTax.gstRate : (item.gstPercent || 0),
             gstRate: itemTax ? itemTax.gstRate : 0,
             gstAmount: itemTax ? itemTax.totalGst : 0,
             taxableAmount: itemTax ? itemTax.taxableValue : undefined,
@@ -1695,16 +1763,13 @@ export default function Pos(props: PosProps = {}) {
                           >
                             <span className="text-gray-500 font-medium">Rate:</span>
                             <span className="font-bold text-[#111111]">
-                              ₹{(item.gstPercent && item.gstPercent > 0
-                                ? roundTo(Number(item.basePrice || 0) * (1 + item.gstPercent / 100), 2)
-                                : Number(item.basePrice || 0)
-                              ).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                              ₹{Number((item.finalPrice ?? item.unitPrice ?? item.price) || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                             </span>
                             <Edit2 size={11} className="text-[#5f6d59]" />
                           </button>
-                          {(item.gstPercent ?? 0) > 0 && (
+                          {Boolean(item.hasItemGst ?? ((Number(item.gstPercent) || 0) > 0)) && (Number(item.gstRate ?? item.gstPercent ?? 0) > 0) && (
                             <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
-                              incl. {item.gstPercent}% GST
+                              incl. {item.gstRate ?? item.gstPercent}% GST
                             </span>
                           )}
                         </div>
@@ -1788,16 +1853,13 @@ export default function Pos(props: PosProps = {}) {
                         title="Click to edit price"
                       >
                         <span className="text-[13px] font-black text-[#111111] group-hover:text-[#5f6d59] tracking-tight">
-                          ₹{(item.gstPercent && item.gstPercent > 0
-                            ? roundTo(Number(item.basePrice || 0) * (1 + item.gstPercent / 100), 2)
-                            : Number(item.basePrice || 0)
-                          ).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                          ₹{Number((item.finalPrice ?? item.unitPrice ?? item.price) || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                         </span>
                         <Edit2 size={12} className="absolute right-2 top-2.5 text-gray-400 group-hover:text-[#5f6d59] transition-colors" />
                       </button>
-                      {(item.gstPercent ?? 0) > 0 && (
+                      {Boolean(item.hasItemGst ?? ((Number(item.gstPercent) || 0) > 0)) && (Number(item.gstRate ?? item.gstPercent ?? 0) > 0) && (
                         <span className="text-[9px] font-bold text-emerald-700">
-                          incl. {item.gstPercent}% GST
+                          incl. {item.gstRate ?? item.gstPercent}% GST
                         </span>
                       )}
                     </div>
@@ -1996,20 +2058,41 @@ export default function Pos(props: PosProps = {}) {
               )}
 
               {/* Summary calculations */}
+              {/* Summary calculations */}
               <div className="bg-[#FAFAF8] rounded-xl border border-gray-200 p-2.5 space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-black text-[#374151]">Subtotal ({items.length} items)</span>
+                  <span className="text-[11px] font-black text-[#374151]">
+                    Subtotal{taxBreakdown.hasItemTax ? ' (incl. GST)' : ''} ({items.length} {items.length === 1 ? 'item' : 'items'})
+                  </span>
                   <span className="text-[12px] font-black text-[#111111]">{formatCurrency(subtotal)}</span>
                 </div>
 
-                {/* Multi-rate or single rate GST breakdown */}
-                {taxBreakdown.hasTax && taxBreakdown.rateGroups.length > 0 && (
+                {couponDiscount > 0 && (
+                  <div className="flex items-center justify-between text-[11px] text-green-700">
+                    <span className="font-bold">Coupon ({appliedCoupon?.code}):</span>
+                    <span className="font-black">−{formatCurrency(couponDiscount)}</span>
+                  </div>
+                )}
+
+                {manualDiscountAmount > 0 && (
+                  <div className="flex items-center justify-between text-[11px] text-green-700">
+                    <span className="font-bold">Discount:</span>
+                    <span className="font-black">−{formatCurrency(manualDiscountAmount)}</span>
+                  </div>
+                )}
+
+                {/* Automatic GST Breakup for Item GST products */}
+                {taxBreakdown.hasItemTax && (
                   <div className="pt-1.5 pb-1 border-t border-gray-200 space-y-1.5">
-                    {taxBreakdown.rateGroups.map((rg) => (
+                    <div className="flex items-center justify-between text-[11px] font-bold text-gray-700">
+                      <span>Taxable value (Base total):</span>
+                      <span className="font-black text-[#111111]">{formatCurrency(taxBreakdown.itemTaxableAmount)}</span>
+                    </div>
+                    {taxBreakdown.rateGroups.filter(rg => rg.rate > 0).map((rg) => (
                       <div key={rg.rate} className="space-y-0.5 text-[10px] text-gray-600 bg-white/70 p-1.5 rounded-lg border border-gray-200/60">
                         <div className="flex items-center justify-between font-bold text-gray-700">
-                          <span>Taxable Value (@ {rg.rate}%):</span>
-                          <span>{formatCurrency(rg.taxableValue)}</span>
+                          <span>GST {rg.rate}%:</span>
+                          <span className="font-black">{formatCurrency(rg.gstAmount)}</span>
                         </div>
                         <div className="flex items-center justify-between text-[#374151]">
                           <span>CGST ({rg.halfRate}%):</span>
@@ -2024,11 +2107,11 @@ export default function Pos(props: PosProps = {}) {
                   </div>
                 )}
 
-                {/* Legacy single-line GST fallback when billGstEnabled but rateGroups is empty */}
-                {!taxBreakdown.hasTax && billGstEnabled && totalGst > 0 && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-black text-[#374151]">GST Amount</span>
-                    <span className="text-[12px] font-black text-[#111111]">{formatCurrency(totalGst)}</span>
+                {/* Bill-level GST (only for non-GST items when toggle is ON) */}
+                {taxBreakdown.hasBillTax && billGstEnabled && taxBreakdown.billGstAmount > 0 && (
+                  <div className="flex items-center justify-between text-[11px] font-bold text-gray-700 pt-1 border-t border-gray-200">
+                    <span>Bill GST ({taxBreakdown.billGstRate}%):</span>
+                    <span className="font-black text-[#111111]">{formatCurrency(taxBreakdown.billGstAmount)}</span>
                   </div>
                 )}
 
@@ -2413,25 +2496,35 @@ export default function Pos(props: PosProps = {}) {
                   Available Sizes &amp; Options ({availableVariants.length})
                 </label>
                 <div className="grid grid-cols-2 gap-2.5 max-h-52 overflow-y-auto pr-1">
-                  {availableVariants.map((v) => (
-                    <div
-                      key={v.id}
-                      onClick={() => setSelectedVariant(v)}
-                      className={`p-3 rounded-2xl border-2 cursor-pointer transition-all flex flex-col justify-between ${
-                        selectedVariant?.id === v.id
-                          ? 'border-brand-black bg-[#FFF9E6] shadow-xs'
-                          : 'border-gray-200 bg-white hover:border-gray-300'
-                      }`}
-                    >
-                      <div className="font-black text-xs text-gray-900">
-                        {v.variantName}
+                  {availableVariants.map((v) => {
+                    const vTax = getVariantDisplayPricing(v, variantPickerProduct)
+                    return (
+                      <div
+                        key={v.id}
+                        onClick={() => setSelectedVariant(v)}
+                        className={`p-3 rounded-2xl border-2 cursor-pointer transition-all flex flex-col justify-between ${
+                          selectedVariant?.id === v.id
+                            ? 'border-brand-black bg-[#FFF9E6] shadow-xs'
+                            : 'border-gray-200 bg-white hover:border-gray-300'
+                        }`}
+                      >
+                        <div className="font-black text-xs text-gray-900">
+                          {v.variantName}
+                        </div>
+                        <div className="flex items-center justify-between mt-2 pt-1 border-t border-gray-100 text-[11px]">
+                          <span className="font-black text-black">
+                            ₹{vTax.finalPrice.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                          </span>
+                          <span className="text-[10px] text-emerald-700 font-bold">Stock: {v.stock}</span>
+                        </div>
+                        {vTax.hasItemGst && (
+                          <div className="text-[9.5px] font-bold text-gray-400 mt-0.5">
+                            incl. {vTax.gstRate}% GST
+                          </div>
+                        )}
                       </div>
-                      <div className="flex items-center justify-between mt-2 pt-1 border-t border-gray-100 text-[11px]">
-                        <span className="font-black text-black">₹{withGst(v.price)}</span>
-                        <span className="text-[10px] text-emerald-700 font-bold">Stock: {v.stock}</span>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
 
@@ -2465,7 +2558,7 @@ export default function Pos(props: PosProps = {}) {
                 onClick={addVariantToItems}
                 className="w-full py-3 rounded-2xl bg-brand-black border border-[#7daa8f] text-brand-onDark text-xs font-black uppercase tracking-wider hover:bg-[#1e2817] transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
               >
-                Add to Order (₹{(withGst(selectedVariant?.price || variantPickerProduct.price || 0) * variantPickerQty).toFixed(2)})
+                Add to Order (₹{((selectedVariant ? getVariantDisplayPricing(selectedVariant, variantPickerProduct).finalPrice : (variantPickerProduct ? resolveItemTax({ price: variantPickerProduct.price, gstPercent: variantPickerProduct.gstPercent }).finalPrice : 0)) * variantPickerQty).toFixed(2)})
               </button>
             </div>
           </div>
@@ -2502,10 +2595,10 @@ export default function Pos(props: PosProps = {}) {
                     New Price (₹)
                   </label>
                   <span className="text-[11px] text-gray-500 font-semibold">
-                    Current: ₹{(((priceEditModal.item.gstPercent ?? 0) > 0)
-                      ? roundTo(Number(priceEditModal.item.basePrice || 0) * (1 + (priceEditModal.item.gstPercent ?? 0) / 100), 2)
-                      : Number(priceEditModal.item.basePrice || 0)).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                    {(priceEditModal.item.gstPercent ?? 0) > 0 ? ` (incl. ${priceEditModal.item.gstPercent}% GST)` : ''}
+                    Current: ₹{Number((priceEditModal.item.finalPrice ?? priceEditModal.item.unitPrice ?? priceEditModal.item.price) || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                    {Boolean(priceEditModal.item.hasItemGst ?? ((Number(priceEditModal.item.gstPercent) || 0) > 0)) && (Number(priceEditModal.item.gstRate ?? priceEditModal.item.gstPercent ?? 0) > 0)
+                      ? ` (incl. ${priceEditModal.item.gstRate ?? priceEditModal.item.gstPercent}% GST)`
+                      : ''}
                   </span>
                 </div>
                 <div className="relative">

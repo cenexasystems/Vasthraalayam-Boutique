@@ -244,6 +244,7 @@ export const Invoice: React.FC<InvoiceProps> = ({
             {items.map((item, idx) => {
               const normalized = normalizeStructuredOrderItem(item as unknown as Record<string, unknown>)
               const displayName = normalized.tamil_name || item.nameTa || normalized.name
+              const effectiveRate = normalized.final_price ?? normalized.unit_price ?? normalized.base_price
               return (
                 <tr key={idx} style={{ borderBottom: '1px solid #f0f0f0' }}>
                   <td style={{ padding: '10px 8px', fontSize: 11, color: '#999', verticalAlign: 'top' }}>{idx + 1}</td>
@@ -254,11 +255,11 @@ export const Invoice: React.FC<InvoiceProps> = ({
                       <div style={{ fontSize: 10, color: '#aaa', textDecoration: 'line-through', marginTop: 2 }}>MRP ₹{item.price}</div>
                     )}
                     <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>
-                      {normalized.unit} · {formatCurrency(normalized.base_price)}
+                      {normalized.unit} · {formatCurrency(effectiveRate)}
                     </div>
                   </td>
                   <td style={{ padding: '10px 8px', fontSize: 12, fontWeight: 600, textAlign: 'center', verticalAlign: 'top' }}>{formatQuantityDisplay(normalized.quantity, normalized.unit, normalized.unit_type)}</td>
-                  <td style={{ padding: '10px 8px', fontSize: 12, fontWeight: 600, textAlign: 'right', verticalAlign: 'top', color: '#555', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(normalized.base_price)}</td>
+                  <td style={{ padding: '10px 8px', fontSize: 12, fontWeight: 600, textAlign: 'right', verticalAlign: 'top', color: '#555', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(effectiveRate)}</td>
                   <td style={{ padding: '10px 8px', fontSize: 13, fontWeight: 800, textAlign: 'right', verticalAlign: 'top', color: 'var(--brand-black)', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(normalized.line_total)}</td>
                 </tr>
               )

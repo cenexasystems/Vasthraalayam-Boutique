@@ -1,11 +1,11 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Search, ShoppingBag, Edit2, Trash2, Check } from 'lucide-react'
-import { useProductStore, type Product } from '../store/store'
+import { useProductStore, useVariantStore, type Product } from '../store/store'
 import { neonApi } from '../lib/neonApi'
 import { useScrollLock } from '../lib/scrollLock'
 import { roundTo } from '../lib/retail'
-import { calculateBaseFromInclusive } from '../lib/taxHelper'
+import { calculateBaseFromInclusive, resolveItemTax } from '../lib/taxHelper'
 
 
 interface CatalogModalProps {
@@ -18,6 +18,7 @@ type CategoryOption = { id: string | number; name_en: string; is_active?: boolea
 
 export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalProps) {
   const { fetchProducts, products, loading, error } = useProductStore()
+  const { fetchVariants, getVariants } = useVariantStore()
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState('All')
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
@@ -27,8 +28,11 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
   const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>([])
 
   useEffect(() => {
-    if (isOpen) void fetchProducts(true)
-  }, [isOpen, fetchProducts])
+    if (isOpen) {
+      void fetchProducts(true)
+      void fetchVariants()
+    }
+  }, [isOpen, fetchProducts, fetchVariants])
 
   useEffect(() => {
     if (!isOpen) return
@@ -101,11 +105,52 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
     return () => clearTimeout(timer)
   }, [toastMessage])
 
+  const getProductDisplayPricing = (product: Product) => {
+    const vars = product.hasVariants ? getVariants(String(product.id)) : []
+    if (product.hasVariants && vars.length > 0) {
+      const variantResolutions = vars.map(v => resolveItemTax({
+        price: product.price,
+        gstPercent: product.gstPercent,
+        variantPrice: v.price,
+        variantMrp: v.mrp,
+      }))
+      const prices = variantResolutions.map(r => r.finalPrice)
+      const minPrice = Math.min(...prices)
+      const maxPrice = Math.max(...prices)
+      const isVarying = minPrice !== maxPrice
+      const hasAnyGst = variantResolutions.some(r => r.hasItemGst)
+      const uniqueRates = Array.from(new Set(variantResolutions.filter(r => r.hasItemGst).map(r => r.gstRate)))
+      const rateLabel = hasAnyGst
+        ? (uniqueRates.length === 1 && uniqueRates[0] > 0 ? `incl. ${uniqueRates[0]}% GST` : 'incl. GST')
+        : null
+
+      return {
+        priceText: isVarying ? `from ₹${minPrice.toFixed(2)}` : `₹${minPrice.toFixed(2)}`,
+        hasGst: hasAnyGst,
+        gstLabel: rateLabel,
+        finalPrice: minPrice,
+      }
+    }
+
+    const res = resolveItemTax({
+      price: product.price,
+      gstPercent: product.gstPercent,
+      mrp: product.mrp,
+    })
+
+    return {
+      priceText: `₹${res.finalPrice.toFixed(2)}`,
+      hasGst: res.hasItemGst,
+      gstLabel: res.hasItemGst ? `incl. ${res.gstRate}% GST` : null,
+      finalPrice: res.finalPrice,
+    }
+  }
+
   const startEdit = (p: Product) => {
     setEditingProduct(p)
     // Catalog cards show GST-inclusive prices, so edit the inclusive figure
-    const pct = p.gstPercent ?? 0
-    setEditForm({ name: p.name, category: p.category, price: String(pct > 0 ? roundTo(p.price * (1 + pct / 100), 2) : p.price) })
+    const pricing = getProductDisplayPricing(p)
+    setEditForm({ name: p.name, category: p.category, price: String(pricing.finalPrice) })
     setEditError('')
   }
 
@@ -123,9 +168,11 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
     const selectedCategory = allCategoryOptions.find(c => c.name_en.trim().toLowerCase() === editForm.category.trim().toLowerCase())
     if (!selectedCategory) { setEditError('Select a valid category'); setEditLoading(false); return }
     const categoryName = selectedCategory.name_en.trim()
-    const gstPct = editingProduct.gstPercent ?? 0
+    const pricing = getProductDisplayPricing(editingProduct)
     const enteredPrice = Number(editForm.price)
-    const newPrice = gstPct > 0 ? calculateBaseFromInclusive(enteredPrice, gstPct) : enteredPrice
+    const newPrice = pricing.hasGst && (editingProduct.gstPercent ?? 0) > 0
+      ? calculateBaseFromInclusive(enteredPrice, editingProduct.gstPercent ?? 0)
+      : enteredPrice
     const { error } = await neonApi.put(`/products/${editingProduct.id}`, {
       name: editForm.name.trim(),
       category: categoryName,
@@ -281,7 +328,9 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                 </div>
               ) : (
                 <div className="grid grid-cols-1 min-[360px]:grid-cols-2 sm:grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-2.5 sm:gap-4 items-stretch">
-                  {filtered.map(product => (
+                  {filtered.map(product => {
+                    const pricing = getProductDisplayPricing(product)
+                    return (
                     <div
                       key={product.id}
                       onClick={() => handleCardClick(product)}
@@ -313,9 +362,7 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                         <div className="flex items-center justify-between gap-2 min-w-0">
                           <div className="min-w-0 flex-1">
                             <span className="text-[13px] min-[390px]:text-[14px] font-black text-[#111111] tabular-nums block truncate">
-                              ₹{(product.gstPercent ?? 0) > 0
-                                ? roundTo(product.price * (1 + (product.gstPercent ?? 0) / 100), 2).toFixed(2)
-                                : product.price}
+                              {pricing.priceText}
                             </span>
                           </div>
                           <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -343,9 +390,9 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                           <span className="text-[10px] font-bold text-[#374151] uppercase tracking-wider bg-[#F9FAFB] px-2 py-0.5 rounded border border-[#E5E7EB]/40 whitespace-nowrap">
                             {product.category}
                           </span>
-                          {(product.gstPercent ?? 0) > 0 && (
+                          {pricing.hasGst && pricing.gstLabel && (
                             <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded border border-emerald-200 whitespace-nowrap">
-                              incl. {product.gstPercent}% GST
+                              {pricing.gstLabel}
                             </span>
                           )}
                           {product.itemType === 'service' && (
@@ -362,9 +409,7 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                         <div className="flex items-center justify-between gap-2 w-full min-w-0">
                           <div className="min-w-0 flex-1">
                             <span className="text-[14px] font-black text-[#111111] tabular-nums block truncate">
-                              ₹{(product.gstPercent ?? 0) > 0
-                                ? roundTo(product.price * (1 + (product.gstPercent ?? 0) / 100), 2).toFixed(2)
-                                : product.price}
+                              {pricing.priceText}
                             </span>
                           </div>
                           <div className="flex items-center gap-2 shrink-0 static" onClick={(e) => e.stopPropagation()}>
@@ -392,9 +437,9 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                           <span className="text-[10px] sm:text-[11px] font-bold text-[#374151] uppercase tracking-wider bg-[#F9FAFB] px-2 py-0.5 rounded border border-[#E5E7EB]/40 whitespace-nowrap">
                             {product.category}
                           </span>
-                          {(product.gstPercent ?? 0) > 0 && (
+                          {pricing.hasGst && pricing.gstLabel && (
                             <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded border border-emerald-200 whitespace-nowrap">
-                              incl. {product.gstPercent}% GST
+                              {pricing.gstLabel}
                             </span>
                           )}
                           {product.itemType === 'service' && (
@@ -405,7 +450,7 @@ export default function CatalogModal({ isOpen, onClose, onAdd }: CatalogModalPro
                         </div>
                       </div>
                     </div>
-                  ))}
+                  )})}
                 </div>
               )}
 

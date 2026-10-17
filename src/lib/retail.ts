@@ -27,6 +27,8 @@ export type StructuredOrderItem = {
   item_type: 'product' | 'service'
   itemType?: 'product' | 'service'
   unit_price?: number
+  final_price?: number
+  finalPrice?: number
   gst_percent?: number
   gst_rate?: number
   gst_amount?: number
@@ -464,6 +466,7 @@ export const buildStructuredOrderItem = (input: {
   baseQuantity: number
   basePrice: number
   unitPrice?: number
+  finalPrice?: number
   lineTotal?: number
   gstPercent?: number
   gstRate?: number
@@ -477,7 +480,7 @@ export const buildStructuredOrderItem = (input: {
   is_manual?: boolean
   category?: string | null
   note?: string | null
-  /** Must be forwarded from the catalog product record. Never derived from keywords. */
+  /** Must be forwarded from the catalog record. Never derived from keywords. */
   itemType?: 'product' | 'service'
 }): StructuredOrderItem => {
   const safeQuantity = normalizeSelectedQuantity(
@@ -490,12 +493,12 @@ export const buildStructuredOrderItem = (input: {
   const safeBaseQuantity = normalizeBaseQuantity(input.baseQuantity, input.unitType)
   const safeBasePrice = clampTo(toNumber(input.basePrice, 0), 0)
   const isManual = Boolean(input.isManual || input.is_manual || input.source === 'manual' || input.category === 'Unregistered')
+  const effectiveUnitPrice = input.finalPrice !== undefined
+    ? roundTo(toNumber(input.finalPrice, 0), 2)
+    : (input.unitPrice !== undefined ? roundTo(toNumber(input.unitPrice, 0), 2) : safeBasePrice)
   const calculatedLineTotal = input.lineTotal !== undefined
     ? roundTo(toNumber(input.lineTotal, 0), 2)
-    : calculateLineTotal(safeQuantity, input.unitType, safeBaseQuantity, safeBasePrice)
-  const effectiveUnitPrice = input.unitPrice !== undefined
-    ? roundTo(toNumber(input.unitPrice, 0), 2)
-    : safeBasePrice
+    : calculateLineTotal(safeQuantity, input.unitType, safeBaseQuantity, effectiveUnitPrice)
 
   return {
     product_id:   input.productId,
@@ -509,6 +512,8 @@ export const buildStructuredOrderItem = (input: {
     base_quantity: safeBaseQuantity,
     base_price: safeBasePrice,
     unit_price: effectiveUnitPrice,
+    final_price: effectiveUnitPrice,
+    finalPrice: effectiveUnitPrice,
     line_total: calculatedLineTotal,
     gst_percent: input.gstPercent !== undefined ? roundTo(toNumber(input.gstPercent, 0), 2) : undefined,
     gst_rate: input.gstRate !== undefined ? roundTo(toNumber(input.gstRate, 0), 2) : (input.gstPercent !== undefined ? roundTo(toNumber(input.gstPercent, 0), 2) : undefined),
@@ -543,10 +548,25 @@ export const normalizeStructuredOrderItem = (raw: Record<string, unknown>): Stru
   )
   const baseQuantity = normalizeBaseQuantity(raw.base_quantity ?? raw.baseQuantity ?? 1, unitType)
 
+  const rawLineTotal = toNumber(raw.line_total ?? raw.lineTotal, 0)
+  const inferredFromTotal = quantity > 0 && rawLineTotal > 0
+    ? roundTo(rawLineTotal / quantity, 2)
+    : basePrice
+
+  const finalPriceVal = raw.final_price !== undefined
+    ? toNumber(raw.final_price, basePrice)
+    : (raw.finalPrice !== undefined
+        ? toNumber(raw.finalPrice, basePrice)
+        : (raw.unit_price !== undefined
+            ? toNumber(raw.unit_price, basePrice)
+            : (raw.unitPrice !== undefined
+                ? toNumber(raw.unitPrice, basePrice)
+                : (inferredFromTotal > 0 ? inferredFromTotal : basePrice))))
+
   const lineTotalRaw = toNumber(raw.line_total ?? raw.lineTotal, 0)
-  const lineTotal = Number.isFinite(lineTotalRaw)
+  const lineTotal = Number.isFinite(lineTotalRaw) && lineTotalRaw > 0
     ? roundTo(lineTotalRaw, 2)
-    : calculateLineTotal(quantity, unitType, baseQuantity, basePrice)
+    : calculateLineTotal(quantity, unitType, baseQuantity, finalPriceVal)
 
   // products.id is UUID in Supabase — return as string, not number
   const productIdValue = raw.product_id ?? raw.productId ?? raw.id
@@ -566,13 +586,15 @@ export const normalizeStructuredOrderItem = (raw: Record<string, unknown>): Stru
     unit_type: unitType,
     base_quantity: baseQuantity,
     base_price: basePrice,
+    unit_price: finalPriceVal,
+    final_price: finalPriceVal,
+    finalPrice: finalPriceVal,
     line_total: lineTotal,
     image_url: raw.image_url ? String(raw.image_url) : (raw.image ? String(raw.image) : null),
     source: raw.source === 'manual' || raw.is_manual === true ? 'manual' : 'catalogue',
     note: raw.note ? String(raw.note) : (raw.manual_note ? String(raw.manual_note) : null),
     item_type: raw.item_type === 'service' || raw.itemType === 'service' ? 'service' : 'product',
     category: raw.category ? String(raw.category) : undefined,
-    unit_price: raw.unit_price !== undefined ? toNumber(raw.unit_price, basePrice) : (raw.unitPrice !== undefined ? toNumber(raw.unitPrice, basePrice) : undefined),
     gst_percent: raw.gst_percent !== undefined ? roundTo(toNumber(raw.gst_percent, 0), 2) : (raw.gstPercent !== undefined ? roundTo(toNumber(raw.gstPercent, 0), 2) : undefined),
     gst_rate: raw.gst_rate !== undefined ? roundTo(toNumber(raw.gst_rate, 0), 2) : (raw.gstRate !== undefined ? roundTo(toNumber(raw.gstRate, 0), 2) : (raw.gst_percent !== undefined ? roundTo(toNumber(raw.gst_percent, 0), 2) : undefined)),
     gst_amount: raw.gst_amount !== undefined ? roundTo(toNumber(raw.gst_amount, 0), 2) : (raw.gstAmount !== undefined ? roundTo(toNumber(raw.gstAmount, 0), 2) : undefined),

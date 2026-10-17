@@ -177,7 +177,8 @@ export async function printThermalReceipt(data: ThermalReceiptData) {
             ${data.items.map(item => {
               const lineTotal = item.line_total ?? (item.qty * item.price)
               const unit = item.unit && item.unit !== 'unit' && item.unit !== 'piece' ? item.unit : ''
-              const rateDisplay = `${formatCurrency(item.price)}${unit ? `/${unit}` : ''}`
+              const effectivePrice = (item as any).final_price ?? (item as any).finalPrice ?? (item as any).unit_price ?? item.price
+              const rateDisplay = `${formatCurrency(effectivePrice)}${unit ? `/${unit}` : ''}`
               return `
                 <tr>
                   <td style="text-align: left; padding: 3px 2px 3px 0; vertical-align: top; word-break: break-word;">

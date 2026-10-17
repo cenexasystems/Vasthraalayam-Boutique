@@ -382,8 +382,8 @@ const CatalogAnalyticsView: React.FC<CatalogAnalyticsViewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* KPI Cards: 6 cards for Products, 4 cards for Services */}
-      <div className={`grid ${isProduct ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-6' : 'grid-cols-2 sm:grid-cols-4'} gap-3 sm:gap-4`}>
+      {/* KPI Cards: 5 cards for Products, 4 cards for Services */}
+      <div className={`grid ${isProduct ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5' : 'grid-cols-2 sm:grid-cols-4'} gap-3 sm:gap-4`}>
         {[
           {
             label: isProduct ? 'Total Product Revenue' : 'Total Service Revenue',
@@ -415,12 +415,6 @@ const CatalogAnalyticsView: React.FC<CatalogAnalyticsViewProps> = ({
               value: kpiStats.netProfit !== null ? formatCurrency(kpiStats.netProfit) : '—',
               icon: <TrendingUp size={18} />,
               from: 'from-teal-600 to-emerald-700',
-            },
-            {
-              label: 'Total GST Collected',
-              value: kpiStats.totalGst !== null ? formatCurrency(kpiStats.totalGst) : '—',
-              icon: <Receipt size={18} />,
-              from: 'from-rose-500 to-pink-600',
             },
           ] : []),
         ].map((card, i) => (
@@ -483,7 +477,6 @@ const CatalogAnalyticsView: React.FC<CatalogAnalyticsViewProps> = ({
                 const hasCost = it.totalCost !== null && it.totalCost !== undefined
                 const hasProfit = it.netProfit !== null && it.netProfit !== undefined
                 const hasMargin = it.margin !== null && it.margin !== undefined
-                const hasGst = it.gstAmount !== null && it.gstAmount !== undefined
 
                 return (
                   <div
@@ -550,28 +543,6 @@ const CatalogAnalyticsView: React.FC<CatalogAnalyticsViewProps> = ({
                           {formatCurrency(it.billCount > 0 ? it.revenue / it.billCount : it.revenue)}
                         </p>
                       </div>
-
-                      {/* Row 3: GST % | GST Amount | Tax Basis */}
-                      <div>
-                        <p className="text-[10px] font-black uppercase tracking-wider text-gray-600">GST %</p>
-                        <p className="text-[13px] font-black text-gray-900 mt-0.5">
-                          {it.gstRate !== null && it.gstRate !== undefined
-                            ? (typeof it.gstRate === 'number' ? `${it.gstRate}%` : it.gstRate)
-                            : '—'}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-black uppercase tracking-wider text-gray-600">GST AMOUNT</p>
-                        <p className="text-[13px] font-black text-gray-900 mt-0.5">
-                          {hasGst ? formatCurrency(it.gstAmount!) : '—'}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-black uppercase tracking-wider text-gray-600">TAX BASIS</p>
-                        <p className="text-[11px] font-bold text-gray-700 mt-1">
-                          {hasGst ? 'Excl. GST profit' : 'Non-GST'}
-                        </p>
-                      </div>
                     </div>
                   </div>
                 )
@@ -631,12 +602,6 @@ const CatalogAnalyticsView: React.FC<CatalogAnalyticsViewProps> = ({
                         MARGIN
                         {renderSortIndicator('margin')}
                       </th>
-                      <th className="px-3 py-2.5 font-black text-right whitespace-nowrap">
-                        GST %
-                      </th>
-                      <th className="px-3 py-2.5 font-black text-right whitespace-nowrap">
-                        GST (₹)
-                      </th>
                       <th
                         onClick={() => handleSort('bills')}
                         className="px-3 py-2.5 font-black text-right whitespace-nowrap cursor-pointer hover:text-[#111111]"
@@ -658,7 +623,6 @@ const CatalogAnalyticsView: React.FC<CatalogAnalyticsViewProps> = ({
                       const hasCost = it.totalCost !== null && it.totalCost !== undefined
                       const hasProfit = it.netProfit !== null && it.netProfit !== undefined
                       const hasMargin = it.margin !== null && it.margin !== undefined
-                      const hasGst = it.gstAmount !== null && it.gstAmount !== undefined
 
                       return (
                         <tr
@@ -693,14 +657,6 @@ const CatalogAnalyticsView: React.FC<CatalogAnalyticsViewProps> = ({
                           <td className="px-3 py-2.5 font-bold text-right whitespace-nowrap">
                             {hasMargin ? renderMarginBadge(it.margin) : <span className="text-gray-400 font-bold">—</span>}
                           </td>
-                          <td className="px-3 py-2.5 font-bold text-gray-700 text-right whitespace-nowrap">
-                            {it.gstRate !== null && it.gstRate !== undefined
-                              ? (typeof it.gstRate === 'number' ? `${it.gstRate}%` : it.gstRate)
-                              : '—'}
-                          </td>
-                          <td className="px-3 py-2.5 font-bold text-gray-700 text-right whitespace-nowrap">
-                            {hasGst ? formatCurrency(it.gstAmount!) : '—'}
-                          </td>
                           <td className="px-3 py-2.5 font-bold text-[#111111] text-right whitespace-nowrap">
                             {it.billCount}
                           </td>
@@ -714,7 +670,7 @@ const CatalogAnalyticsView: React.FC<CatalogAnalyticsViewProps> = ({
                 </table>
               </div>
               <p className="mt-2 text-[11px] text-gray-600 font-medium italic">
-                * Revenue shows total customer billings. Net Profit & Margin % are computed on base revenue (excl. GST) minus Total Cost. Hyphen (—) indicates cost or GST is not applicable.
+                * Revenue shows total customer billings. Net Profit & Margin % are computed on base revenue (excl. GST) minus Total Cost. Hyphen (—) indicates cost is not applicable.
               </p>
             </div>
           </div>

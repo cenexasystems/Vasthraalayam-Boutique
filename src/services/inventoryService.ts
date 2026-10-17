@@ -12,6 +12,7 @@ export interface InventoryStockItem {
   barcode?: string
   stock: number
   price: number
+  mrp?: number
   offer_price?: number
   purchase_price?: number
   cost_price?: number
@@ -157,6 +158,7 @@ export const inventoryService = {
             stock: Number(v.stock) || 0,
             low_stock_threshold: threshold,
             price: Number(v.price) || Number(p.price) || 0,
+            mrp: v.mrp != null ? Number(v.mrp) : (p.mrp != null ? Number(p.mrp) : undefined),
             offer_price: p.offer_price ? Number(p.offer_price) : undefined,
             purchase_price: v.purchase_price ? Number(v.purchase_price) : (p.purchase_price ? Number(p.purchase_price) : undefined),
             cost_price: v.purchase_price ? Number(v.purchase_price) : (p.purchase_price ? Number(p.purchase_price) : undefined),
@@ -183,6 +185,7 @@ export const inventoryService = {
           stock: Number(p.stock_quantity) || 0,
           low_stock_threshold: threshold,
           price: Number(p.price) || 0,
+          mrp: p.mrp != null ? Number(p.mrp) : undefined,
           offer_price: p.offer_price ? Number(p.offer_price) : undefined,
           purchase_price: p.purchase_price ? Number(p.purchase_price) : undefined,
           cost_price: p.purchase_price ? Number(p.purchase_price) : undefined,

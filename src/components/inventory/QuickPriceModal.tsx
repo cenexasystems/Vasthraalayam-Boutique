@@ -5,7 +5,7 @@ import { updateItemPrice } from '../../services/productService'
 import type { InventoryStockItem } from '../../services/inventoryService'
 import { useProductStore } from '../../store/store'
 import { useScrollLock } from '../../lib/scrollLock'
-import { calculateBaseFromInclusive } from '../../lib/taxHelper'
+import { calculateBaseFromInclusive, calculateGstFromFinal, resolveItemTax } from '../../lib/taxHelper'
 import { roundTo } from '../../lib/retail'
 
 interface Props {
@@ -17,11 +17,10 @@ interface Props {
 
 export const QuickPriceModal: React.FC<Props> = ({ isOpen, item, onClose, onSuccess }) => {
   // Prices are stored GST-exclusive but shown GST-inclusive everywhere, so edit the inclusive figure.
-  const gstPct = Number(item?.gst_percent) || 0
+  const itemTax = item ? resolveItemTax({ price: item.price, mrp: item.mrp, gstPercent: item.gst_percent }) : null
   const toDisplayPrice = (it: InventoryStockItem) => {
-    const pct = Number(it.gst_percent) || 0
-    const base = Number(it.price ?? 0)
-    return String(pct > 0 ? roundTo(base * (1 + pct / 100), 2) : (it.price ?? ''))
+    const res = resolveItemTax({ price: it.price, mrp: it.mrp, gstPercent: it.gst_percent })
+    return String(res.finalPrice || it.price || '')
   }
   const [sellingPrice, setSellingPrice] = useState<string>(item ? toDisplayPrice(item) : '')
   const [costPrice, setCostPrice] = useState<string>(
@@ -65,7 +64,13 @@ export const QuickPriceModal: React.FC<Props> = ({ isOpen, item, onClose, onSucc
       return
     }
 
-    const numPrice = gstPct > 0 ? calculateBaseFromInclusive(enteredPrice, gstPct) : enteredPrice
+    const effectiveGstRate = itemTax?.hasItemGst ? itemTax.gstRate : 0
+    const taxCalc = effectiveGstRate > 0
+      ? calculateGstFromFinal(enteredPrice, effectiveGstRate)
+      : { basePrice: enteredPrice, finalPrice: enteredPrice, gstAmount: 0, gstPercent: 0 }
+
+    const numPrice = taxCalc.basePrice
+    const newMrp = effectiveGstRate > 0 ? enteredPrice : undefined
 
     const numCost = costPrice.trim() !== '' ? Number(costPrice) : undefined
     if (numCost !== undefined && (isNaN(numCost) || numCost < 0)) {
@@ -81,6 +86,7 @@ export const QuickPriceModal: React.FC<Props> = ({ isOpen, item, onClose, onSucc
         entityType: item.entity_type,
         id: entityId,
         newPrice: numPrice,
+        newMrp: newMrp,
         newCostPrice: numCost,
       })
 
@@ -167,7 +173,7 @@ export const QuickPriceModal: React.FC<Props> = ({ isOpen, item, onClose, onSucc
 
             <div>
               <label className="block font-bold text-[#374151] mb-1.5">
-                Selling Price (₹){gstPct > 0 ? ` incl. ${gstPct}% GST` : ''} *
+                Selling Price (₹){itemTax?.hasItemGst ? ` incl. ${itemTax.gstRate}% GST` : ''} *
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-500 font-bold">
@@ -186,8 +192,8 @@ export const QuickPriceModal: React.FC<Props> = ({ isOpen, item, onClose, onSucc
                 />
               </div>
               <p className="text-[10px] text-gray-400 font-medium mt-1">
-                {gstPct > 0 && Number(sellingPrice) > 0
-                  ? `Base ₹${calculateBaseFromInclusive(Number(sellingPrice), gstPct).toFixed(2)} + GST ₹${roundTo(Number(sellingPrice) - calculateBaseFromInclusive(Number(sellingPrice), gstPct), 2).toFixed(2)}. `
+                {itemTax?.hasItemGst && Number(sellingPrice) > 0
+                  ? `Base ₹${calculateGstFromFinal(Number(sellingPrice), itemTax.gstRate).basePrice.toFixed(2)} + GST ₹${calculateGstFromFinal(Number(sellingPrice), itemTax.gstRate).gstAmount.toFixed(2)}. `
                   : ''}
                 Reflected immediately in POS scanning &amp; digital invoice
               </p>

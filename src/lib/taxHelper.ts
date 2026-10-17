@@ -116,6 +116,86 @@ export function splitGst5050(totalGst: number): { cgst: number; sgst: number } {
   return { cgst, sgst }
 }
 
+export interface ItemTaxResolution {
+  hasItemGst: boolean
+  finalPrice: number
+  basePrice: number
+  gstRate: number
+  gstAmount: number
+}
+
+/**
+ * Resolves item-level GST components for a product or variant.
+ * Handles:
+ * 1. Variant MRP > price: finalPrice is MRP, basePrice is price, GST derived.
+ * 2. Product with gstPercent > 0: basePrice is price, finalPrice = calculateGstFromPercent(price, gstPercent).finalPrice.
+ * 3. Variant with explicit parent gstPercent: calculates finalPrice from variant price.
+ * 4. Non-GST: finalPrice = basePrice, gstRate = 0, gstAmount = 0, hasItemGst = false.
+ */
+export function resolveItemTax(params: {
+  price?: number | string | null
+  gstPercent?: number | string | null
+  mrp?: number | string | null
+  variantPrice?: number | string | null
+  variantMrp?: number | string | null
+}): ItemTaxResolution {
+  const vPrice = params.variantPrice != null && params.variantPrice !== '' ? Number(params.variantPrice) : NaN
+  const pPrice = params.price != null && params.price !== '' ? Number(params.price) : 0
+  const rawBase = !isNaN(vPrice) ? vPrice : pPrice
+  const basePrice = Math.max(0, roundTo(rawBase, 2))
+
+  const rawMrp = params.variantMrp != null && params.variantMrp !== ''
+    ? Number(params.variantMrp)
+    : (params.mrp != null && params.mrp !== '' ? Number(params.mrp) : NaN)
+  const mrp = !isNaN(rawMrp) && rawMrp > 0 ? roundTo(rawMrp, 2) : 0
+
+  const explicitRate = Math.max(0, Math.min(100, roundTo(Number(params.gstPercent || 0), 2)))
+
+  // Case 1: mrp is higher than basePrice (typical for variant GST inclusive price)
+  if (mrp > basePrice && basePrice > 0) {
+    const diff = roundTo(mrp - basePrice, 2)
+    let derivedRate = roundTo((diff / basePrice) * 100, 2)
+    if (explicitRate > 0 && Math.abs(derivedRate - explicitRate) < 0.25) {
+      derivedRate = explicitRate
+    } else {
+      // Snap to standard round percentages if within 0.15% (e.g. 5, 10, 12, 18, 28)
+      const cleanRates = [0.25, 3, 5, 6, 10, 12, 18, 28]
+      const snap = cleanRates.find((r) => Math.abs(derivedRate - r) < 0.15)
+      if (snap !== undefined) {
+        derivedRate = snap
+      }
+    }
+    return {
+      hasItemGst: derivedRate > 0,
+      finalPrice: mrp,
+      basePrice,
+      gstRate: derivedRate,
+      gstAmount: diff,
+    }
+  }
+
+  // Case 2: explicit GST rate > 0
+  if (explicitRate > 0 && basePrice > 0) {
+    const res = calculateGstFromPercent(basePrice, explicitRate)
+    return {
+      hasItemGst: true,
+      finalPrice: res.finalPrice,
+      basePrice: res.basePrice,
+      gstRate: explicitRate,
+      gstAmount: res.gstAmount,
+    }
+  }
+
+  // Case 3: Non-GST
+  return {
+    hasItemGst: false,
+    finalPrice: basePrice,
+    basePrice,
+    gstRate: 0,
+    gstAmount: 0,
+  }
+}
+
 export interface TaxItemInput {
   id?: string | number
   name: string
@@ -123,6 +203,9 @@ export interface TaxItemInput {
   basePrice: number        // Price excluding GST
   gstPercent?: number      // Item-level GST % (0 or undefined if item has no GST)
   lineTotal?: number       // Optional pre-computed inclusive line total
+  unitPrice?: number       // Inclusive unit price (final price)
+  finalPrice?: number      // Explicit final price
+  hasItemGst?: boolean     // Explicit item GST flag
 }
 
 export interface ProcessedTaxLine {
@@ -131,6 +214,7 @@ export interface ProcessedTaxLine {
   qty: number
   basePrice: number
   unitPrice: number        // Inclusive unit price
+  finalPrice: number       // Inclusive final price
   lineTotal: number        // Inclusive line total
   discountShare: number
   discountedTotal: number
@@ -150,19 +234,26 @@ export interface TaxRateGroup {
   cgst: number
   sgst: number
   totalTax: number
+  gstAmount?: number        // Alias to totalTax
 }
 
 export interface BillTaxBreakdown {
   subtotal: number
   discountAmount: number
   taxableAmount: number
+  itemTaxableAmount: number
+  itemGstTotal: number
   totalGst: number
   billToggleGst: number
+  billGstAmount: number    // Alias to billToggleGst
+  billGstRate: number      // Bill-level GST rate
   deliveryCharge: number
   grandTotal: number
   lines: ProcessedTaxLine[]
   rateGroups: TaxRateGroup[]
   hasTax: boolean
+  hasItemTax: boolean
+  hasBillTax: boolean
 }
 
 /**
@@ -193,13 +284,29 @@ export function computeBillTaxBreakdown(params: {
     const q = Math.max(1, Math.round(it.qty || 1))
     const base = Math.max(0, roundTo(it.basePrice, 2))
     const gstPct = Math.max(0, roundTo(it.gstPercent ?? 0, 2))
-    const hasItemGst = gstPct > 0
+    const hasItemGst = it.hasItemGst !== undefined ? Boolean(it.hasItemGst) : gstPct > 0
 
     // For GST items, unit price is inclusive; for non-GST items, unit price is base
-    const unitPrice = hasItemGst
-      ? roundTo(base * (1 + gstPct / 100), 2)
-      : base
-    const lineTotal = roundTo(q * unitPrice, 2)
+    let unitPrice = base
+    if (hasItemGst) {
+      if (it.finalPrice !== undefined && it.finalPrice > 0) {
+        unitPrice = roundTo(it.finalPrice, 2)
+      } else if (it.unitPrice !== undefined && it.unitPrice > 0) {
+        unitPrice = roundTo(it.unitPrice, 2)
+      } else {
+        unitPrice = roundTo(base * (1 + gstPct / 100), 2)
+      }
+    } else {
+      if (it.unitPrice !== undefined && it.unitPrice > 0) {
+        unitPrice = roundTo(it.unitPrice, 2)
+      } else {
+        unitPrice = base
+      }
+    }
+
+    const lineTotal = it.lineTotal !== undefined && it.lineTotal > 0
+      ? roundTo(it.lineTotal, 2)
+      : roundTo(q * unitPrice, 2)
 
     return {
       ...it,
@@ -257,6 +364,7 @@ export function computeBillTaxBreakdown(params: {
       qty: l.qty,
       basePrice: l.basePrice,
       unitPrice: l.unitPrice,
+      finalPrice: l.unitPrice,
       lineTotal: l.lineTotal,
       discountShare: lineDisc,
       discountedTotal,
@@ -291,17 +399,30 @@ export function computeBillTaxBreakdown(params: {
         cgst: 0,
         sgst: 0,
         totalTax: 0,
+        gstAmount: 0,
       }
       existing.taxableValue = roundTo(existing.taxableValue + l.taxableValue, 2)
       existing.cgst = roundTo(existing.cgst + l.cgst, 2)
       existing.sgst = roundTo(existing.sgst + l.sgst, 2)
       existing.totalTax = roundTo(existing.totalTax + l.totalGst, 2)
+      existing.gstAmount = existing.totalTax
       rateMap.set(l.gstRate, existing)
+    }
+  })
+
+  let itemTaxableAmount = 0
+  let itemGstTotal = 0
+  processedLines.forEach((l) => {
+    if (l.hasItemGst) {
+      itemTaxableAmount = roundTo(itemTaxableAmount + l.taxableValue, 2)
+      itemGstTotal = roundTo(itemGstTotal + l.totalGst, 2)
     }
   })
 
   const rateGroups = Array.from(rateMap.values()).sort((a, b) => a.rate - b.rate)
   const hasTax = totalGst > 0
+  const hasItemTax = itemGstTotal > 0
+  const hasBillTax = billToggleGst > 0
 
   // Grand Total:
   // Item-level GST is already inside lineTotal (and hence subtotal).
@@ -313,12 +434,18 @@ export function computeBillTaxBreakdown(params: {
     subtotal,
     discountAmount: discountTotal,
     taxableAmount: totalTaxable,
+    itemTaxableAmount,
+    itemGstTotal,
     totalGst,
     billToggleGst,
+    billGstAmount: billToggleGst,
+    billGstRate,
     deliveryCharge: delivery,
     grandTotal,
     lines: processedLines,
     rateGroups,
     hasTax,
+    hasItemTax,
+    hasBillTax,
   }
 }

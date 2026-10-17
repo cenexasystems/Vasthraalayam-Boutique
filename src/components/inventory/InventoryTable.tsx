@@ -23,6 +23,7 @@ import { AdjustStockModal } from './AdjustStockModal'
 import { StockHistoryDrawer } from './StockHistoryDrawer'
 import { QuickPriceModal } from './QuickPriceModal'
 import { formatCurrency, roundTo } from '../../lib/retail'
+import { resolveItemTax } from '../../lib/taxHelper'
 import { useProductStore, useAdminAuthStore } from '../../store/store'
 import { useAlarmStore } from '../../store/alarmStore'
 import { alarmSound } from '../../lib/alarmAudio'
@@ -482,26 +483,27 @@ export const InventoryTable: React.FC = () => {
 
                           {/* Price */}
                           <td className="py-3.5 px-4 text-right align-middle font-black text-xs text-gray-900 tabular-nums whitespace-nowrap">
-                            <div className="relative inline-flex flex-col items-end group pr-6">
-                              <span>
-                                {item.gst_percent && item.gst_percent > 0
-                                  ? formatCurrency(roundTo(item.price * (1 + item.gst_percent / 100), 2))
-                                  : formatCurrency(item.price)}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => setPriceModalItem(item)}
-                                className="absolute right-0 top-0 p-1 rounded-md text-gray-400 hover:text-amber-800 hover:bg-amber-100/70 transition-all cursor-pointer"
-                                title="Quick Edit Price"
-                              >
-                                <Edit2 size={12} />
-                              </button>
-                              {item.gst_percent && item.gst_percent > 0 ? (
-                                <div className="text-[10px] font-bold text-emerald-700">
-                                  incl. {item.gst_percent}% GST
+                            {(() => {
+                              const taxInfo = resolveItemTax({ price: item.price, mrp: item.mrp, gstPercent: item.gst_percent })
+                              return (
+                                <div className="relative inline-flex flex-col items-end group pr-6">
+                                  <span>{formatCurrency(taxInfo.finalPrice)}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setPriceModalItem(item)}
+                                    className="absolute right-0 top-0 p-1 rounded-md text-gray-400 hover:text-amber-800 hover:bg-amber-100/70 transition-all cursor-pointer"
+                                    title="Quick Edit Price"
+                                  >
+                                    <Edit2 size={12} />
+                                  </button>
+                                  {taxInfo.hasItemGst ? (
+                                    <div className="text-[10px] font-bold text-emerald-700">
+                                      incl. {taxInfo.gstRate}% GST
+                                    </div>
+                                  ) : null}
                                 </div>
-                              ) : null}
-                            </div>
+                              )
+                            })()}
                           </td>
 
                           {/* Actions */}
@@ -625,7 +627,7 @@ export const InventoryTable: React.FC = () => {
           productName={printModalItem.name}
           variantName={printModalItem.variant_name}
           barcodeValue={printModalItem.barcode || ''}
-          price={(printModalItem.gst_percent ?? 0) > 0 ? roundTo(printModalItem.price * (1 + (printModalItem.gst_percent ?? 0) / 100), 2) : printModalItem.price}
+          price={resolveItemTax({ price: printModalItem.price, mrp: printModalItem.mrp, gstPercent: printModalItem.gst_percent }).finalPrice}
           mrp={printModalItem.offer_price}
           defaultQuantity={Math.max(1, printModalItem.stock)}
         />

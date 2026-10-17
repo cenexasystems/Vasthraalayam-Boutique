@@ -12,6 +12,8 @@ export interface ScannedItemPayload {
   name_ta?: string
   variant_name?: string
   price: number
+  mrp?: number
+  gst_percent?: number
   offer_price?: number
   stock: number
   barcode: string
@@ -155,6 +157,8 @@ export const BarcodeScannerInput: React.FC<BarcodeScannerInputProps> = ({
         name_ta: prod.name_ta,
         variant_name: varnt?.variant_name,
         price: price,
+        mrp: varnt?.mrp != null ? Number(varnt.mrp) : (prod?.mrp != null ? Number(prod.mrp) : undefined),
+        gst_percent: prod?.gst_percent != null ? Number(prod.gst_percent) : undefined,
         offer_price: varnt?.price != null ? undefined : (prod.offer_price ? Number(prod.offer_price) : undefined),
         stock: effectiveStock,
         barcode: clean,
