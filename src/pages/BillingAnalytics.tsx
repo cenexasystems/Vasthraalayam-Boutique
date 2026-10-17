@@ -58,6 +58,7 @@ type BillingOrder = {
   items: unknown
   coupon_code: string
   discount_amount: number
+  manual_discount_amount: number
   delivery_charge: number
 }
 
@@ -158,7 +159,7 @@ const exportCSV = (orders: BillingOrder[]) => {
       formatPhoneForCSV(order.phone),
       billType,
       order.coupon_code || '',
-      toNumber(order.discount_amount, 0).toFixed(2),
+      (toNumber(order.discount_amount, 0) + toNumber(order.manual_discount_amount, 0)).toFixed(2),
       toNumber(order.delivery_charge, 0).toFixed(2),
       toNumber(order.total, 0).toFixed(2),
       dateStr,
@@ -242,6 +243,7 @@ export default function BillingAnalytics() {
     items: row.items,
     coupon_code: String(row.coupon_code || ''),
     discount_amount: toNumber(row.discount_amount, 0),
+    manual_discount_amount: toNumber(row.manual_discount_amount, 0),
     delivery_charge: toNumber(row.delivery_charge, 0),
   })
 
@@ -281,7 +283,7 @@ export default function BillingAnalytics() {
       const [ordersRes] = await Promise.all([
         supabase
           .from('orders')
-          .select('id, invoice_no, customer_name, phone, address, created_at, total, status, order_mode, order_type, items, coupon_code, discount_amount, delivery_charge')
+          .select('id, invoice_no, customer_name, phone, address, created_at, total, status, order_mode, order_type, items, coupon_code, discount_amount, manual_discount_amount, delivery_charge')
           .order('created_at', { ascending: false })
           .limit(1000),
         fetchProducts(true),
@@ -819,7 +821,7 @@ export default function BillingAnalytics() {
                           <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${billTypeClass}`}>{billTypeLabel}</span>
                         </td>
                         <td className="px-3 py-3">{order.coupon_code ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">{order.coupon_code}</span> : <span className="text-[#9BAB9A]">—</span>}</td>
-                        <td className="px-3 py-3">{order.discount_amount > 0 ? <span className="font-bold text-green-700">-{formatCurrency(order.discount_amount)}</span> : <span className="text-[#9BAB9A]">—</span>}</td>
+                        <td className="px-3 py-3">{(order.discount_amount + order.manual_discount_amount) > 0 ? <span className="font-bold text-green-700">-{formatCurrency(order.discount_amount + order.manual_discount_amount)}</span> : <span className="text-[#9BAB9A]">—</span>}</td>
                         <td className="px-3 py-3">{order.delivery_charge > 0 ? <span className="font-bold">{formatCurrency(order.delivery_charge)}</span> : <span className="text-[#9BAB9A]">—</span>}</td>
                         <td className="whitespace-nowrap px-3 py-3 font-bold">{formatCurrency(toNumber(order.total, 0))}</td>
                         <td className="whitespace-nowrap px-3 py-3 text-[#374151]">{new Date(order.created_at).toLocaleDateString('en-IN')}</td>

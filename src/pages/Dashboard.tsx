@@ -1190,7 +1190,8 @@ export default function Dashboard() {
         if (totalGst === 0 && advGst > 0) totalGst = advGst
       }
     }
-    return { coupon, discount, manualDiscount, delivery, subtotal, totalGst }
+    const totalDiscount = discount + manualDiscount
+    return { coupon, discount, manualDiscount, totalDiscount, delivery, subtotal, totalGst }
   }, [advanceOrders])
 
   const getOrderWhatsAppPreview = (order: DashboardOrder) => {
@@ -1229,7 +1230,7 @@ export default function Dashboard() {
         sgst: item.sgst,
       })),
       subtotal,
-      discountAmount: resolved.discount,
+      discountAmount: resolved.totalDiscount,
       couponDiscount: resolved.discount,
       manualDiscountAmount: resolved.manualDiscount,
       couponCode: resolved.coupon,
@@ -1249,7 +1250,7 @@ export default function Dashboard() {
     const resolved = resolveOrderFields(order)
     const subtotal = resolved.subtotal > 0
       ? resolved.subtotal
-      : (order.subtotal ?? (order.total - (resolved.delivery || 0) + (resolved.discount || 0) - (resolved.totalGst || 0)))
+      : (order.subtotal ?? (order.total - (resolved.delivery || 0) + (resolved.totalDiscount || 0) - (resolved.totalGst || 0)))
 
     printThermalReceipt({
       invoiceNo: order.invoice_no || order.id,
@@ -2421,7 +2422,7 @@ export default function Dashboard() {
                     <div className="bg-[#F9FAFB] p-4 rounded-xl flex justify-between items-center">
                       <span className="text-[13px] font-bold text-[#374151]">Discounts Applied</span>
                       <span className="text-[16px] font-black text-[#10B981]">
-                        {formatCurrency(searchResults.reduce((acc, o) => acc + (toNumber(o.discount_amount, 0)), 0))}
+                        {formatCurrency(searchResults.reduce((acc, o) => acc + (toNumber(o.discount_amount, 0)) + (toNumber(o.manual_discount_amount, 0)), 0))}
                       </span>
                     </div>
                   </div>
@@ -3781,7 +3782,7 @@ export default function Dashboard() {
                               </div>
                               <div>
                                 <p className="text-[#9BAB9A] uppercase text-[11px] font-black">Discount</p>
-                                <p className="font-semibold text-emerald-700">{resolved.discount > 0 ? `-${formatCurrency(resolved.discount)}` : '—'}</p>
+                                <p className="font-semibold text-emerald-700">{resolved.totalDiscount > 0 ? `-${formatCurrency(resolved.totalDiscount)}` : '—'}</p>
                               </div>
                               <div>
                                 <p className="text-[#9BAB9A] uppercase text-[11px] font-black">Delivery</p>
@@ -3872,7 +3873,7 @@ export default function Dashboard() {
                                   {resolved.coupon ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">{resolved.coupon}</span> : <span className="text-[#9BAB9A]">—</span>}
                                 </td>
                                 <td className="px-2 py-3 text-[11px]">
-                                  {resolved.discount > 0 ? <span className="font-bold text-emerald-700">-{formatCurrency(resolved.discount)}</span> : <span className="text-[#9BAB9A]">—</span>}
+                                  {resolved.totalDiscount > 0 ? <span className="font-bold text-emerald-700">-{formatCurrency(resolved.totalDiscount)}</span> : <span className="text-[#9BAB9A]">—</span>}
                                 </td>
                                 <td className="px-2 py-3 text-[11px]">
                                   {resolved.delivery > 0 ? <span className="font-bold text-[#111111]">{formatCurrency(resolved.delivery)}</span> : <span className="text-[#9BAB9A]">—</span>}
