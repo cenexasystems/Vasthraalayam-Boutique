@@ -949,13 +949,7 @@ export default function Pos(props: PosProps = {}) {
     if (!depositForm.expectedDeliveryDate) { setError('Select the expected delivery date.'); return }
     setSaving(true); setError('')
     try {
-      const allocationBase = items.reduce((sum, item) => sum + item.lineTotal, 0)
-      let allocated = 0
-      const productsSnapshot = items.map((item, index) => {
-        const lineTotal = index === items.length - 1
-          ? Math.max(0, Math.round((total - allocated) * 100) / 100)
-          : Math.max(0, Math.round((allocationBase > 0 ? total * item.lineTotal / allocationBase : total / items.length) * 100) / 100)
-        allocated += lineTotal
+      const productsSnapshot = items.map((item) => {
         const itemTax = taxBreakdown.lines.find(l => l.id === item.id)
         return {
           product_id: item.parentProductId || toProductId(item.id), variant_id: item.variantId || null,
@@ -971,7 +965,7 @@ export default function Pos(props: PosProps = {}) {
           taxable_amount: itemTax ? itemTax.taxableValue : (Number(item.basePrice) * item.qty),
           cgst: itemTax ? itemTax.cgst : 0,
           sgst: itemTax ? itemTax.sgst : 0,
-          line_total: lineTotal,
+          line_total: item.lineTotal,
           source: 'advance_order', note: item.note || null,
           // Forward the catalog-recorded type — never derived from name/keyword
           item_type: item.itemType === 'service' ? 'service' : 'product',

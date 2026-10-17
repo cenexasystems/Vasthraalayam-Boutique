@@ -210,11 +210,15 @@ async function getPublicInvoice(req: VercelRequest, res: VercelResponse) {
   }
 
   const isUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw)
-  const stripped = raw.replace(/^(INV|PB)[-_ ]*/i, '').trim()
+  const stripped = raw.replace(/^(INV|PB|DEP)[-_ ]*/i, '').trim()
   const digits = raw.replace(/\D/g, '')
   const unpadded = digits.replace(/^0+/, '')
+  const padded6 = digits ? digits.padStart(6, '0') : ''
   const padded8 = digits ? digits.padStart(8, '0') : ''
-  const candidates = Array.from(new Set([stripped, raw, digits, unpadded, padded8, `INV${padded8}`, `INV-${padded8}`])).filter(Boolean)
+  const candidates = Array.from(new Set([
+    stripped, raw, digits, unpadded, padded8, `INV${padded8}`, `INV-${padded8}`,
+    `DEP${padded6}`, `DEP${digits}`, `DEP${unpadded ? unpadded.padStart(6, '0') : ''}`, `DEP-${padded6}`, `DEP-${unpadded}`
+  ])).filter(Boolean)
 
   let rows = isUuidPattern
     ? await sql`
@@ -296,8 +300,11 @@ async function getPublicInvoice(req: VercelRequest, res: VercelResponse) {
         }))
       : [{ mode: String(adv.final_payment_method || adv.advance_payment_method || 'cash').toLowerCase(), amount: mappedTotal }]
 
+    const deliveryCharge = Math.max(0, Math.round((mappedTotal - ((adv.subtotal != null ? toNumber(adv.subtotal, mappedTotal) : mappedTotal) - (toNumber(adv.discount_amount, 0) + toNumber(adv.manual_discount_amount, 0)))) * 100) / 100)
+
     const mapped = {
       id: adv.completed_order_id || adv.id,
+      deposit_id: adv.deposit_id,
       invoice_no: adv.invoice_number || adv.deposit_id,
       customer_name: adv.customer_name,
       phone: adv.phone,
@@ -307,8 +314,8 @@ async function getPublicInvoice(req: VercelRequest, res: VercelResponse) {
       total_amount: mappedTotal,
       grand_total: mappedTotal,
       subtotal: adv.subtotal != null ? toNumber(adv.subtotal, mappedTotal) : mappedTotal,
-      delivery_charge: 0,
-      shipping: 0,
+      delivery_charge: deliveryCharge,
+      shipping: deliveryCharge,
       discount_amount: toNumber(adv.discount_amount, 0),
       manual_discount_amount: toNumber(adv.manual_discount_amount, 0),
       coupon_code: adv.coupon_code || undefined,
@@ -317,7 +324,7 @@ async function getPublicInvoice(req: VercelRequest, res: VercelResponse) {
       gst_amount: toNumber(adv.gst_amount ?? adv.total_gst, 0),
       gst_rate: adv.gst_rate != null ? toNumber(adv.gst_rate, 0) : undefined,
       status: adv.status,
-      payment_mode: adv.final_payment_method || 'Advance Payment',
+      payment_mode: adv.final_payment_method || adv.advance_payment_method || 'Advance Payment',
       payments: mappedPayments,
       deposit_amount: depositAmt,
       remaining_balance: adv.status === 'completed' ? 0 : remBal,

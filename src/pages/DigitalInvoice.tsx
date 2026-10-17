@@ -7,7 +7,7 @@ import { printThermalReceipt } from '../lib/thermalPrint'
 import { invoicePdfFileFromElement } from '../lib/invoicePdf'
 import { uploadInvoicePdf } from '../lib/storage'
 import { normalizeStructuredOrderItem, toNumber, computeOrderTotal, roundTo } from '../lib/retail'
-import { buildProfessionalWhatsAppMessage } from '../lib/whatsappMessage'
+import { buildProfessionalWhatsAppMessage, buildAdvanceDepositWhatsAppMessage } from '../lib/whatsappMessage'
 import { toWhatsAppUrl } from '../lib/phone'
 import { applyInvoiceTheme } from '../lib/invoiceTheme'
 import { BRAND_EN } from '../lib/brand'
@@ -114,6 +114,9 @@ export default function DigitalInvoice() {
     manual_discount_amount: manualDiscountAmount,
   })
 
+  const isDeposit = String(invoice?.invoice_no || invoice?.deposit_id || '').toUpperCase().startsWith('DEP') ||
+    ['pending_deposit', 'ready_for_delivery', 'waiting_final_payment'].includes(String(invoice?.status || ''))
+
   const downloadPdf = async () => {
     if (!invoiceElementRef.current || downloadingPdf) return
 
@@ -136,8 +139,8 @@ export default function DigitalInvoice() {
           try {
             await navigator.share({
               files: [file],
-              title: `Invoice #${invoice.invoice_no}`,
-              text: `Invoice #${invoice.invoice_no} from ${BRAND_EN}`,
+              title: isDeposit ? `Receipt #${invoice.deposit_id || invoice.invoice_no}` : `Invoice #${invoice.invoice_no}`,
+              text: `${isDeposit ? 'Advance Receipt' : 'Invoice'} #${invoice.deposit_id || invoice.invoice_no} from ${BRAND_EN}`,
             })
             setDownloadingPdf(false)
             setTimeout(() => URL.revokeObjectURL(url), 60000)
@@ -212,7 +215,21 @@ export default function DigitalInvoice() {
       payments: invoice.payments,
     })
 
-    const whatsappMessage = message
+    const isDeposit = String(invoice.invoice_no || invoice.deposit_id || '').toUpperCase().startsWith('DEP') ||
+      ['pending_deposit', 'ready_for_delivery', 'waiting_final_payment'].includes(String(invoice.status || ''))
+
+    const whatsappMessage = isDeposit
+      ? buildAdvanceDepositWhatsAppMessage({
+          customerName: invoice.customer_name,
+          depositId: invoice.deposit_id || invoice.invoice_no,
+          productName: invoiceItems.map((it: ReturnType<typeof normalizeStructuredOrderItem>) => `${it.quantity}× ${it.name}`).join(', '),
+          totalAmount: orderTotal,
+          depositAmount: invoice.deposit_amount || invoice.advance_paid || 0,
+          remainingBalance: invoice.remaining_balance ?? (orderTotal - (invoice.deposit_amount || 0)),
+          expectedDeliveryDate: invoice.expected_delivery_date || '',
+          paymentMethod: invoice.payment_mode || invoice.payment_method,
+        })
+      : message
     const waUrl = toWhatsAppUrl(invoice.phone, whatsappMessage)
 
     // Open WhatsApp synchronously in user click gesture to avoid iOS Safari popup blocking
@@ -290,7 +307,7 @@ export default function DigitalInvoice() {
             disabled={downloadingPdf}
             className="flex items-center gap-2 bg-brand-black text-brand-onDark border border-[var(--invoice-primary,#1F3A2E)] px-4 py-2 rounded-full font-bold text-sm shadow-md hover:bg-[#1e2817] transition-colors cursor-pointer active:scale-95 disabled:opacity-70"
           >
-            <Printer size={16} /> {downloadingPdf ? 'Generating...' : <><span className="hidden sm:inline">PDF Invoice</span><span className="sm:hidden">PDF</span></>}
+            <Printer size={16} /> {downloadingPdf ? 'Generating...' : <><span className="hidden sm:inline">{isDeposit ? 'PDF Receipt' : 'PDF Invoice'}</span><span className="sm:hidden">PDF</span></>}
           </button>
           <button
             onClick={shareViaWhatsApp}

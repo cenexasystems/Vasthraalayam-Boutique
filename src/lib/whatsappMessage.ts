@@ -1,4 +1,4 @@
-import { formatInvoiceNo, toNumber } from './retail'
+import { formatInvoiceNo, formatDepositId, toNumber } from './retail'
 import { BRAND_EN, BRAND_INSTAGRAM, BRAND_INSTAGRAM_URL, BRAND_PRIMARY_PHONE_DISPLAY, getPublicBaseUrl } from './brand'
 import { computeInvoiceBreakdown } from './invoiceBreakdown'
 
@@ -76,7 +76,14 @@ export const buildPublicInvoiceUrl = (invoiceNumber: string): string => {
   return `${baseUrl}/invoice/${encodeURIComponent(formatted)}`
 }
 
+export const buildPublicDepositUrl = (depositId: string): string => {
+  const formatted = formatDepositId(depositId)
+  const baseUrl = getPublicBaseUrl()
+  return `${baseUrl}/invoice/${encodeURIComponent(formatted)}`
+}
+
 export const publicInvoiceUrl = buildPublicInvoiceUrl
+export const publicDepositUrl = buildPublicDepositUrl
 
 export const buildProfessionalWhatsAppMessage = (input: BuildWhatsAppMessageInput) => {
   const customerName = input.customerName?.trim() || 'Valued Customer'
@@ -215,7 +222,7 @@ We have successfully received your initial advance payment!
 Your garments are being prepared with utmost care. We will have everything ready on or before ${deliveryDateFormatted}!
 
 📄 *View & Download Digital Deposit Receipt:*
-👉 ${input.receiptUrl || buildPublicInvoiceUrl(input.depositId)}
+👉 ${input.receiptUrl || buildPublicDepositUrl(input.depositId)}
 
 📞 *Shop Contact:* ${BRAND_PRIMARY_PHONE_DISPLAY}
 📷 *Instagram:* @${BRAND_INSTAGRAM}`

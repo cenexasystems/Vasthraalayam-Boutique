@@ -91,6 +91,8 @@ export const Invoice: React.FC<InvoiceProps> = ({
     catch { return new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) }
   })()
 
+  const isDepositOrder = String(invoiceNo || '').toUpperCase().startsWith('DEP') ||
+    ['pending_deposit', 'ready_for_delivery', 'waiting_final_payment'].includes(String(status || ''))
   const statusColor = status === 'completed' ? 'var(--invoice-primary, #1F3A2E)' : status === 'cancelled' ? '#dc2626' : '#d97706'
   const safeChangeGiven = toNumber(changeGiven, 0)
 
@@ -171,9 +173,14 @@ export const Invoice: React.FC<InvoiceProps> = ({
             whiteSpace: 'nowrap',
           }}
         >
-          <div style={{ fontSize: 10, fontWeight: 800, color: '#888', textTransform: 'uppercase', letterSpacing: 0.8 }}>
-            TAX INVOICE
+          <div style={{ fontSize: 10, fontWeight: 800, color: isDepositOrder ? '#b45309' : '#888', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+            {isDepositOrder ? 'ADVANCE RECEIPT' : 'TAX INVOICE'}
           </div>
+          {isDepositOrder && (
+            <div style={{ fontSize: 8, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 1 }}>
+              Not a final tax invoice
+            </div>
+          )}
           <div style={{ fontSize: 14, fontWeight: 900, color: 'var(--invoice-primary, #1F3A2E)', marginTop: 2 }}>
             #{formattedInvoiceNo}
           </div>
@@ -186,9 +193,13 @@ export const Invoice: React.FC<InvoiceProps> = ({
       {/* ── META ROW (Properly partitioned bill details) ─────────── */}
       <div className="invoice-meta grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
         <div style={{ minWidth: 0, padding: '12px 14px', borderRadius: 12, background: '#FBFAF6', border: '1px solid #ead7b7' }}>
-          <div style={{ fontSize: 9, fontWeight: 800, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Bill Details</div>
+          <div style={{ fontSize: 9, fontWeight: 800, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
+            {isDepositOrder ? 'Receipt Details' : 'Bill Details'}
+          </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <span style={{ fontSize: 10, fontWeight: 700, color: '#666', textTransform: 'uppercase' }}>Invoice No</span>
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#666', textTransform: 'uppercase' }}>
+              {isDepositOrder ? 'Deposit ID' : 'Invoice No'}
+            </span>
             <span style={{ fontSize: 13, fontWeight: 900, color: 'var(--brand-black)' }}>#{formattedInvoiceNo}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>

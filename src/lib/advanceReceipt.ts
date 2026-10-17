@@ -24,11 +24,12 @@ function getOrderBreakdown(order: AdvanceOrder) {
   const sub = toNumber(order.subtotal ?? order.total_amount, 0)
   const gst = toNumber(order.total_gst ?? order.gst_amount, 0)
   const tot = toNumber(order.total_amount, 0)
-  const delivery = Math.max(0, roundTo(tot - (sub - totalDisc + gst), 2))
+  const delivery = toNumber(order.delivery_charge, Math.max(0, roundTo(tot - (sub - totalDisc), 2)))
 
   return computeInvoiceBreakdown({
     subtotal: sub,
     total: tot,
+    items: (order.products || []) as unknown as Array<Record<string, unknown>>,
     discountAmount: disc,
     manualDiscountAmount: manDisc,
     couponCode: order.coupon_code,

@@ -212,6 +212,21 @@ export function computeInvoiceBreakdown(input: InvoiceBreakdownInput): InvoiceBr
 
   if (hasTax && rateGroups.length === 0) {
     // Legacy / single bill-level toggle calculation
+    const netDiscounted = Math.max(0, roundTo(safeSubtotal - totalDiscount, 2))
+    const storedTotal = input.total !== undefined ? roundTo(toNumber(input.total, 0), 2) : 0
+    const delivery = roundTo(toNumber(input.deliveryCharge ?? input.shipping, 0), 2)
+
+    // Determine if pricing is tax-inclusive (stored total aligns with subtotal + delivery rather than subtotal + GST + delivery)
+    const isInclusive = storedTotal > 0
+      ? Math.abs(storedTotal - (netDiscounted + delivery)) < Math.abs(storedTotal - (netDiscounted + totalGst + delivery))
+      : true
+
+    if (isInclusive && netDiscounted >= totalGst) {
+      taxableAmount = roundTo(netDiscounted - totalGst, 2)
+    } else {
+      taxableAmount = netDiscounted
+    }
+
     cgstAmount = roundTo(totalGst / 2, 2)
     sgstAmount = roundTo(totalGst - cgstAmount, 2)
 

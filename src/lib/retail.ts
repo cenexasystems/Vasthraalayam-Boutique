@@ -129,8 +129,21 @@ export const safeId = (id: unknown): number | null => {
 export const isUuid = (value: unknown): value is string =>
   typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 
+export const formatDepositId = (depId: unknown): string => {
+  const raw = String(depId || '').trim()
+  if (!raw) return ''
+  const digits = raw.replace(/\D/g, '')
+  if (digits) {
+    return `DEP${digits.padStart(6, '0')}`
+  }
+  return raw.toUpperCase()
+}
+
 export const formatInvoiceNo = (invNo: unknown): string => {
   const raw = String(invNo || '').trim()
+  if (/^DEP/i.test(raw)) {
+    return formatDepositId(raw)
+  }
   const base = raw.replace(/^INV/i, '')
   if (!base) return 'INV10000001'
   if (/^\d{8}$/.test(base)) return `INV${base}`

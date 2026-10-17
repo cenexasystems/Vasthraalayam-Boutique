@@ -65,7 +65,7 @@ function normalizeOrder(row: Record<string, unknown>) {
     subtotal: row.subtotal != null ? Number(row.subtotal) : Number(row.total_amount || 0),
     discount_amount: Number(row.discount_amount || 0),
     manual_discount_amount: Number(row.manual_discount_amount || 0),
-    delivery_charge: Math.max(0, Math.round((Number(row.total_amount || 0) - ((row.subtotal != null ? Number(row.subtotal) : Number(row.total_amount || 0)) - (Number(row.discount_amount || 0) + Number(row.manual_discount_amount || 0)) + Number(row.total_gst ?? row.gst_amount ?? 0))) * 100) / 100),
+    delivery_charge: Math.max(0, Math.round((Number(row.total_amount || 0) - ((row.subtotal != null ? Number(row.subtotal) : Number(row.total_amount || 0)) - (Number(row.discount_amount || 0) + Number(row.manual_discount_amount || 0)))) * 100) / 100),
     coupon_code: row.coupon_code ? String(row.coupon_code) : null,
     coupon_percentage: Number(row.coupon_percentage || 0),
     total_gst: Number(row.total_gst ?? row.gst_amount ?? 0),

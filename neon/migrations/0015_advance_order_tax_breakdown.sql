@@ -347,7 +347,7 @@ BEGIN
   v_effective_gst  := ROUND(GREATEST(COALESCE(p_total_gst, 0), COALESCE(v_advance.total_gst, 0)), 2);
   v_effective_rate := GREATEST(COALESCE(p_gst_rate, 0), COALESCE(v_advance.gst_rate, 0));
   v_subtotal       := ROUND(COALESCE(v_advance.subtotal, v_advance.total_amount), 2);
-  v_order_total    := ROUND(GREATEST(0, v_subtotal - v_total_discount + v_effective_gst), 2);
+  v_order_total    := ROUND(GREATEST(0, COALESCE(v_advance.total_amount, v_subtotal) - COALESCE(p_manual_discount, 0)), 2);
 
   v_invoice  := LPAD(NEXTVAL('public.invoice_number_seq')::TEXT, 8, '0');
   v_order_id := gen_random_uuid();

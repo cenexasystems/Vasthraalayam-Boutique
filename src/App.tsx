@@ -221,6 +221,14 @@ function AppShell() {
               </Suspense>
             }
           />
+          <Route
+            path="/deposit/:id"
+            element={
+              <Suspense fallback={<LoadingSpinner />}>
+                <DigitalInvoice />
+              </Suspense>
+            }
+          />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </main>
