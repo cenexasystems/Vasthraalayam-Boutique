@@ -111,12 +111,22 @@ function AppShell() {
   }, [])
 
   useEffect(() => {
+    // Purge legacy local storage orders
+    clearLocalOrders()
+    try {
+      localStorage.removeItem('vasthraalayam_boutique_orders')
+      localStorage.removeItem('vasthraalayam_advance_orders_cache_v1')
+    } catch { /* ignore */ }
+
+    // Purge Workbox ServiceWorker api-cache so stale/deleted orders are evicted immediately
+    if (typeof window !== 'undefined' && 'caches' in window) {
+      caches.delete('api-cache').catch(() => {})
+    }
+
     if (!isSupabaseConfigured) {
       void initialize()
       return
     }
-
-    clearLocalOrders()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {

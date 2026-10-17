@@ -97,6 +97,9 @@ function formatOrderRow(row: Record<string, unknown>) {
     notes: p?.notes ? String(p.notes) : undefined,
   }))
 
+  const advPaid = payments.filter(p => p.phase === 'deposit' || p.phase === 'advance').reduce((s, p) => s + p.amount, 0)
+  const balPaid = payments.filter(p => p.phase === 'remaining' || p.phase === 'balance').reduce((s, p) => s + p.amount, 0)
+
   return {
     ...row,
     total,
@@ -107,11 +110,51 @@ function formatOrderRow(row: Record<string, unknown>) {
     shipping: deliveryCharge,
     discount_amount: discountAmount,
     manual_discount_amount: manualDiscountAmount,
+    manual_discount_type: row.manual_discount_type || 'flat',
+    manual_discount_value: toNumber(row.manual_discount_value != null ? row.manual_discount_value : manualDiscountAmount, 0),
     total_gst: totalGst,
     gst_amount: totalGst,
     change_given: changeGiven,
     payments,
+    deposit_amount: row.deposit_amount != null ? toNumber(row.deposit_amount, 0) : (advPaid > 0 ? advPaid : undefined),
+    advance_paid: row.advance_paid != null ? toNumber(row.advance_paid, 0) : (advPaid > 0 ? advPaid : undefined),
+    balance_paid: row.balance_paid != null ? toNumber(row.balance_paid, 0) : (balPaid > 0 ? balPaid : undefined),
+    balance_due: row.status === 'completed' ? 0 : (row.balance_due != null ? toNumber(row.balance_due, 0) : Math.max(0, total - (advPaid + balPaid))),
+    remaining_balance: row.status === 'completed' ? 0 : (row.remaining_balance != null ? toNumber(row.remaining_balance, 0) : Math.max(0, total - (advPaid + balPaid))),
   }
+}
+
+async function enrichAdvanceOrderRow(row: Record<string, unknown>) {
+  if (row.order_type !== 'advance_order') return row
+  try {
+    const advRows = await sql`
+      SELECT * FROM public.advance_orders
+      WHERE completed_order_id = ${String(row.id)}::UUID OR invoice_number = ${String(row.invoice_no)}
+      LIMIT 1
+    `
+    if (advRows.length > 0) {
+      const adv = advRows[0] as Record<string, unknown>
+      if (toNumber(row.manual_discount_amount, 0) === 0 && toNumber(adv.manual_discount_amount, 0) > 0) {
+        row.manual_discount_amount = adv.manual_discount_amount
+        row.manual_discount_type = adv.manual_discount_type || row.manual_discount_type || 'flat'
+        row.manual_discount_value = adv.manual_discount_value || adv.manual_discount_amount
+      }
+      if (toNumber(row.discount_amount, 0) === 0 && toNumber(adv.discount_amount, 0) > 0) {
+        row.discount_amount = adv.discount_amount
+        row.coupon_code = adv.coupon_code || row.coupon_code
+        row.coupon_percentage = adv.coupon_percentage || row.coupon_percentage
+      }
+      if (toNumber(row.delivery_charge ?? row.shipping, 0) === 0 && toNumber(adv.delivery_charge ?? adv.shipping, 0) > 0) {
+        row.delivery_charge = adv.delivery_charge ?? adv.shipping
+        row.shipping = adv.delivery_charge ?? adv.shipping
+      }
+      if (!row.deposit_amount && adv.deposit_amount) row.deposit_amount = adv.deposit_amount
+      if (!row.advance_paid && adv.deposit_amount) row.advance_paid = adv.deposit_amount
+    }
+  } catch (err) {
+    console.warn('[enrichAdvanceOrderRow warning]', err)
+  }
+  return row
 }
 
 async function list(req: VercelRequest, res: VercelResponse) {
@@ -180,7 +223,8 @@ async function getById(req: VercelRequest, res: VercelResponse) {
     res.status(404).json({ error: 'Order not found' })
     return
   }
-  res.status(200).json({ data: formatOrderRow(rows[0] as Record<string, unknown>) })
+  const row = await enrichAdvanceOrderRow(rows[0] as Record<string, unknown>)
+  res.status(200).json({ data: formatOrderRow(row) })
 }
 
 async function listOrderItems(req: VercelRequest, res: VercelResponse) {
@@ -247,7 +291,8 @@ async function getPublicInvoice(req: VercelRequest, res: VercelResponse) {
       `
 
   if (rows.length > 0) {
-    res.status(200).json({ data: formatOrderRow(rows[0] as Record<string, unknown>) })
+    const row = await enrichAdvanceOrderRow(rows[0] as Record<string, unknown>)
+    res.status(200).json({ data: formatOrderRow(row) })
     return
   }
 
@@ -318,6 +363,8 @@ async function getPublicInvoice(req: VercelRequest, res: VercelResponse) {
       shipping: deliveryCharge,
       discount_amount: toNumber(adv.discount_amount, 0),
       manual_discount_amount: toNumber(adv.manual_discount_amount, 0),
+      manual_discount_type: adv.manual_discount_type || 'flat',
+      manual_discount_value: toNumber(adv.manual_discount_value != null ? adv.manual_discount_value : adv.manual_discount_amount, 0),
       coupon_code: adv.coupon_code || undefined,
       coupon_percentage: adv.coupon_percentage != null ? toNumber(adv.coupon_percentage, 0) : undefined,
       total_gst: toNumber(adv.total_gst ?? adv.gst_amount, 0),
@@ -342,6 +389,9 @@ async function getPublicInvoice(req: VercelRequest, res: VercelResponse) {
 }
 
 async function get(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+  res.setHeader('Pragma', 'no-cache')
+  res.setHeader('Expires', '0')
   if (req.query.action === 'public' || req.query.public === 'true') return getPublicInvoice(req, res)
   if (req.query.resource === 'items') return listOrderItems(req, res)
   if (req.query.id !== undefined) return getById(req, res)

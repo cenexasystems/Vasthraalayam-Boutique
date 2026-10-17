@@ -989,6 +989,8 @@ export default function Pos(props: PosProps = {}) {
         subtotal: subtotal,
         discountAmount: couponDiscount,
         manualDiscountAmount: manualDiscountAmount,
+        manualDiscountType: manualDiscountType === 'percent' ? '%' : 'flat',
+        manualDiscountValue: manualDiscountNumeric,
         deliveryCharge: Number(shipping || 0),
         couponCode: appliedCoupon?.code || null,
         couponPercentage: appliedCoupon?.percentage || 0,
@@ -2669,7 +2671,7 @@ export default function Pos(props: PosProps = {}) {
       )}
 
       {!embeddedMode && (
-        <footer className="shrink-0 border-t border-gray-200/80 bg-white/95 backdrop-blur-sm py-2 px-3 text-center text-[11px] sm:text-[12px] font-semibold text-[#7A8A78] tracking-wide print:hidden pb-[max(1rem,calc(env(safe-area-inset-bottom)+0.75rem))] mt-auto">
+        <footer className="sticky bottom-0 shrink-0 border-t border-gray-200/80 bg-white/95 backdrop-blur-sm py-2.5 px-3 text-center text-[11px] sm:text-[12px] font-semibold text-[#7A8A78] tracking-wide print:hidden pb-[max(0.6rem,env(safe-area-inset-bottom))] mt-auto z-10 shadow-[0_-2px_8px_rgba(0,0,0,0.03)]">
           Powered by Cenexa Systems © 2026
         </footer>
       )}

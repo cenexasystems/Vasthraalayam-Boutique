@@ -6,6 +6,7 @@
  * the source of truth once Neon is available.
  */
 import { neonApi } from '../lib/neonApi'
+import { getCurrentBusinessId } from '../lib/barcode'
 
 export type AdvanceStatus = 'pending_deposit' | 'ready_for_delivery' | 'waiting_final_payment' | 'completed' | 'cancelled'
 export type AdvancePaymentMethod = 'cash' | 'upi' | 'qr' | 'card' | 'split'
@@ -38,7 +39,10 @@ export type AdvanceOrder = {
   subtotal?: number
   discount_amount?: number
   manual_discount_amount?: number
+  manual_discount_type?: string
+  manual_discount_value?: number
   delivery_charge?: number
+  shipping?: number
   coupon_code?: string | null
   coupon_percentage?: number
   total_gst?: number
@@ -146,21 +150,16 @@ export async function deleteAdvanceOrder(orderId: string): Promise<{ localOnly: 
 }
 
 
-export async function listAdvanceOrders(): Promise<AdvanceOrder[]> {
-  const result = await neonApi.get<AdvanceOrder[]>('/advance-orders')
+export async function listAdvanceOrders(businessId?: string): Promise<AdvanceOrder[]> {
+  const bizId = businessId || getCurrentBusinessId()
+  const result = await neonApi.get<AdvanceOrder[]>(`/advance-orders?business_id=${encodeURIComponent(bizId)}`)
   if (result.error || !result.data) {
     console.warn('[listAdvanceOrders] Neon error, falling back to local cache:', result.error?.message)
     return loadLocalOrders()
   }
   const remote = (result.data || []).filter(isValidOrder)
-  // Merge: remote is authoritative; keep any purely local valid orders not yet synced
-  const remoteIds = new Set(remote.map(r => r.id))
-  const localOnly = loadLocalOrders().filter(l => isValidOrder(l) && !remoteIds.has(l.id))
-  const merged = [...remote, ...localOnly].sort((a, b) =>
-    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  )
-  saveLocalOrders(merged)
-  return merged
+  saveLocalOrders(remote)
+  return remote
 }
 
 export async function getAdvanceOrderHistory(orderId: string): Promise<{ timeline: AdvanceTimeline[]; payments: AdvancePayment[] }> {
@@ -195,6 +194,8 @@ export async function createAdvanceOrder(input: {
   subtotal?: number
   discountAmount?: number
   manualDiscountAmount?: number
+  manualDiscountType?: string
+  manualDiscountValue?: number
   deliveryCharge?: number
   couponCode?: string | null
   couponPercentage?: number
@@ -222,6 +223,8 @@ export async function createAdvanceOrder(input: {
       subtotal: input.subtotal,
       discount_amount: input.discountAmount,
       manual_discount_amount: input.manualDiscountAmount,
+      manual_discount_type: input.manualDiscountType || 'flat',
+      manual_discount_value: input.manualDiscountValue != null ? input.manualDiscountValue : input.manualDiscountAmount,
       delivery_charge: input.deliveryCharge,
       shipping: input.deliveryCharge,
       coupon_code: input.couponCode,

@@ -37,7 +37,11 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<Neon
       ...(options.headers || {}),
     }
 
-    const res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
+    const res = await fetch(`${BASE_URL}${path}`, {
+      cache: 'no-store',
+      ...options,
+      headers,
+    })
     const body = await res.json().catch(() => null)
 
     if (!res.ok) {

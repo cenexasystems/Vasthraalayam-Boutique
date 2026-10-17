@@ -869,6 +869,8 @@ export default function Dashboard() {
   }
 
   const deletedOrderIds = React.useRef<Set<string>>(new Set())
+  const searchStateRef = React.useRef({ search, historyQuickSearch })
+  searchStateRef.current = { search, historyQuickSearch }
   const [deleteModalConfig, setDeleteModalConfig] = useState<{
     isOpen: boolean
     title: string
@@ -1028,7 +1030,22 @@ export default function Dashboard() {
       const mappedOrders = (oRes.data || []).map(r => toDashboardOrder(r as Record<string, unknown>))
       setCats((cRes.data || []) as Category[])
       setOrders(mappedOrders)
-      setSearchResults(mappedOrders.filter(o => normalizeOrderType(o.order_type) !== 'online_request').slice(0, 100))
+      setSearchResults(prev => {
+        const { search: s, historyQuickSearch: hqs } = searchStateRef.current
+        const hasSearch = Boolean(
+          hqs.trim() ||
+          s.invoiceNo.trim() ||
+          s.phone.trim() ||
+          s.customerName.trim() ||
+          s.dateFrom ||
+          s.dateTo
+        )
+        if (!hasSearch) {
+          return mappedOrders.filter(o => normalizeOrderType(o.order_type) !== 'online_request').slice(0, 100)
+        }
+        const serverIds = new Set(mappedOrders.map(o => o.id))
+        return prev.filter(o => serverIds.has(o.id))
+      })
       setCoupons((couponRes.data || []) as DashboardCoupon[])
       if (advRes.data) setAdvanceOrders(advRes.data as AdvanceOrder[])
       setExpenses(expList || [])
@@ -1154,11 +1171,13 @@ export default function Dashboard() {
       )
       if (adv) {
         if (!coupon && adv.coupon_code) coupon = adv.coupon_code
-        const advTotalDisc = (adv.discount_amount || 0) + (adv.manual_discount_amount || 0)
-        if (discount === 0 && advTotalDisc > 0) {
-          discount = advTotalDisc
+        if (discount === 0 && (adv.discount_amount || 0) > 0) {
+          discount = adv.discount_amount || 0
+        }
+        if (manualDiscount === 0 && (adv.manual_discount_amount || 0) > 0) {
           manualDiscount = adv.manual_discount_amount || 0
         }
+        const advTotalDisc = (adv.discount_amount || 0) + (adv.manual_discount_amount || 0)
         const advSub = adv.subtotal != null ? Number(adv.subtotal) : Number(adv.total_amount || 0)
         const advGst = Number(adv.total_gst ?? adv.gst_amount ?? 0)
         const advTot = Number(adv.total_amount || 0)
@@ -2012,12 +2031,31 @@ export default function Dashboard() {
     }
   }, [sidebarCollapsed])
 
-  // Auto-refresh analytics data every 30 seconds
+  // Auto-refresh data on window focus / visibility change and periodic interval (every 20s when viewing orders / analytics / overview)
   useEffect(() => {
-    if (tab !== 'pos_analytics' || (posAnalyticsTab !== 'today' && posAnalyticsTab !== 'products' && posAnalyticsTab !== 'services' && posAnalyticsTab !== 'categories' && posAnalyticsTab !== 'coupons')) return
-    const interval = setInterval(() => { void loadData() }, 30000)
-    return () => clearInterval(interval)
-  }, [tab, posAnalyticsTab, loadData])
+    const handleRevalidate = () => {
+      if (document.visibilityState === 'visible') {
+        void loadData()
+      }
+    }
+    window.addEventListener('focus', handleRevalidate)
+    document.addEventListener('visibilitychange', handleRevalidate)
+
+    let interval: ReturnType<typeof setInterval> | null = null
+    if (tab === 'history' || tab === 'pos_analytics' || tab === 'overview') {
+      interval = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          void loadData()
+        }
+      }, 20000)
+    }
+
+    return () => {
+      window.removeEventListener('focus', handleRevalidate)
+      document.removeEventListener('visibilitychange', handleRevalidate)
+      if (interval) clearInterval(interval)
+    }
+  }, [tab, loadData])
 
   if (!isAdmin) return (
     <div className="min-h-screen bg-bgMain flex items-center justify-center p-4">
@@ -2162,7 +2200,7 @@ export default function Dashboard() {
 
       {/* Main */}
       <main className="flex-grow flex flex-col overflow-hidden min-h-0 min-w-0">
-        <div className="flex-1 min-h-0 p-4 sm:p-6 lg:p-8 overflow-x-hidden overflow-y-auto flex flex-col">
+        <div className="flex-1 min-h-0 p-3 sm:p-6 lg:p-8 pb-6 sm:pb-8 overflow-x-hidden overflow-y-auto flex flex-col">
           <div className="flex-1 shrink-0 space-y-6">
 
         {/* ΓöÇΓöÇ ANALYTICS TAB ΓöÇΓöÇ */}
@@ -3454,6 +3492,9 @@ export default function Dashboard() {
           <AdvanceOrders
             onOrderCompleted={(adv) => {
               if (adv) handleAdvanceOrderCompleted(adv)
+              void loadData()
+            }}
+            onOrderDeleted={() => {
               void loadData()
             }}
           />
@@ -4848,12 +4889,12 @@ export default function Dashboard() {
         {/* ── SETTINGS TAB ── */}
         {tab === 'settings' && <SettingsView onOpenInventory={() => handleTabClick('inventory')} />}
           </div>
-
-          {/* Footer - at the very end of content, mt-auto on short pages, bottom of scroll on long pages */}
-          <footer className="shrink-0 mt-auto pt-6 pb-[max(1rem,calc(env(safe-area-inset-bottom)+0.75rem))] border-t border-gray-200/80 bg-transparent text-center text-[11px] sm:text-[12px] font-semibold text-[#7A8A78] tracking-wide print:hidden">
-            Powered by Cenexa Systems © 2026
-          </footer>
         </div>
+
+        {/* Footer - fixed at the end in mobile and desktop view */}
+        <footer className="shrink-0 border-t border-gray-200/80 bg-white/95 backdrop-blur-sm py-2.5 px-3 text-center text-[11px] sm:text-[12px] font-semibold text-[#7A8A78] tracking-wide print:hidden pb-[max(0.6rem,env(safe-area-inset-bottom))] z-10 shadow-[0_-2px_8px_rgba(0,0,0,0.03)]">
+          Powered by Cenexa Systems © 2026
+        </footer>
       </main>
 
 

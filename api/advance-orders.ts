@@ -148,6 +148,8 @@ async function getHistory(req: VercelRequest, res: VercelResponse) {
 // ─── GET handler dispatch ─────────────────────────────────────────────────────
 async function get(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+  res.setHeader('Pragma', 'no-cache')
+  res.setHeader('Expires', '0')
   if (req.query.history !== undefined) return getHistory(req, res)
   if (req.query.id !== undefined) return getById(req, res)
   return list(req, res)
@@ -243,12 +245,25 @@ async function create(req: VercelRequest, res: VercelResponse) {
     const order = rows[0] as Record<string, unknown>
     if (!order || !order.id) throw new Error('create_advance_order returned no result')
 
-    // Patch reference_number if provided (not in RPC signature)
     const refNum = String(body.reference_number || '').trim()
-    if (refNum) {
-      await sql`UPDATE public.advance_orders SET reference_number = ${refNum} WHERE id = ${String(order.id)}`
-      order.reference_number = refNum
-    }
+    const deliveryCharge = Number(body.delivery_charge || body.shipping || 0)
+    const manualDiscountType = String(body.manual_discount_type || 'flat')
+    const manualDiscountValue = Number(body.manual_discount_value != null ? body.manual_discount_value : body.manual_discount_amount || 0)
+
+    await sql`
+      UPDATE public.advance_orders SET
+        reference_number = ${refNum},
+        delivery_charge = ${deliveryCharge},
+        shipping = ${deliveryCharge},
+        manual_discount_type = ${manualDiscountType},
+        manual_discount_value = ${manualDiscountValue}
+      WHERE id = ${String(order.id)}::UUID
+    `
+    order.reference_number = refNum
+    order.delivery_charge = deliveryCharge
+    order.shipping = deliveryCharge
+    order.manual_discount_type = manualDiscountType
+    order.manual_discount_value = manualDiscountValue
 
     res.status(201).json({ data: normalizeOrder(order) })
   } catch (err) {
@@ -316,22 +331,34 @@ async function patch(req: VercelRequest, res: VercelResponse) {
 
       const changeGiven = Number(body.change_given || body.p_change_given || 0)
 
+      const advRowsPre = await sql`SELECT * FROM public.advance_orders WHERE id = ${id}::UUID LIMIT 1`
+      const advPre = advRowsPre[0] as Record<string, unknown> | undefined
+
+      const effectiveManualDiscount = body.manual_discount != null && Number(body.manual_discount) > 0
+        ? Number(body.manual_discount)
+        : Number(advPre?.manual_discount_amount || 0)
+      const effectiveCouponCode = body.coupon_code != null ? String(body.coupon_code) : (advPre?.coupon_code ? String(advPre.coupon_code) : null)
+      const effectiveCouponPct = body.coupon_percentage != null ? Number(body.coupon_percentage) : Number(advPre?.coupon_percentage || 0)
+      const effectiveTotalGst = Number(body.total_gst || body.gst_amount || advPre?.total_gst || advPre?.gst_amount || 0)
+      const effectiveGstRate = Number(body.gst_rate || advPre?.gst_rate || 0)
+      const effectiveGstEnabled = Boolean(body.gst_enabled || advPre?.gst_enabled || effectiveTotalGst > 0)
+
       const rows = await sql`
         SELECT order_id, invoice_no, completed_at
         FROM public.complete_advance_order_v2(
           p_order_id          => ${id}::UUID,
           p_payment_method    => ${paymentMethod},
           p_final_amount      => ${Number(body.final_amount || 0)},
-          p_coupon_code       => ${body.coupon_code ? String(body.coupon_code) : null},
-          p_coupon_percentage => ${Number(body.coupon_percentage || 0)},
-          p_manual_discount   => ${Number(body.manual_discount || 0)},
+          p_coupon_code       => ${effectiveCouponCode},
+          p_coupon_percentage => ${effectiveCouponPct},
+          p_manual_discount   => ${effectiveManualDiscount},
           p_remarks           => ${String(body.remarks || '')},
           p_created_by        => ${session.portalId},
           p_payments          => ${cleanPayments.length > 0 ? sql.json(cleanPayments as unknown as JSONValue) : null},
           p_change_given      => ${changeGiven},
-          p_total_gst         => ${Number(body.total_gst || body.gst_amount || 0)},
-          p_gst_rate          => ${Number(body.gst_rate || 0)},
-          p_gst_enabled       => ${Boolean(body.gst_enabled || Number(body.total_gst || 0) > 0)}
+          p_total_gst         => ${effectiveTotalGst},
+          p_gst_rate          => ${effectiveGstRate},
+          p_gst_enabled       => ${effectiveGstEnabled}
         )
       `
 
@@ -339,30 +366,35 @@ async function patch(req: VercelRequest, res: VercelResponse) {
       if (rows[0]?.order_id) {
         try {
           const advRows = await sql`SELECT * FROM public.advance_orders WHERE id = ${id}::UUID LIMIT 1`
-          const adv = advRows[0]
+          const adv = advRows[0] as Record<string, unknown> | undefined
           if (adv) {
             const advSubtotal = adv.subtotal != null ? Number(adv.subtotal) : Number(adv.total_amount || 0)
             const advDisc = Number(adv.discount_amount || 0)
-            const advManDisc = Number(adv.manual_discount_amount || 0)
+            const advManDisc = effectiveManualDiscount
             const advTotalDisc = advDisc + advManDisc
             const advGst = Number(adv.total_gst ?? adv.gst_amount ?? 0)
             const advTotalAmt = Number(adv.total_amount || 0)
-            const advDelivery = Math.max(0, Math.round((advTotalAmt - (advSubtotal - advTotalDisc + advGst)) * 100) / 100)
+            let advDelivery = Number(adv.delivery_charge ?? adv.shipping ?? 0)
+            if (advDelivery <= 0 && advTotalAmt > 0 && advSubtotal > 0) {
+              const computed = Math.round((advTotalAmt - (advSubtotal - advTotalDisc + advGst)) * 100) / 100
+              if (computed > 0) advDelivery = computed
+            }
 
             await sql`
               UPDATE public.orders SET
                 subtotal = ${advSubtotal},
                 total = ${advTotalAmt},
-                discount_amount = ${advTotalDisc},
+                discount_amount = ${advDisc},
                 manual_discount_amount = ${advManDisc},
-                coupon_code = ${adv.coupon_code || null},
+                manual_discount_type = ${String(adv.manual_discount_type || 'flat')},
+                manual_discount_value = ${Number(adv.manual_discount_value != null && Number(adv.manual_discount_value) > 0 ? adv.manual_discount_value : advManDisc)},
+                coupon_code = ${adv.coupon_code ? String(adv.coupon_code) : null},
                 coupon_percentage = ${Number(adv.coupon_percentage || 0)},
                 delivery_charge = ${advDelivery},
                 shipping = ${advDelivery},
                 total_gst = ${advGst},
                 gst_amount = ${advGst},
-                gst_enabled = ${Boolean(adv.gst_enabled || advGst > 0)},
-                gst_rate = ${Number(adv.gst_rate || 0)}
+                gst_enabled = ${Boolean(adv.gst_enabled || advGst > 0)}
               WHERE id = ${rows[0].order_id}::UUID
             `
           }

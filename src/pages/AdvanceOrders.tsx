@@ -42,12 +42,13 @@ function safeDeliveryDate(value: string | null | undefined): string {
 
 type AdvanceOrdersProps = {
   onOrderCompleted?: (order?: AdvanceOrder) => void
+  onOrderDeleted?: (orderId: string) => void
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="mb-1.5 block text-[11px] font-black uppercase tracking-wide text-[#6B7280]">{label}</span>{children}</label> }
 const inputClass = 'w-full rounded-xl border border-[#E5E7EB] bg-white px-3.5 py-2.5 text-sm text-[#273126] outline-none transition focus:border-[#7e22ce] focus:ring-2 focus:ring-violet-100'
 
-export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps = {}) {
+export default function AdvanceOrders({ onOrderCompleted, onOrderDeleted }: AdvanceOrdersProps = {}) {
   const role = useAdminAuthStore(state => state.role)
   const products = useProductStore(state => state.products)
   const [orders, setOrders] = useState<AdvanceOrder[]>([])
@@ -93,7 +94,29 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
     setLoading(true); setError('')
     try { setOrders(await listAdvanceOrders()) } catch (err) { setError(err instanceof Error ? err.message : 'Unable to load advance orders') } finally { setLoading(false) }
   }, [])
-  useEffect(() => { void load() }, [load])
+
+  useEffect(() => {
+    void load()
+
+    const handleRevalidate = () => {
+      if (document.visibilityState === 'visible') {
+        void load()
+      }
+    }
+    window.addEventListener('focus', handleRevalidate)
+    document.addEventListener('visibilitychange', handleRevalidate)
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void load()
+      }
+    }, 20000)
+
+    return () => {
+      window.removeEventListener('focus', handleRevalidate)
+      document.removeEventListener('visibilitychange', handleRevalidate)
+      clearInterval(interval)
+    }
+  }, [load])
 
   const handleDeleteOrder = async (orderId: string, orderName: string) => {
     if (role === 'staff') {
@@ -131,6 +154,7 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
         if (selected?.id === orderId) {
           setSelected(null)
         }
+        onOrderDeleted?.(orderId)
         if (res?.localOnly) {
           setNotice(`Advance order ${targetOrder?.deposit_id || ''} removed from local storage (not found on server).`)
         } else {
@@ -319,10 +343,13 @@ export default function AdvanceOrders({ onOrderCompleted }: AdvanceOrdersProps =
         finalAmount,
         paymentOrder.coupon_code || null,
         paymentOrder.coupon_percentage || 0,
-        0,
+        Number(paymentOrder.manual_discount_amount || 0),
         finalRemarks,
         balanceValidation.activePayments,
-        balanceValidation.changeGiven
+        balanceValidation.changeGiven,
+        Number(paymentOrder.total_gst || paymentOrder.gst_amount || 0),
+        Number(paymentOrder.gst_rate || 0),
+        Boolean(paymentOrder.gst_enabled || Number(paymentOrder.total_gst || paymentOrder.gst_amount || 0) > 0)
       )
       const completed: AdvanceOrder = { 
         ...paymentOrder, 
