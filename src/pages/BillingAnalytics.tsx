@@ -822,7 +822,12 @@ export default function BillingAnalytics() {
                           <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${billTypeClass}`}>{billTypeLabel}</span>
                         </td>
                         <td className="px-3 py-3">{order.coupon_code ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">{order.coupon_code}</span> : <span className="text-[#9BAB9A]">—</span>}</td>
-                        <td className="px-3 py-3">{(order.discount_amount + order.manual_discount_amount) > 0 ? <span className="font-bold text-green-700">-{formatCurrency(order.discount_amount + order.manual_discount_amount)}</span> : <span className="text-[#9BAB9A]">—</span>}</td>
+                        <td className="px-3 py-3">{(order.discount_amount + order.manual_discount_amount) > 0 ? (
+                          <div className="whitespace-nowrap font-bold text-green-700">
+                            {order.discount_amount > 0 && <div>{order.coupon_code ? 'Coupon' : 'Discount'} -{formatCurrency(order.discount_amount)}</div>}
+                            {order.manual_discount_amount > 0 && <div>Manual -{formatCurrency(order.manual_discount_amount)}</div>}
+                          </div>
+                        ) : <span className="text-[#9BAB9A]">—</span>}</td>
                         <td className="px-3 py-3">{order.delivery_charge > 0 ? <span className="font-bold">{formatCurrency(order.delivery_charge)}</span> : <span className="text-[#9BAB9A]">—</span>}</td>
                         <td className="whitespace-nowrap px-3 py-3 font-bold">{formatCurrency(toNumber(order.total, 0))}</td>
                         <td className="whitespace-nowrap px-3 py-3 text-[#374151]">{new Date(order.created_at).toLocaleDateString('en-IN')}</td>

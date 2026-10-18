@@ -3783,7 +3783,12 @@ export default function Dashboard() {
                               </div>
                               <div>
                                 <p className="text-[#9BAB9A] uppercase text-[11px] font-black">Discount</p>
-                                <p className="font-semibold text-emerald-700">{resolved.totalDiscount > 0 ? `-${formatCurrency(resolved.totalDiscount)}` : '—'}</p>
+                                {resolved.totalDiscount > 0 ? (
+                                  <div className="font-semibold text-emerald-700">
+                                    {resolved.discount > 0 && <p>{resolved.coupon ? 'Coupon' : 'Discount'} -{formatCurrency(resolved.discount)}</p>}
+                                    {resolved.manualDiscount > 0 && <p>Manual -{formatCurrency(resolved.manualDiscount)}</p>}
+                                  </div>
+                                ) : <p className="font-semibold text-emerald-700">—</p>}
                               </div>
                               <div>
                                 <p className="text-[#9BAB9A] uppercase text-[11px] font-black">Delivery</p>
@@ -3874,7 +3879,12 @@ export default function Dashboard() {
                                   {resolved.coupon ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">{resolved.coupon}</span> : <span className="text-[#9BAB9A]">—</span>}
                                 </td>
                                 <td className="px-2 py-3 text-[11px]">
-                                  {resolved.totalDiscount > 0 ? <span className="font-bold text-emerald-700">-{formatCurrency(resolved.totalDiscount)}</span> : <span className="text-[#9BAB9A]">—</span>}
+                                  {resolved.totalDiscount > 0 ? (
+                                    <div className="whitespace-nowrap font-bold text-emerald-700">
+                                      {resolved.discount > 0 && <div>{resolved.coupon ? 'Coupon' : 'Discount'} -{formatCurrency(resolved.discount)}</div>}
+                                      {resolved.manualDiscount > 0 && <div>Manual -{formatCurrency(resolved.manualDiscount)}</div>}
+                                    </div>
+                                  ) : <span className="text-[#9BAB9A]">—</span>}
                                 </td>
                                 <td className="px-2 py-3 text-[11px]">
                                   {resolved.delivery > 0 ? <span className="font-bold text-[#111111]">{formatCurrency(resolved.delivery)}</span> : <span className="text-[#9BAB9A]">—</span>}
