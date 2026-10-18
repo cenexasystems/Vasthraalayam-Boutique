@@ -45,6 +45,7 @@ import { fetchVariantsByProduct, type ProductVariant } from '../services/variant
 import { BarcodeScannerInput, type ScannedItemPayload } from '../components/pos/BarcodeScannerInput'
 import { AddUnregisteredItemModal } from '../components/pos/AddUnregisteredItemModal'
 import { getOrCreateUnregisteredProduct, updateItemPrice } from '../services/productService'
+import { useAppViewportLock } from '../hooks/useAppViewportLock'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 type PosItem = Product & {
@@ -207,6 +208,8 @@ export default function Pos(props: PosProps = {}) {
   const [manualDiscountValue, setManualDiscountValue] = useState('')
   const [error, setError] = useState('')
   const [invoice, setInvoice] = useState<InvoiceSnap | null>(null)
+  // The invoice screen scrolls the page, so only lock while the POS shell is showing
+  useAppViewportLock(!embeddedMode && !invoice)
   const [cashReceived, setCashReceived] = useState<string>('')
   const [mobilePanelView, setMobilePanelView] = useState<'catalogue' | 'bill'>('catalogue')
   const [ordermode, setOrdermode] = useState<'online' | 'offline'>('offline')

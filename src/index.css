@@ -425,6 +425,31 @@
   position: relative;
 }
 
+/* Full-height app shells (POS, dashboard): the page itself must never scroll,
+   otherwise Android hides/shows the address bar and the footer jumps. */
+html.app-viewport-locked,
+html.app-viewport-locked body {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+html.app-viewport-locked #root {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media print {
+  html.app-viewport-locked,
+  html.app-viewport-locked body,
+  html.app-viewport-locked #root {
+    height: auto;
+    overflow: visible;
+  }
+}
+
 .ios-app-shell > main {
   height: 100%;
   overflow: hidden;

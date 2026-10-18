@@ -67,6 +67,7 @@ import { SettingsView } from '../components/settings/SettingsView'
 import { expenseService, type ExpenseRecord } from '../services/expenseService'
 import { useNavigationStore } from '../store/navigationStore'
 import { useHardwareBarcodeScanner } from '../hooks/useHardwareBarcodeScanner'
+import { useAppViewportLock } from '../hooks/useAppViewportLock'
 import { BarcodeRedirectDialog } from '../components/pos/BarcodeRedirectDialog'
 import { exportAnalyticsToCSV, exportAnalyticsToPDF } from '../services/analyticsExport'
 import { computeAnalytics, getISTDateRange, type AnalyticsOrder, type AnalyticsLineItem, type AnalyticsAdvanceOrder, type AnalyticsCoupon } from '../services/revenueAnalytics'
@@ -824,6 +825,7 @@ export default function Dashboard() {
   const [roleUpdating, setRoleUpdating] = useState<string | null>(null)
 
   const isAdmin = true // bypassed for local demo
+  useAppViewportLock(isAdmin)
   const l = (en: string, _ta?: string) => en
 
   const toErr = (err: unknown, fb: string) =>
