@@ -318,7 +318,7 @@ export default function AdvanceOrders({ onOrderCompleted, onOrderDeleted }: Adva
       setError('This order is already completed and has an official invoice.')
       return
     }
-    if (status === 'completed') { setPaymentOrder(order); return }
+    if (status === 'completed') { setError(''); setPaymentOrder(order); return }
     try { const updated = await updateAdvanceStatus(order.id, status); setOrders(rows => rows.map(row => row.id === order.id ? updated : row)); if (selected?.id === order.id) void openDetails(updated) } catch (err) { setError(err instanceof Error ? err.message : 'Unable to update status') }
   }
 
@@ -779,7 +779,7 @@ export default function AdvanceOrders({ onOrderCompleted, onOrderDeleted }: Adva
                         ['pending_deposit', 'waiting_final_payment', 'ready_for_delivery'].includes(order.status) && (
                         <button
                           type="button"
-                          onClick={() => setPaymentOrder(order)}
+                          onClick={() => { setError(''); setPaymentOrder(order) }}
                           className="flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 text-xs font-black shadow-xs transition-all active:scale-95 cursor-pointer whitespace-nowrap"
                           title="Receive Remaining Balance"
                         >
@@ -956,6 +956,8 @@ export default function AdvanceOrders({ onOrderCompleted, onOrderDeleted }: Adva
               </div>
             </div>
             <div className="sticky bottom-0 z-20 shrink-0 bg-[#FBFAF6] px-4 py-3 sm:px-6 sm:py-3.5 border-t border-gray-200 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:shadow-none">
+              {error && <p className="mb-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{error}</p>}
+              {!balanceValidation.isValid && balanceValidation.errorMessage && !error && <p className="mb-2 text-xs font-semibold text-red-600">{balanceValidation.errorMessage}</p>}
               <button disabled={saving || !balanceValidation.isValid} className="w-full min-h-[48px] rounded-xl bg-emerald-600 py-3 font-black text-white shadow-lg shadow-emerald-600/30 transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer hover:bg-emerald-700 flex items-center justify-center">
                 {saving?'Processing...':'Confirm Final Payment'}
               </button>
