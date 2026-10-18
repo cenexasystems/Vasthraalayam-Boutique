@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { Mail, ArrowLeft, CheckCircle, User, Phone as PhoneIcon } from 'lucide-react'
 import { supabase, isSupabaseConfigured } from '../lib/supabase'
-import { BRAND_EN, BRAND_TA } from '../lib/brand'
+import { useShopProfile } from '../lib/shopProfile'
 import { isValidPhone, getSubscriberDigits } from '../lib/phone'
 import { useLangStore } from '../store/langStore'
 import { alarmSound } from '../lib/alarmAudio'
@@ -34,6 +34,7 @@ function validate(name: string, phone: string, email: string): FieldError {
 }
 
 export default function Login() {
+  const shop = useShopProfile()
   const location   = useLocation()
   const { lang } = useLangStore()
   const l = (en: string, ta: string) => lang === 'ta' ? ta : en
@@ -103,8 +104,8 @@ export default function Login() {
           <div className="mb-3 inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-brand-black border border-[#7daa8f]/40 p-2 shadow-md">
             <span className="font-serif text-xl font-black text-brand-onDark">C</span>
           </div>
-          <h1 className="text-xl font-bold font-headline text-textMain text-center">{BRAND_EN}</h1>
-          <p className="text-[12px] text-textMuted mt-0.5 text-center">{BRAND_TA}</p>
+          <h1 className="text-xl font-bold font-headline text-textMain text-center">{shop.name}</h1>
+          <p className="text-[12px] text-textMuted mt-0.5 text-center">{shop.subtitle}</p>
           {redirectPath !== '/' && (
             <p className="mt-2.5 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full">
               Sign in to continue

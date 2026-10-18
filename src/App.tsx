@@ -2,7 +2,7 @@ import './index.css'
 import { lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useAuthStore, useProductStore, useVariantStore, useAdminAuthStore, useSettingsStore } from './store/store'
-import { BRAND_EN } from './lib/brand'
+import { useShopProfile } from './lib/shopProfile'
 import { clearLocalOrders } from './lib/ordersFallback'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
 import { LowStockAlarmModal } from './components/dashboard/LowStockAlarmModal'
@@ -94,6 +94,7 @@ function PosGuard({ children }: { children: React.ReactNode }) {
 }
 
 function AppShell() {
+  const shop = useShopProfile()
   const initialize = useAuthStore((state) => state.initialize)
   const fetchProducts = useProductStore((state) => state.fetchProducts)
   const fetchVariants = useVariantStore((state) => state.fetchVariants)
@@ -103,8 +104,8 @@ function AppShell() {
   useLowStockMonitor(hasStaffOrAdminAccess, role)
 
   useEffect(() => {
-    document.title = BRAND_EN
-  }, [])
+    document.title = shop.name
+  }, [shop.name])
 
   useEffect(() => {
     void useSettingsStore.getState().fetchSettings()

@@ -12,7 +12,7 @@ import {
   Package,
 } from 'lucide-react'
 import { inventoryService, type InventoryStockItem } from '../../services/inventoryService'
-import { BRAND_EN } from '../../lib/brand'
+import { getShopProfile } from '../../lib/shopProfile'
 import { useScrollLock } from '../../lib/scrollLock'
 
 export interface AdjustStockModalProps {
@@ -171,7 +171,7 @@ export const AdjustStockModal: React.FC<AdjustStockModalProps> = ({
             </div>
             <div>
               <h2 className="text-sm sm:text-base font-black tracking-wide text-white leading-tight">
-                Adjust Inventory Stock ({BRAND_EN})
+                Adjust Inventory Stock ({getShopProfile().name})
               </h2>
               <p className="text-[11px] text-[#7daa8f] font-semibold leading-tight">
                 Restock, remove stock, or reconcile physical count

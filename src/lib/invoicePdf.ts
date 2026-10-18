@@ -1,10 +1,11 @@
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
-import { BRAND_ADDRESS, BRAND_EN, BRAND_PHONE_DISPLAY } from './brand'
+import { getShopProfile, pdfLogo } from './shopProfile'
 import { formatCurrency, formatQuantityDisplay, normalizeStructuredOrderItem, formatInvoiceNo, toNumber } from './retail'
 import { LOGO_BASE64 } from './logoBase64'
 import { getInvoiceTheme } from './invoiceTheme'
 import { computeInvoiceBreakdown } from './invoiceBreakdown'
+import type { TaxRateGroup } from './taxHelper'
 
 export type InvoicePdfData = {
   invoiceNo: string
@@ -24,6 +25,7 @@ export type InvoicePdfData = {
   gstAmount?: number
   totalGst?: number
   gstRate?: number
+  rateGroups?: TaxRateGroup[]
   couponCode?: string | null
   couponPercentage?: number
   roundOff?: number
@@ -55,6 +57,7 @@ export function createInvoicePdf(data: InvoicePdfData): Blob {
   const accentColor = theme.accent
   const contrastColor = theme.contrast
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+  const shop = getShopProfile()
   const pageWidth = 210
   const left = 16
   const right = 194
@@ -82,18 +85,19 @@ export function createInvoicePdf(data: InvoicePdfData): Blob {
   const textMaxWidth = leftBlockMaxWidth - logoWidth - 4 // 110 - 24 = 86mm
 
   try {
-    doc.addImage(LOGO_BASE64, 'PNG', left, y, logoWidth, logoHeight)
+    const logo = pdfLogo(shop, LOGO_BASE64)
+    doc.addImage(logo.data, logo.format, left, y, logoWidth, logoHeight)
   } catch {
     doc.setTextColor(primaryColor)
     doc.setFontSize(16)
-    doc.text(BRAND_EN, left, y + 10)
+    doc.text(shop.name, left, y + 10)
   }
 
   // Business Name (wrapped if long)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(13)
   doc.setTextColor(primaryColor)
-  const brandLines = doc.splitTextToSize(BRAND_EN, textMaxWidth) as string[]
+  const brandLines = doc.splitTextToSize(shop.name, textMaxWidth) as string[]
   doc.text(brandLines, leftContentX, y + 4.5)
   let currentLeftY = y + 4.5 + brandLines.length * 5
 
@@ -101,13 +105,17 @@ export function createInvoicePdf(data: InvoicePdfData): Blob {
   doc.setFontSize(8)
   doc.setTextColor(muted)
   doc.setFont('helvetica', 'normal')
-  const addressLines = doc.splitTextToSize(BRAND_ADDRESS, textMaxWidth) as string[]
+  const addressLines = doc.splitTextToSize(shop.address, textMaxWidth) as string[]
   doc.text(addressLines, leftContentX, currentLeftY)
   currentLeftY += addressLines.length * 3.6
 
   // Phone
-  doc.text(`Phone: ${BRAND_PHONE_DISPLAY}`, leftContentX, currentLeftY + 1)
+  doc.text(`Phone: ${shop.phoneDisplay}${shop.secondaryPhoneDisplay ? ` / ${shop.secondaryPhoneDisplay}` : ''}`, leftContentX, currentLeftY + 1)
   currentLeftY += 5
+  if (shop.email) {
+    doc.text(`Email: ${shop.email}`, leftContentX, currentLeftY)
+    currentLeftY += 4
+  }
 
   // Right block: ONLY Date (Right-aligned, white-space nowrap, max-width ~35%, no payment text)
   const dateFormatted = new Date(data.date).toLocaleDateString('en-IN')
@@ -197,6 +205,7 @@ export function createInvoicePdf(data: InvoicePdfData): Blob {
     couponPercentage: data.couponPercentage,
     totalGst: data.totalGst ?? data.gstAmount,
     gstRate: data.gstRate,
+    rateGroups: data.rateGroups,
     deliveryCharge: data.deliveryCharge ?? data.shipping,
     shipping: data.shipping,
     roundOff: data.roundOff,

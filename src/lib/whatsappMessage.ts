@@ -1,6 +1,8 @@
 import { formatInvoiceNo, formatDepositId, toNumber } from './retail'
-import { BRAND_EN, BRAND_INSTAGRAM, BRAND_INSTAGRAM_URL, BRAND_PRIMARY_PHONE_DISPLAY, getPublicBaseUrl } from './brand'
+import { getPublicBaseUrl } from './brand'
+import { getShopProfile } from './shopProfile'
 import { computeInvoiceBreakdown } from './invoiceBreakdown'
+import type { TaxRateGroup } from './taxHelper'
 
 export type WhatsAppLineItem = {
   name: string
@@ -54,6 +56,7 @@ export type BuildWhatsAppMessageInput = {
   gstAmount?: number
   totalGst?: number
   gstRate?: number
+  rateGroups?: TaxRateGroup[]
   roundOff?: number
   total?: number
 }
@@ -87,6 +90,7 @@ export const publicDepositUrl = buildPublicDepositUrl
 
 export const buildProfessionalWhatsAppMessage = (input: BuildWhatsAppMessageInput) => {
   const customerName = input.customerName?.trim() || 'Valued Customer'
+  const shop = getShopProfile()
   const invoiceUrl = input.invoiceUrl || publicInvoiceUrl(input.invoiceNumber)
   const formattedNo = formatInvoiceNo(input.invoiceNumber)
 
@@ -102,6 +106,7 @@ export const buildProfessionalWhatsAppMessage = (input: BuildWhatsAppMessageInpu
     couponPercentage: input.couponPercentage,
     totalGst: input.totalGst ?? input.gstAmount,
     gstRate: input.gstRate,
+    rateGroups: input.rateGroups,
     deliveryCharge: input.deliveryCharge ?? input.shipping,
     shipping: input.shipping,
     roundOff: input.roundOff,
@@ -170,12 +175,12 @@ export const buildProfessionalWhatsAppMessage = (input: BuildWhatsAppMessageInpu
     paymentSection = `💳 *PAYMENT DETAILS:*\n${lines.join('\n')}`
   }
 
-  return `✨ *${BRAND_EN}* ✨
+  return `✨ *${shop.name}* ✨
 🛍️ *Official Purchase Invoice & Receipt* 🛍️
 
 Dear ${customerName},
 
-Thank you for shopping at ${BRAND_EN}! We truly appreciate your patronage.
+Thank you for shopping at ${shop.name}! We truly appreciate your patronage.
 
 🧾 *INVOICE DETAILS*
 📌 *Invoice No:* #${formattedNo}
@@ -183,14 +188,15 @@ ${input.invoiceDate ? `📅 *Date:* ${new Date(input.invoiceDate).toLocaleDateSt
 ${itemsText ? `📦 *ITEMS ORDERED:*\n${itemsText}\n\n` : ''}💰 *BILL BREAKDOWN:*\n${breakdownLines}\n\n${paymentSection ? `${paymentSection}\n\n` : ''}📄 *View & Download Digital Invoice / PDF:*
 👉 ${invoiceUrl}
 
-📞 *Shop Contact:* ${BRAND_PRIMARY_PHONE_DISPLAY}
-📷 *Follow us on Instagram:* ${BRAND_INSTAGRAM_URL}
-
+📞 *Shop Contact:* ${shop.phoneDisplay}${shop.secondaryPhoneDisplay ? ` / ${shop.secondaryPhoneDisplay}` : ''}
+${shop.instagramUrl ? `📷 *Follow us on Instagram:* ${shop.instagramUrl}
+` : ''}
 Thank you, and visit us again! ✨`
 }
 
 export const buildAdvanceDepositWhatsAppMessage = (input: AdvanceDepositWhatsAppInput) => {
   const customerName = input.customerName?.trim() || 'Valued Customer'
+  const shop = getShopProfile()
   const deliveryDateFormatted = input.expectedDeliveryDate
     ? (() => {
         try {
@@ -205,7 +211,7 @@ export const buildAdvanceDepositWhatsAppMessage = (input: AdvanceDepositWhatsApp
       })()
     : '-'
 
-  return `✨ *Thank You for Your Advance Order with ${BRAND_EN}!* ✨
+  return `✨ *Thank You for Your Advance Order with ${shop.name}!* ✨
 
 Dear ${customerName},
 
@@ -224,6 +230,6 @@ Your garments are being prepared with utmost care. We will have everything ready
 📄 *View & Download Digital Deposit Receipt:*
 👉 ${input.receiptUrl || buildPublicDepositUrl(input.depositId)}
 
-📞 *Shop Contact:* ${BRAND_PRIMARY_PHONE_DISPLAY}
-📷 *Instagram:* @${BRAND_INSTAGRAM}`
+📞 *Shop Contact:* ${shop.phoneDisplay}${shop.secondaryPhoneDisplay ? ` / ${shop.secondaryPhoneDisplay}` : ''}
+${shop.instagram ? `📷 *Instagram:* @${shop.instagram}` : ''}`
 }

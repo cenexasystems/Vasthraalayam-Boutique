@@ -1,5 +1,5 @@
 import React from 'react'
-import { BRAND_ADDRESS, BRAND_EN, BRAND_INSTAGRAM, BRAND_PRIMARY_PHONE_DISPLAY, BRAND_ICON } from '../lib/brand'
+import { useShopProfile } from '../lib/shopProfile'
 import { formatCurrency, formatQuantityDisplay, normalizeStructuredOrderItem, formatInvoiceNo, toNumber } from '../lib/retail'
 import { computeInvoiceBreakdown } from '../lib/invoiceBreakdown'
 
@@ -86,6 +86,7 @@ export const Invoice: React.FC<InvoiceProps> = ({
   balanceDue,
 }) => {
   const formattedInvoiceNo = formatInvoiceNo(invoiceNo)
+  const shop = useShopProfile()
   const dateStr = (() => {
     try { return new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) }
     catch { return new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) }
@@ -147,18 +148,19 @@ export const Invoice: React.FC<InvoiceProps> = ({
         {/* Left block (logo, business name, address, phone) with min-width: 0 taking remaining space */}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, minWidth: 0, flex: 1 }}>
           <div style={{ width: 56, height: 56, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <img src={BRAND_ICON} alt={BRAND_EN} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+            <img src={shop.logo} alt={shop.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
           </div>
           <div style={{ minWidth: 0, flex: 1, wordBreak: 'break-word' }}>
             <div style={{ fontSize: 20, fontWeight: 900, color: 'var(--invoice-primary, #1F3A2E)', letterSpacing: 1.5, textTransform: 'uppercase', lineHeight: 1.2 }}>
-              {BRAND_EN}
+              {shop.name}
             </div>
             <div style={{ fontSize: 11, color: '#4b5563', marginTop: 4, fontWeight: 500, lineHeight: 1.4 }}>
-              {BRAND_ADDRESS}
+              {shop.address}
             </div>
             <div style={{ fontSize: 11, color: '#4b5563', marginTop: 4, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <span>📞 {BRAND_PRIMARY_PHONE_DISPLAY}</span>
-              <span>📷 @{BRAND_INSTAGRAM}</span>
+              <span>📞 {shop.phoneDisplay}{shop.secondaryPhoneDisplay ? ` / ${shop.secondaryPhoneDisplay}` : ''}</span>
+              {shop.email && <span>✉️ {shop.email}</span>}
+              {shop.instagram && <span>📷 @{shop.instagram}</span>}
             </div>
           </div>
         </div>
@@ -446,11 +448,13 @@ export const Invoice: React.FC<InvoiceProps> = ({
         }}
       >
         <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--invoice-primary, #1F3A2E)', letterSpacing: 0.5 }}>
-          Thank you for shopping at VASTHRAALAYAM BOUTIQUE!
+          Thank you for shopping at {shop.name}!
         </div>
-        <div style={{ fontSize: 10, color: '#666', marginTop: 3, fontWeight: 500 }}>
-          Follow us on Instagram: @{BRAND_INSTAGRAM}
-        </div>
+        {shop.instagram && (
+          <div style={{ fontSize: 10, color: '#666', marginTop: 3, fontWeight: 500 }}>
+            Follow us on Instagram: @{shop.instagram}
+          </div>
+        )}
       </div>
     </div>
   )

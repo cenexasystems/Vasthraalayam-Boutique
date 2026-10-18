@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react'
 import { renderBarcodeSvg, getLabelRenderMetrics } from '../../lib/barcode'
-import { BRAND_EN } from '../../lib/brand'
+import { getShopProfile } from '../../lib/shopProfile'
 import { formatCurrency } from '../../lib/retail'
 
 export interface BarcodeLabelProps {
@@ -20,7 +20,7 @@ export const BarcodeLabel: React.FC<BarcodeLabelProps> = ({
   barcodeValue,
   price,
   mrp,
-  storeName = BRAND_EN,
+  storeName = getShopProfile().name,
   widthMm = 50,
   heightMm = 30,
 }) => {

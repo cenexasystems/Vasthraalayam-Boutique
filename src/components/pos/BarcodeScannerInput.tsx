@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Camera, X, AlertCircle, Sparkles, ScanLine, SwitchCamera } from 'lucide-react'
 import { BrowserMultiFormatReader, type IScannerControls } from '@zxing/browser'
 import { barcodeService } from '../../services/barcodeService'
-import { BRAND_EN } from '../../lib/brand'
+import { getShopProfile } from '../../lib/shopProfile'
 import { normalizeBarcode } from '../../lib/barcode'
 
 export interface ScannedItemPayload {
@@ -137,7 +137,7 @@ export const BarcodeScannerInput: React.FC<BarcodeScannerInputProps> = ({
 
       if (!record || !record.product) {
         playBeep(false)
-        setErrorMsg(`Barcode "${clean}" not recognized in ${BRAND_EN} catalog`)
+        setErrorMsg(`Barcode "${clean}" not recognized in ${getShopProfile().name} catalog`)
         return
       }
 

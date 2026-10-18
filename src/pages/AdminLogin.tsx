@@ -1,19 +1,21 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Lock, Eye, EyeOff, AlertCircle, ShieldCheck } from 'lucide-react'
-import { useAdminAuthStore, useSettingsStore } from '../store/store'
-import { BRAND_EN, BRAND_TA, BRAND_SUBTITLE, BRAND_LOGO } from '../lib/brand'
+import { useAdminAuthStore } from '../store/store'
+import { BRAND_LOGO } from '../lib/brand'
+import { useShopProfile } from '../lib/shopProfile'
 import { useLangStore } from '../store/langStore'
 import { alarmSound } from '../lib/alarmAudio'
 import { useAlarmStore } from '../store/alarmStore'
 
 export default function AdminLogin() {
+  const shop = useShopProfile()
   const navigate = useNavigate()
   const location = useLocation()
   const { lang } = useLangStore()
   const l = (en: string, ta: string) => lang === 'ta' ? ta : en
   const login = useAdminAuthStore((state) => state.login)
-  const logoUrl = useSettingsStore((state) => state.settings?.logoUrl) || BRAND_LOGO
+  const logoUrl = shop.hasCustomLogo ? shop.logo : BRAND_LOGO
 
   const [portalId, setPortalId] = useState('')
   const [password, setPassword] = useState('')
@@ -56,13 +58,13 @@ export default function AdminLogin() {
       <div className="relative grid w-full max-w-4xl max-h-[92vh] overflow-hidden rounded-3xl border border-gray-200/90 bg-[#223126] shadow-[0_25px_60px_-12px_rgba(0,0,0,0.25),0_12px_28px_-6px_rgba(0,0,0,0.15)] lg:grid-cols-[0.85fr_1.15fr]">
         <div className="hidden flex-col justify-between items-center bg-brand-black border-r border-[#7daa8f]/20 p-8 lg:p-10 text-white lg:flex overflow-y-auto hide-scrollbar">
           <div className="w-full flex items-center justify-between">
-            <p className="text-[11px] font-black uppercase tracking-[0.26em] text-brand-onDark">{BRAND_SUBTITLE}</p>
+            <p className="text-[11px] font-black uppercase tracking-[0.26em] text-brand-onDark">{shop.subtitle}</p>
           </div>
           <div className="my-auto flex flex-col items-center justify-center py-6 w-full">
             <div className="relative p-2 sm:p-2.5 rounded-3xl bg-[#223126] border border-[#7daa8f]/40 shadow-[0_20px_50px_rgba(0,0,0,0.5),0_0_40px_rgba(125, 170, 143,0.15)] flex items-center justify-center max-w-[280px] w-full aspect-square overflow-hidden">
               <img
                 src={logoUrl}
-                alt={BRAND_EN}
+                alt={shop.name}
                 className="w-full h-full object-contain rounded-2xl filter drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)]"
               />
             </div>
@@ -77,14 +79,11 @@ export default function AdminLogin() {
             {/* Mobile-only logo (since left panel is hidden on mobile) */}
             <div className="mb-4 lg:hidden flex justify-center">
               <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-[#223126] border border-[#7daa8f]/40 p-1 flex items-center justify-center shadow-lg overflow-hidden">
-                <img src={logoUrl} alt={BRAND_EN} className="w-full h-full object-contain rounded-xl" />
+                <img src={logoUrl} alt={shop.name} className="w-full h-full object-contain rounded-xl" />
               </div>
             </div>
-            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#5f6d59]">{BRAND_SUBTITLE}</p>
-            <h1 className="mt-1 text-2xl sm:text-3xl font-black tracking-tight text-brand-black">{BRAND_EN}</h1>
-            {BRAND_TA && BRAND_TA !== BRAND_EN && (
-              <p className="mt-0.5 text-xs font-semibold text-[#7A786F]">{BRAND_TA}</p>
-            )}
+            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#5f6d59]">{shop.subtitle}</p>
+            <h1 className="mt-1 text-2xl sm:text-3xl font-black tracking-tight text-brand-black">{shop.name}</h1>
             <p className="mt-2.5 inline-flex items-center gap-1.5 rounded-full border border-[#7daa8f] bg-[#FBFAF6] px-3 py-1 text-[10px] font-black uppercase tracking-wider text-brand-black">
               <ShieldCheck size={12} className="text-[#5f6d59]" />
               {l('Admin / Staff Portal', 'நிர்வாக நுழைவு')}
@@ -162,7 +161,7 @@ export default function AdminLogin() {
               ) : (
                 <>
                   <Lock size={14} />
-                  {l(`Sign In to ${BRAND_EN} Portal`, `${BRAND_EN} போர்ட்டலில் உள்நுழை`)}
+                  {l(`Sign In to ${shop.name} Portal`, `${shop.name} போர்ட்டலில் உள்நுழை`)}
                 </>
               )}
             </button>

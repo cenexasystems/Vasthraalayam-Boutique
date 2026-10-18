@@ -2,7 +2,7 @@ import JsBarcode from 'jsbarcode'
 import { QRCodeWriter, BarcodeFormat } from '@zxing/library'
 import { jsPDF } from 'jspdf'
 import { neonApi } from './neonApi'
-import { BRAND_EN } from './brand'
+import { getShopProfile } from './shopProfile'
 import { formatCurrency } from './retail'
 
 /** Normalize any scanned or user-entered barcode to a consistent UPPERCASE trimmed string. */
@@ -1414,7 +1414,7 @@ export async function downloadLabelsPdf(
         doc.setFontSize(8 * profile.font_scale)
         if (profile.show_business_name) {
           doc.setFont('helvetica', 'bold')
-          doc.text(item.header || BRAND_EN, x + size.width_mm / 2, y + 3, { align: 'center' })
+          doc.text(item.header || getShopProfile().name, x + size.width_mm / 2, y + 3, { align: 'center' })
         }
         if (profile.show_product_name) {
           doc.setFont('helvetica', 'normal')
@@ -1448,7 +1448,7 @@ export async function downloadLabelsPdf(
       if (!metrics.isVerySmall && profile.show_business_name) {
         doc.setFont('helvetica', 'bold')
         doc.setFontSize(7 * profile.font_scale)
-        doc.text(item.header || BRAND_EN, x + size.width_mm / 2, y + 3, { align: 'center' })
+        doc.text(item.header || getShopProfile().name, x + size.width_mm / 2, y + 3, { align: 'center' })
       }
       if (!metrics.isVerySmall && profile.show_product_name) {
         doc.setFont('helvetica', 'normal')

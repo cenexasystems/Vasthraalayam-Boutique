@@ -3,25 +3,11 @@ import { Leaf, Phone, MapPin } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useLangStore } from '../store/langStore'
 import { useProductStore } from '../store/store'
-import {
-  BRAND_EN,
-  BRAND_SUBTITLE,
-  BRAND_LOCATION_LINK,
-  BRAND_PRIMARY_PHONE_DISPLAY,
-  BRAND_PRIMARY_PHONE_E164,
-  BRAND_SECONDARY_PHONE_DISPLAY,
-  BRAND_SECONDARY_PHONE_E164,
-  BRAND_THIRD_PHONE_DISPLAY,
-  BRAND_THIRD_PHONE_E164,
-  BRAND_ADDRESS,
-  BRAND_LOGO,
-  BRAND_ICON,
-  BRAND_INSTAGRAM,
-  BRAND_INSTAGRAM_URL,
-} from '../lib/brand'
+import { useShopProfile } from '../lib/shopProfile'
 
 export default function Footer() {
   const { t } = useLangStore()
+  const shop = useShopProfile()
   const products = useProductStore((state) => state.products)
 
   const categories = useMemo(() => {
@@ -40,13 +26,13 @@ export default function Footer() {
   const contactNumbers = [
     {
       label: t('footer.primary_number'),
-      display: BRAND_PRIMARY_PHONE_DISPLAY,
-      href: `tel:${BRAND_PRIMARY_PHONE_E164}`,
+      display: shop.phoneDisplay,
+      href: `tel:+${shop.phoneE164}`,
     },
-    ...(BRAND_SECONDARY_PHONE_DISPLAY !== BRAND_PRIMARY_PHONE_DISPLAY ? [{
+    ...(shop.secondaryPhoneDisplay && shop.secondaryPhoneDisplay !== shop.phoneDisplay ? [{
       label: t('footer.secondary_number'),
-      display: BRAND_SECONDARY_PHONE_DISPLAY,
-      href: `tel:${BRAND_SECONDARY_PHONE_E164}`,
+      display: shop.secondaryPhoneDisplay,
+      href: `tel:+${shop.secondaryPhoneE164}`,
     }] : []),
   ]
 
@@ -69,11 +55,11 @@ export default function Footer() {
         <div className="md:col-span-1">
           <div className="flex items-center gap-2.5 mb-4">
             <div className="w-10 h-10 bg-brand-black border border-[#7daa8f]/50 rounded-xl flex items-center justify-center p-1 overflow-hidden shrink-0">
-              <img src={BRAND_ICON} alt={BRAND_EN} className="w-full h-full object-contain" />
+              <img src={shop.logo} alt={shop.name} className="w-full h-full object-contain" />
             </div>
             <div>
-              <p className="font-bold text-white text-base sm:text-lg font-headline leading-tight">{BRAND_EN}</p>
-              <p className="text-[10px] uppercase tracking-[0.2em] text-sage font-bold">{BRAND_SUBTITLE}</p>
+              <p className="font-bold text-white text-base sm:text-lg font-headline leading-tight">{shop.name}</p>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-sage font-bold">{shop.subtitle}</p>
             </div>
           </div>
           <p className="text-sm text-gray-400 leading-relaxed mb-4">{t('footer.desc')}</p>
@@ -101,8 +87,8 @@ export default function Footer() {
             <li className="flex items-start gap-3">
               <MapPin size={15} className="text-sage mt-0.5 shrink-0" />
               <div className="flex flex-col gap-1">
-                <a href={BRAND_LOCATION_LINK} target="_blank" rel="noreferrer" className="hover:text-white transition-colors">Google Maps</a>
-                <span className="text-[11px] leading-relaxed text-gray-500 max-w-[260px]">{BRAND_ADDRESS}</span>
+                <a href={shop.locationLink} target="_blank" rel="noreferrer" className="hover:text-white transition-colors">Google Maps</a>
+                <span className="text-[11px] leading-relaxed text-gray-500 max-w-[260px]">{shop.address}</span>
               </div>
             </li>
             {contactNumbers.map((contact) => (
@@ -114,14 +100,14 @@ export default function Footer() {
                 </div>
               </li>
             ))}
-            {BRAND_INSTAGRAM && (
+            {shop.instagram && (
               <li className="flex items-start gap-3 flex-wrap">
                 <svg className="w-4 h-4 text-sage mt-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect width="20" height="20" x="2" y="2" rx="5" ry="5"/>
                   <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/>
                   <line x1="17.5" x2="17.51" y1="6.5" y2="6.5"/>
                 </svg>
-                <a href={BRAND_INSTAGRAM_URL} target="_blank" rel="noreferrer" className="min-w-0 break-all hover:text-white transition-colors">@{BRAND_INSTAGRAM}</a>
+                <a href={shop.instagramUrl} target="_blank" rel="noreferrer" className="min-w-0 break-all hover:text-white transition-colors">@{shop.instagram}</a>
               </li>
             )}
           </ul>

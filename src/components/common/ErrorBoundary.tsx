@@ -1,6 +1,6 @@
 import React, { Component, type ErrorInfo, type ReactNode } from 'react'
 import { AlertCircle, RefreshCw, Home } from 'lucide-react'
-import { BRAND_EN } from '../../lib/brand'
+import { getShopProfile } from '../../lib/shopProfile'
 
 interface Props {
   children: ReactNode
@@ -72,7 +72,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 Something went wrong
               </h2>
               <p className="text-xs text-gray-500 mt-1.5 font-medium">
-                {BRAND_EN} encountered an unexpected display exception. Your data and orders remain safe.
+                {getShopProfile().name} encountered an unexpected display exception. Your data and orders remain safe.
               </p>
             </div>
 
