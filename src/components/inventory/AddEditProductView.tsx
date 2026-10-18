@@ -103,12 +103,36 @@ export const AddEditProductView: React.FC<{
     if (val === '') {
       setGstPercent('')
       setGstAmount('')
+      const oldRate = Number(gstPercent) || 0
+      setVariantRows((prev) => prev.map((row) => {
+        if (Number(row.gstRate) !== oldRate) return row
+        const base = Number(row.price) || 0
+        return { ...row, gstRate: '', gstAmount: '0', finalPrice: base > 0 ? String(base) : '' }
+      }))
       return
     }
     const num = Number(val)
     if (isNaN(num)) return
     const clamped = Math.max(0, Math.min(100, num))
+    const oldRate = Number(gstPercent) || 0
     setGstPercent(val)
+    setVariantRows((prev) => prev.map((row) => {
+      if (row.gstRate !== '' && row.gstRate != null && Number(row.gstRate) !== oldRate) return row
+      const base = Number(row.price) || 0
+      const final = Number(row.finalPrice) || 0
+      const fromFinal = row.lastEditedField === 'final' && final > 0
+      if (clamped <= 0) {
+        return { ...row, gstRate: val, gstAmount: '0', finalPrice: base > 0 ? String(base) : '', lastEditedField: 'base' }
+      }
+      const pricing = fromFinal ? calculateGstFromFinal(final, clamped) : calculateGstFromBase(base, clamped)
+      return {
+        ...row,
+        gstRate: val,
+        price: pricing.basePrice,
+        finalPrice: String(pricing.finalPrice),
+        gstAmount: String(pricing.gstAmount),
+      }
+    }))
     if (lockedFinal !== null && clamped > 0) {
       applyInclusive(lockedFinal, clamped)
       return
@@ -201,6 +225,10 @@ export const AddEditProductView: React.FC<{
     } else {
       setGstPercent('')
       setGstAmount('')
+      setVariantRows((prev) => prev.map((row) => {
+        const base = Number(row.price) || 0
+        return { ...row, gstRate: '', gstAmount: '', finalPrice: base > 0 ? String(base) : '' }
+      }))
     }
   }
 
@@ -284,10 +312,11 @@ export const AddEditProductView: React.FC<{
         setVariantRows(
           vars.map((v) => {
             const vPrice = Number(v.price) || 0
+            const vGst = Number(v.gstPercent ?? pGst) || 0
             let finalPriceStr = ''
             let gstAmountStr = ''
-            if (pGst > 0 && vPrice > 0) {
-              const res = calculateGstFromBase(vPrice, pGst)
+            if (vGst > 0 && vPrice > 0) {
+              const res = calculateGstFromBase(vPrice, vGst)
               finalPriceStr = String(res.finalPrice)
               gstAmountStr = String(res.gstAmount)
             } else if (v.mrp && Number(v.mrp) > 0) {
@@ -301,7 +330,7 @@ export const AddEditProductView: React.FC<{
               costPrice: v.purchasePrice || 0,
               stock: v.stock || 0,
               customBarcode: v.barcode || '',
-              gstRate: pGst > 0 ? String(pGst) : '',
+              gstRate: vGst > 0 ? String(vGst) : '',
               finalPrice: finalPriceStr,
               gstAmount: gstAmountStr,
               lastEditedField: 'base' as const,
@@ -733,6 +762,7 @@ export const AddEditProductView: React.FC<{
                 purchase_price: vCost,
                 stock: vStock,
                 barcode: v.customBarcode?.trim() || null,
+                gst_percent: Number(v.gstRate || effectiveGstPercent) || 0,
               })
 
               if (!vErr && createdVar && vStock > 0) {
@@ -764,6 +794,7 @@ export const AddEditProductView: React.FC<{
                 purchase_price: vCost,
                 stock: vStock,
                 barcode: v.customBarcode?.trim() || null,
+                gst_percent: Number(v.gstRate || effectiveGstPercent) || 0,
               })
 
               if (varDelta !== 0) {
@@ -915,6 +946,7 @@ export const AddEditProductView: React.FC<{
               purchase_price: vCost,
               stock: vStock,
               barcode: v.customBarcode?.trim() || null,
+              gst_percent: Number(v.gstRate || effectiveGstPercent) || 0,
             })
 
             if (createdVar && normalizeBarcode(v.customBarcode)) {
@@ -1933,7 +1965,7 @@ export const AddEditProductView: React.FC<{
                                   max="100"
                                   step="0.01"
                                   placeholder="e.g. 5, 12, 18"
-                                  value={v.gstRate ?? (gstPercent || '')}
+                                  value={v.gstRate || (gstPercent || '')}
                                   onChange={(e) => handleUpdateVariantRow(v.id, 'gstRate', e.target.value)}
                                   className="w-full h-9 px-2.5 rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                 />
@@ -2063,7 +2095,7 @@ export const AddEditProductView: React.FC<{
                                   max="100"
                                   step="0.01"
                                   placeholder="Rate %"
-                                  value={v.gstRate ?? (gstPercent || '')}
+                                  value={v.gstRate || (gstPercent || '')}
                                   onChange={(e) => handleUpdateVariantRow(v.id, 'gstRate', e.target.value)}
                                   className="w-full h-8 px-1 text-center rounded-lg border border-gray-300 bg-white text-xs font-bold text-gray-900 outline-none focus:border-brand-black [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                 />

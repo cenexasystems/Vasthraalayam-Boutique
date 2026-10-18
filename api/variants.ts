@@ -10,13 +10,13 @@ import { methodRouter } from './_lib/handler.js'
 const VARIANT_COLUMNS = `
   id, product_id, variant_name, size_label, weight_value, weight_unit,
   sku, barcode, purchase_price, mrp, price, stock, is_default, is_active,
-  sort_order, image_url, group_name
+  sort_order, image_url, group_name, gst_percent
 `
 
 const WRITABLE_COLUMNS = new Set([
   'product_id', 'variant_name', 'size_label', 'weight_value', 'weight_unit',
   'sku', 'barcode', 'purchase_price', 'mrp', 'price', 'stock', 'is_default',
-  'is_active', 'sort_order', 'image_url', 'group_name',
+  'is_active', 'sort_order', 'image_url', 'group_name', 'gst_percent',
 ])
 
 async function list(req: VercelRequest, res: VercelResponse) {

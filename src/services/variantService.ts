@@ -18,6 +18,7 @@ export type ProductVariant = {
   sortOrder: number
   imageUrl: string | null
   groupName: string | null   // Brand name for Type D (Brand+Weight) products e.g. "Sithanathan"
+  gstPercent: number | null
 }
 
 export type VariantInput = {
@@ -35,6 +36,7 @@ export type VariantInput = {
   isDefault?: boolean
   sortOrder?: number
   imageUrl?: string | null
+  gstPercent?: number | null
 }
 
 function mapVariant(r: Record<string, unknown>): ProductVariant {
@@ -56,6 +58,7 @@ function mapVariant(r: Record<string, unknown>): ProductVariant {
     sortOrder:   Number(r.sort_order ?? 0),
     imageUrl:    r.image_url ? String(r.image_url) : null,
     groupName:   r.group_name ? String(r.group_name) : null,
+    gstPercent:  r.gst_percent != null ? Number(r.gst_percent) : null,
   }
 }
 
@@ -100,6 +103,7 @@ export async function createVariant(input: VariantInput): Promise<{ data: Produc
     is_default:   input.isDefault ?? false,
     sort_order:   input.sortOrder ?? 0,
     image_url:    input.imageUrl ?? null,
+    gst_percent:  input.gstPercent ?? null,
   })
 
   if (error || !data) return { data: null, error: error?.message ?? 'Failed to create variant' }
@@ -124,6 +128,7 @@ export async function updateVariant(
   if (updates.isDefault     !== undefined) payload.is_default     = updates.isDefault
   if (updates.sortOrder     !== undefined) payload.sort_order     = updates.sortOrder
   if (updates.imageUrl      !== undefined) payload.image_url      = updates.imageUrl
+  if (updates.gstPercent    !== undefined) payload.gst_percent    = updates.gstPercent
 
   const { error } = await neonApi.put(`/variants/${id}`, payload)
   return { error: error?.message ?? null }
