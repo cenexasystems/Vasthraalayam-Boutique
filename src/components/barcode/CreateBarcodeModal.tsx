@@ -30,7 +30,7 @@ import {
   downloadTestLabelPdf,
   downloadLabelsPdf,
 } from '../../lib/barcode'
-import { BRAND_EN } from '../../lib/brand'
+import { getShopProfile } from '../../lib/shopProfile'
 import { barcodeService } from '../../services/barcodeService'
 import { fetchVariantsByProduct, type ProductVariant } from '../../services/variantService'
 import { useProductStore } from '../../store/store'
@@ -115,7 +115,7 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
 
   const [itemCode, setItemCode] = useState('')
   const [noOfLabels, setNoOfLabels] = useState<string>('1')
-  const [header, setHeader] = useState(BRAND_EN)
+  const [header, setHeader] = useState(() => getShopProfile().name)
   const [line1, setLine1] = useState('')
   const [line2, setLine2] = useState('')
   const [line3, setLine3] = useState('Discount: 0%')
@@ -487,7 +487,7 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
 
         return `
           <div class="label-sticker">
-            ${activeProfile.show_business_name ? `<div class="header">${item.header || BRAND_EN}</div>` : ''}
+            ${activeProfile.show_business_name ? `<div class="header">${item.header || getShopProfile().name}</div>` : ''}
             ${activeProfile.show_product_name ? `<div class="prod-title">${fullTitle}</div>` : ''}
             <div class="barcode-box">
               ${svgMarkup}
@@ -1049,7 +1049,7 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
                               price: withGst(v.price || selectedProduct.price, selectedProduct.gstPercent),
                               costPrice: selectedProduct.cost_price || 0,
                               noOfLabels: parseInt(noOfLabels, 10) || 1,
-                              header: header || BRAND_EN,
+                              header: header || getShopProfile().name,
                               line1: selectedProduct.name,
                               line2: `Size: ${v.variantName}`,
                               line3: settings.showDiscount ? 'Discount: 0%' : `Price: ₹${withGst(v.price || selectedProduct.price, selectedProduct.gstPercent)}`,
@@ -1223,7 +1223,7 @@ export const CreateBarcodeModal: React.FC<CreateBarcodeModalProps> = ({
                               className="font-black uppercase tracking-wider text-gray-900 leading-none truncate max-w-[78%]"
                               style={{ fontSize: `${Math.max(8, Math.round(previewHeightPx * 0.085 * (activeProfile.font_scale || 1.0)))}px` }}
                             >
-                              {header || BRAND_EN}
+                              {header || getShopProfile().name}
                             </span>
                           )}
 

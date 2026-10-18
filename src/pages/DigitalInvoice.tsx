@@ -10,7 +10,7 @@ import { normalizeStructuredOrderItem, toNumber, computeOrderTotal, roundTo } fr
 import { buildProfessionalWhatsAppMessage, buildAdvanceDepositWhatsAppMessage } from '../lib/whatsappMessage'
 import { toWhatsAppUrl } from '../lib/phone'
 import { applyInvoiceTheme } from '../lib/invoiceTheme'
-import { BRAND_EN } from '../lib/brand'
+import { getShopProfile } from '../lib/shopProfile'
 
 
 export default function DigitalInvoice() {
@@ -140,7 +140,7 @@ export default function DigitalInvoice() {
             await navigator.share({
               files: [file],
               title: isDeposit ? `Receipt #${invoice.deposit_id || invoice.invoice_no}` : `Invoice #${invoice.invoice_no}`,
-              text: `${isDeposit ? 'Advance Receipt' : 'Invoice'} #${invoice.deposit_id || invoice.invoice_no} from ${BRAND_EN}`,
+              text: `${isDeposit ? 'Advance Receipt' : 'Invoice'} #${invoice.deposit_id || invoice.invoice_no} from ${getShopProfile().name}`,
             })
             setDownloadingPdf(false)
             setTimeout(() => URL.revokeObjectURL(url), 60000)

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { X, History, ArrowUpRight, ArrowDownRight, RefreshCw } from 'lucide-react'
 import { inventoryService, type InventoryMovement, type InventoryStockItem } from '../../services/inventoryService'
 import { fmtQty, toNumber } from '../../lib/retail'
-import { BRAND_EN } from '../../lib/brand'
+import { getShopProfile } from '../../lib/shopProfile'
 
 export interface StockHistoryDrawerProps {
   isOpen: boolean
@@ -104,7 +104,7 @@ export const StockHistoryDrawer: React.FC<StockHistoryDrawerProps> = ({
                 Stock Audit Ledger
               </h2>
               <p className="text-xs text-[#7daa8f] font-semibold">
-                {BRAND_EN} Immutable History
+                {getShopProfile().name} Immutable History
               </p>
             </div>
           </div>

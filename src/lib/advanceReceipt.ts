@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf'
-import { BRAND_ADDRESS, BRAND_EMAIL, BRAND_EN, BRAND_PHONE_DISPLAY, BRAND_PRIMARY_PHONE_DISPLAY, BRAND_INSTAGRAM } from './brand'
+import { getShopProfile, pdfLogo } from './shopProfile'
 import { LOGO_BASE64 } from './logoBase64'
 import { getMonochromeThermalLogo } from './thermalLogo'
 import { formatCurrency, toNumber, roundTo } from './retail'
@@ -52,18 +52,20 @@ export function advanceReceiptPdf(order: AdvanceOrder) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   doc.setFillColor(theme.primary)
   doc.rect(0, 0, 210, 5, 'F')
-  try { doc.addImage(LOGO_BASE64, 'PNG', 16, 9, 16, 16) } catch (_err) { /* ignore missing logo */ }
+  const shop = getShopProfile()
+  const logo = pdfLogo(shop, LOGO_BASE64)
+  try { doc.addImage(logo.data, logo.format, 16, 9, 16, 16) } catch (_err) { /* ignore missing logo */ }
   doc.setTextColor(theme.primary)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(18)
-  doc.text(BRAND_EN.toUpperCase(), 38, 20)
+  doc.text(shop.name.toUpperCase(), 38, 20)
   doc.setTextColor('#6b7280')
   doc.setFontSize(8)
   doc.text('ADVANCE RECEIPT - NOT A TAX INVOICE', 38, 26)
 
   doc.setFont('helvetica', 'normal')
-  doc.text(BRAND_ADDRESS, 194, 20, { align: 'right', maxWidth: 76 })
-  doc.text(BRAND_PRIMARY_PHONE_DISPLAY, 194, 30, { align: 'right' })
+  doc.text(shop.address, 194, 20, { align: 'right', maxWidth: 76 })
+  doc.text(shop.phoneDisplay, 194, 30, { align: 'right' })
   doc.setDrawColor(theme.primary)
   doc.line(16, 38, 194, 38)
   doc.setTextColor('#111827')
@@ -158,7 +160,8 @@ export function advanceReceiptPdf(order: AdvanceOrder) {
 
 export async function printAdvanceReceipt(order: AdvanceOrder) {
   try {
-    const thermalLogo = await getMonochromeThermalLogo()
+    const shop = getShopProfile()
+    const thermalLogo = shop.hasCustomLogo ? shop.logo : await getMonochromeThermalLogo()
     const frame = document.createElement('iframe')
     frame.style.cssText = 'position:fixed;width:0;height:0;border:0;right:0;bottom:0;visibility:hidden;'
     frame.setAttribute('aria-hidden', 'true')
@@ -238,11 +241,11 @@ export async function printAdvanceReceipt(order: AdvanceOrder) {
 </style>
 </head><body>
 <div class="c" style="margin-bottom: 4px;">
-  ${thermalLogo ? `<img src="${thermalLogo}" style="width: 32mm; max-width: 40%; height: auto; object-fit: contain; margin: 0 auto 5px auto; display: block;" alt="VASTHRAALAYAM Logo" onerror="this.style.display='none'" />` : ''}
-  <div class="shop-title">${esc(BRAND_EN)}</div>
-  <div class="shop-meta" style="margin-top: 2px;">${esc(BRAND_ADDRESS)}</div>
-  <div class="shop-meta" style="margin-top: 1px;">Ph: ${esc(BRAND_PHONE_DISPLAY)}</div>
-  ${BRAND_EMAIL ? `<div class="shop-meta" style="margin-top: 1px;">${esc(BRAND_EMAIL)}</div>` : ''}
+  ${thermalLogo ? `<img src="${thermalLogo}" style="width: 32mm; max-width: 40%; height: auto; object-fit: contain; margin: 0 auto 5px auto; display: block;${shop.hasCustomLogo ? ' filter: grayscale(1) contrast(1.2);' : ''}" alt="Shop Logo" onerror="this.style.display='none'" />` : ''}
+  <div class="shop-title">${esc(shop.name)}</div>
+  <div class="shop-meta" style="margin-top: 2px;">${esc(shop.address)}</div>
+  <div class="shop-meta" style="margin-top: 1px;">Ph: ${esc(shop.phoneDisplay)}</div>
+  ${shop.email ? `<div class="shop-meta" style="margin-top: 1px;">${esc(shop.email)}</div>` : ''}
 </div>
 <div class="line"></div>
 <div class="c big">ADVANCE RECEIPT</div>

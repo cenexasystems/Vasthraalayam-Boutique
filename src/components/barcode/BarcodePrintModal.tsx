@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { X, Printer, Copy, Check } from 'lucide-react'
 import { useScrollLock } from '../../lib/scrollLock'
 import { BarcodeLabel } from './BarcodeLabel'
-import { BRAND_EN } from '../../lib/brand'
+import { getShopProfile } from '../../lib/shopProfile'
 import {
   getAllLabelSizes,
   generateBarcodeSvgString,
@@ -151,7 +151,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
       : `
       <div class="sticker">
         <div class="header">
-          <div class="brand">${BRAND_EN}</div>
+          <div class="brand">${getShopProfile().name}</div>
           <div class="prod-title">${fullTitle}</div>
         </div>
         <div class="barcode-box">
@@ -422,7 +422,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
             </div>
             <div>
               <h2 className="text-sm sm:text-base font-black tracking-wide text-white">
-                Print Barcode Labels ({BRAND_EN})
+                Print Barcode Labels ({getShopProfile().name})
               </h2>
               <p className="text-[11px] text-[#7daa8f] font-semibold">
                 Generate physical retail stickers for this SKU
@@ -606,7 +606,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                 barcodeValue={barcodeValue}
                 price={price}
                 mrp={mrp}
-                storeName={BRAND_EN}
+                storeName={getShopProfile().name}
                 widthMm={selectedPreset.widthMm}
                 heightMm={selectedPreset.heightMm}
               />

@@ -42,7 +42,7 @@ const RMIcon = ({ size = 16, className = '' }: { size?: number; className?: stri
 import { useAuthStore, useProductStore, type Product } from '../store/store'
 import { formatCurrency, normalizeOrderMode, toNumber } from '../lib/retail'
 import { formatPhoneForCSV } from '../lib/phone'
-import { BRAND_EN, BRAND_LOGO, BRAND_ICON } from '../lib/brand'
+import { useShopProfile } from '../lib/shopProfile'
 
 type BillingOrder = {
   id: string
@@ -208,6 +208,7 @@ function StatCard({
 }
 
 export default function BillingAnalytics() {
+  const shop = useShopProfile()
   const { user, loading: authLoading } = useAuthStore()
   const { products, fetchProducts } = useProductStore()
   const l = (en: string, _ta?: string) => en
@@ -608,7 +609,7 @@ export default function BillingAnalytics() {
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div className="admin-logo-lockup min-w-[280px]">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-black border border-[#7daa8f]/40 shadow-sm shrink-0 p-1 overflow-hidden">
-              <img src={BRAND_ICON} alt={BRAND_EN} className="w-full h-full object-contain" />
+              <img src={shop.logo} alt={shop.name} className="w-full h-full object-contain" />
             </div>
             <div className="min-w-0">
               <p className="text-[11px] font-black uppercase tracking-[0.24em] text-[#5F5F5F]">Admin Billing</p>

@@ -1,7 +1,8 @@
-import { BRAND_ADDRESS, BRAND_EMAIL, BRAND_EN, BRAND_PRIMARY_PHONE_DISPLAY } from './brand'
+import { getShopProfile } from './shopProfile'
 import { getMonochromeThermalLogo } from './thermalLogo'
 import { formatCurrency, formatInvoiceNo } from './retail'
 import { computeInvoiceBreakdown } from './invoiceBreakdown'
+import type { TaxRateGroup } from './taxHelper'
 
 export interface ThermalReceiptData {
   invoiceNo: string
@@ -29,6 +30,7 @@ export interface ThermalReceiptData {
   totalGst?: number
   gstAmount?: number
   gstRate?: number
+  rateGroups?: TaxRateGroup[]
   roundOff?: number
   total: number
   paymentMode?: string
@@ -48,7 +50,9 @@ export interface ThermalReceiptData {
 
 export async function printThermalReceipt(data: ThermalReceiptData) {
   try {
-    const thermalLogo = await getMonochromeThermalLogo()
+    const shop = getShopProfile()
+    // A logo uploaded in Settings is printed as-is (greyscale); the built-in logo uses the tuned 1-bit conversion
+    const thermalLogo = shop.hasCustomLogo ? shop.logo : await getMonochromeThermalLogo()
     // Create an isolated print iframe protected from third-party extension observers
     const iframe = document.createElement('iframe')
     iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;'
@@ -96,6 +100,7 @@ export async function printThermalReceipt(data: ThermalReceiptData) {
       couponPercentage: data.couponPercentage,
       totalGst: data.totalGst ?? data.gstAmount,
       gstRate: data.gstRate,
+    rateGroups: data.rateGroups,
       deliveryCharge: data.deliveryCharge ?? data.shipping,
       shipping: data.shipping,
       roundOff: data.roundOff,
@@ -151,11 +156,11 @@ export async function printThermalReceipt(data: ThermalReceiptData) {
       </head>
       <body>
         <div class="text-center mb-2">
-          ${thermalLogo ? `<img src="${thermalLogo}" style="width: 32mm; max-width: 40%; height: auto; object-fit: contain; margin: 0 auto 5px auto; display: block;" alt="VASTHRAALAYAM Logo" onerror="this.style.display='none'" />` : ''}
-          <div class="font-bold" style="font-size: 15px; letter-spacing: 1px; line-height: 1.25; text-transform: uppercase; word-break: break-word;">${data.storeName || BRAND_EN}</div>
-          <div style="font-size: 10px; margin-top: 3px; line-height: 1.35; word-break: break-word;">${data.storeAddress || BRAND_ADDRESS}</div>
-          <div class="mt-1" style="font-size: 10px;">Ph: ${data.storePhone || BRAND_PRIMARY_PHONE_DISPLAY}</div>
-          ${(data.storeEmail || BRAND_EMAIL) ? `<div style="font-size: 10px; margin-top: 1px;">${data.storeEmail || BRAND_EMAIL}</div>` : ''}
+          ${thermalLogo ? `<img src="${thermalLogo}" style="width: 32mm; max-width: 40%; height: auto; object-fit: contain; margin: 0 auto 5px auto; display: block;${shop.hasCustomLogo ? ' filter: grayscale(1) contrast(1.2);' : ''}" alt="Shop Logo" onerror="this.style.display='none'" />` : ''}
+          <div class="font-bold" style="font-size: 15px; letter-spacing: 1px; line-height: 1.25; text-transform: uppercase; word-break: break-word;">${data.storeName || shop.name}</div>
+          <div style="font-size: 10px; margin-top: 3px; line-height: 1.35; word-break: break-word;">${data.storeAddress || shop.address}</div>
+          <div class="mt-1" style="font-size: 10px;">Ph: ${data.storePhone || shop.phoneDisplay}${shop.secondaryPhoneDisplay ? ` / ${shop.secondaryPhoneDisplay}` : ''}</div>
+          ${(data.storeEmail || shop.email) ? `<div style="font-size: 10px; margin-top: 1px;">${data.storeEmail || shop.email}</div>` : ''}
         </div>
 
         <div class="border-bottom border-top" style="font-size: 11px;">
@@ -295,7 +300,7 @@ export async function printThermalReceipt(data: ThermalReceiptData) {
         </div>
 
         <div class="text-center mt-2" style="font-size: 11px;">
-          <div class="font-bold">Thank you for shopping at ${data.storeName || BRAND_EN}!</div>
+          <div class="font-bold">Thank you for shopping at ${data.storeName || shop.name}!</div>
         </div>
       </body>
     </html>

@@ -5,9 +5,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useCartStore, useFavStore, useAuthStore } from '../store/store'
 import { useLangStore } from '../store/langStore'
 import { CartDrawer, FavoritesDrawer } from './Drawers'
-import { BRAND_EN, BRAND_SUBTITLE, BRAND_WHATSAPP, BRAND_LOGO, BRAND_ICON } from '../lib/brand'
+import { useShopProfile } from '../lib/shopProfile'
 
 export default function Navbar() {
+  const shop = useShopProfile()
   const [query, setQuery] = useState('')
   const [showCart, setShowCart] = useState(false)
   const [showFav, setShowFav] = useState(false)
@@ -34,7 +35,7 @@ export default function Navbar() {
     <>
       <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5 bg-forestDark/95 px-3 py-2 text-center text-[11px] sm:text-xs font-medium tracking-wide text-sage shadow-soft">
         <span className="leading-snug">
-          🌿 {t('nav.free_shipping')} &nbsp;·&nbsp; <span className="whitespace-nowrap">WhatsApp: {BRAND_WHATSAPP}</span>
+          🌿 {t('nav.free_shipping')} &nbsp;·&nbsp; <span className="whitespace-nowrap">WhatsApp: {shop.phoneDisplay}</span>
         </span>
         <button onClick={() => setLang(lang === 'en' ? 'ta' : 'en')} className="hidden sm:inline-flex items-center rounded-full bg-white/8 p-0.5 text-[10px] font-bold text-white transition-colors shadow-soft">
           <span className={`px-2 py-0.5 rounded-full transition-colors ${lang === 'en' ? 'bg-white text-forestDark' : 'text-white/70'}`}>EN</span>
@@ -46,11 +47,11 @@ export default function Navbar() {
         <nav className="mx-auto flex max-w-7xl items-center justify-between gap-2 sm:gap-3 px-3 py-2.5 sm:px-4 sm:py-3 lg:gap-4">
           <Link to="/" className="group flex min-w-0 items-center gap-2 sm:gap-2.5">
             <div className="w-10 h-10 sm:w-11 sm:h-11 bg-brand-black rounded-full flex items-center justify-center overflow-hidden shadow-sm shrink-0 border border-[#7daa8f]/50 group-hover:opacity-90 transition-opacity p-1">
-              <img src={BRAND_ICON} alt={BRAND_EN} className="w-full h-full object-contain" />
+              <img src={shop.logo} alt={shop.name} className="w-full h-full object-contain" />
             </div>
             <div className="flex min-w-0 flex-col leading-none">
-              <p className="break-words text-[12px] sm:text-[13px] font-bold leading-tight tracking-tight text-textMain md:text-[15px] font-headline">{BRAND_EN}</p>
-              <p className="hidden text-[9px] font-bold uppercase tracking-[0.15em] text-sageDark md:block">{BRAND_SUBTITLE}</p>
+              <p className="break-words text-[12px] sm:text-[13px] font-bold leading-tight tracking-tight text-textMain md:text-[15px] font-headline">{shop.name}</p>
+              <p className="hidden text-[9px] font-bold uppercase tracking-[0.15em] text-sageDark md:block">{shop.subtitle}</p>
             </div>
           </Link>
 

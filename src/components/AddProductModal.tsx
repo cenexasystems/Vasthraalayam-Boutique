@@ -4,7 +4,7 @@ import { X, Sparkles } from 'lucide-react'
 import { useScrollLock } from '../lib/scrollLock'
 import { useProductStore } from '../store/store'
 import { supabase } from '../lib/supabase'
-import { BRAND_EN } from '../lib/brand'
+import { getShopProfile } from '../lib/shopProfile'
 
 interface AddProductModalProps {
   isOpen: boolean
@@ -164,7 +164,7 @@ export default function AddProductModal({ isOpen, onClose, onSuccess }: AddProdu
 
         <div className="flex items-center justify-between p-4 sm:p-6 border-b border-[#7daa8f]/30 bg-brand-black text-white shrink-0">
           <div>
-            <h2 className="text-base sm:text-lg font-black text-white">Add Product to {BRAND_EN}</h2>
+            <h2 className="text-base sm:text-lg font-black text-white">Add Product to {getShopProfile().name}</h2>
             <p className="text-[11px] sm:text-xs text-[#7daa8f] font-semibold">Instantly available in Catalog &amp; Billing</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-xl hover:bg-white/10 text-white transition-colors cursor-pointer">

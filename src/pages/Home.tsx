@@ -23,14 +23,7 @@ import ProductCard from '../components/ProductCard'
 import InsideOurStore from '../components/home/InsideOurStore'
 import { supabase, isSupabaseConfigured } from '../lib/supabase'
 import { PLACEHOLDER as PRODUCT_PLACEHOLDER } from '../lib/productImages'
-import {
-  BRAND_TA,
-  BRAND_EN,
-  BRAND_ADDRESS,
-  BRAND_LOCATION_LINK,
-  BRAND_WHATSAPP,
-  BRAND_WHATSAPP_LINK,
-} from '../lib/brand'
+import { useShopProfile } from '../lib/shopProfile'
 
 // ── Review type (maps to store_reviews table) ─────────────────────────
 interface CustomerReview {
@@ -118,6 +111,7 @@ const TESTIMONIALS = [
 ]
 
 export default function Home() {
+  const shop = useShopProfile()
   const { t, lang } = useLangStore()
   const { products, fetchProducts } = useProductStore()
   const { user } = useAuthStore()
@@ -298,7 +292,7 @@ export default function Home() {
             {/* Tamil brand name — hardcoded, not a translation key, styled as elegant accent */}
             <p className="text-[13px] sm:text-[14px] font-semibold text-[#7daa8f]/75
               tracking-[0.03em] mb-8 sm:mb-10">
-              {BRAND_TA}
+              {shop.name}
             </p>
 
             {/* CTA buttons */}
@@ -829,7 +823,7 @@ export default function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8 items-stretch">
           {/* Map — tap-to-open card (avoids wrong-location iframe embedding) */}
           <a
-            href={BRAND_LOCATION_LINK}
+            href={shop.locationLink}
             target="_blank"
             rel="noreferrer"
             className="group relative rounded-[2rem] overflow-hidden
@@ -847,7 +841,7 @@ export default function Home() {
                 <MapPin size={30} className="text-white" />
               </div>
               <div className="text-center">
-                <p className="font-black text-[#111111] text-[15px]">{BRAND_EN}</p>
+                <p className="font-black text-[#111111] text-[15px]">{shop.name}</p>
                 <p className="text-[#374151] text-[12px] mt-1">Tamil Nadu, India</p>
               </div>
               <div className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl
@@ -868,7 +862,7 @@ export default function Home() {
                 Visit Our Store
               </h2>
               <p className="text-[#374151] text-[14px] leading-[1.7] font-medium mb-6">
-                Visit {BRAND_EN} at Ullagaram, Puzhudhivakkam, Chennai for premium clothing, apparel, sarees, and custom fashion collections. Our team will help you find the right fit for your needs.
+                Visit {shop.name} at Ullagaram, Puzhudhivakkam, Chennai for premium clothing, apparel, sarees, and custom fashion collections. Our team will help you find the right fit for your needs.
               </p>
 
               <div className="space-y-3.5">
@@ -878,7 +872,7 @@ export default function Home() {
                   </div>
                   <div>
                     <p className="font-bold text-[13px] text-[#111111] leading-tight">Store Location</p>
-                    <p className="text-[13px] text-[#374151] mt-0.5">{BRAND_ADDRESS}</p>
+                    <p className="text-[13px] text-[#374151] mt-0.5">{shop.address}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -887,7 +881,7 @@ export default function Home() {
                   </div>
                   <div>
                     <p className="font-bold text-[13px] text-[#111111] leading-tight">Call / WhatsApp</p>
-                    <p className="text-[13px] text-[#374151] mt-0.5">{BRAND_WHATSAPP}</p>
+                    <p className="text-[13px] text-[#374151] mt-0.5">{shop.phoneDisplay}</p>
                   </div>
                 </div>
               </div>
@@ -895,7 +889,7 @@ export default function Home() {
 
             <div className="flex flex-col sm:flex-row gap-3">
               <a
-                href={BRAND_LOCATION_LINK}
+                href={shop.locationLink}
                 target="_blank"
                 rel="noreferrer"
                 className="flex-1 inline-flex items-center justify-center gap-2
@@ -907,7 +901,7 @@ export default function Home() {
                 <MapPin size={14} /> Get Directions
               </a>
               <a
-                href={BRAND_WHATSAPP_LINK}
+                href={shop.whatsappLink}
                 target="_blank"
                 rel="noreferrer"
                 className="flex-1 inline-flex items-center justify-center gap-2

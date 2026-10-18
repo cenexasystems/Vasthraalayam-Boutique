@@ -41,7 +41,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 import { neonApi } from '../lib/neonApi'
 import { debounce } from '../lib/debounce'
-import { useAuthStore, useProductStore, useAdminAuthStore, useSettingsStore, type Product } from '../store/store'
+import { useAuthStore, useProductStore, useAdminAuthStore, type Product } from '../store/store'
 import { useAlarmStore } from '../store/alarmStore'
 import { alarmSound } from '../lib/alarmAudio'
 import { uploadProductImage } from '../lib/storage'
@@ -71,7 +71,7 @@ import { BarcodeRedirectDialog } from '../components/pos/BarcodeRedirectDialog'
 import { exportAnalyticsToCSV, exportAnalyticsToPDF } from '../services/analyticsExport'
 import { computeAnalytics, getISTDateRange, type AnalyticsOrder, type AnalyticsLineItem, type AnalyticsAdvanceOrder, type AnalyticsCoupon } from '../services/revenueAnalytics'
 import { getCurrentBusinessId } from '../lib/barcode'
-import { BRAND_EN, BRAND_LOGO, BRAND_ICON } from '../lib/brand'
+import { useShopProfile } from '../lib/shopProfile'
 import {
   ResponsiveContainer,
   XAxis,
@@ -687,12 +687,13 @@ const CatalogAnalyticsView: React.FC<CatalogAnalyticsViewProps> = ({
 }
 
 export default function Dashboard() {
+  const shop = useShopProfile()
   const { user } = useAuthStore()
   const { products, fetchProducts } = useProductStore()
   const location = useLocation()
   const navigate = useNavigate()
   const role = useAdminAuthStore(state => state.role)
-  const logoUrl = useSettingsStore((state) => state.settings?.logoUrl) || BRAND_ICON
+  const logoUrl = shop.logo
   const [tab, setTab] = useState<TabKey>(() => {
     const params = new URLSearchParams(location.search)
     const tabParam = params.get('tab') as TabKey | null
@@ -2100,11 +2101,11 @@ export default function Dashboard() {
         <div className={`hidden lg:flex items-center relative transition-all duration-300 shrink-0 ${sidebarCollapsed ? 'flex-col items-center pt-4 pb-3 px-2 gap-2' : 'px-4 py-3.5 justify-between border-b border-white/5'}`}>
           <Link to="/pos" title="Go to Billing Panel" className={`flex items-center gap-2.5 min-w-0 transition-all duration-300 ${sidebarCollapsed ? 'justify-center' : 'flex-1'}`}>
             <div className="flex items-center justify-center shrink-0 w-9 h-9 rounded-xl bg-[#223126] border border-[#7daa8f]/50 shadow-sm hover:scale-105 transition-transform p-0.5 overflow-hidden">
-              <img src={logoUrl} alt={BRAND_EN} className="w-full h-full object-contain" />
+              <img src={logoUrl} alt={shop.name} className="w-full h-full object-contain" />
             </div>
             {!sidebarCollapsed && (
               <div className="flex flex-col min-w-0">
-                <h1 className="text-[15px] font-black text-white break-words tracking-wider">{BRAND_EN}</h1>
+                <h1 className="text-[15px] font-black text-white break-words tracking-wider">{shop.name}</h1>
                 <span className={`text-[8.5px] font-black uppercase tracking-widest px-1.5 py-0.2 rounded w-fit ${role === 'admin' ? 'bg-[#7daa8f]/20 text-[#7daa8f] border border-[#7daa8f]/40' : 'bg-gray-800 text-gray-300 border border-gray-700'}`}>
                   {role === 'admin' ? 'ADMIN' : 'STAFF'}
                 </span>
@@ -2125,11 +2126,11 @@ export default function Dashboard() {
         <div className="flex lg:hidden items-center justify-between px-3 py-2 border-b border-white/10 bg-brand-black shrink-0 gap-2">
           <Link to="/pos" title="Go to Billing Panel" className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#223126] border border-[#7daa8f]/50 shrink-0 shadow-sm hover:scale-105 transition-transform p-0.5 overflow-hidden">
-              <img src={logoUrl} alt={BRAND_EN} className="w-full h-full object-contain" />
+              <img src={logoUrl} alt={shop.name} className="w-full h-full object-contain" />
             </div>
             <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
               <span className="text-[13px] sm:text-[14px] font-black text-white tracking-wide truncate min-w-0">
-                {BRAND_EN}
+                {shop.name}
               </span>
               <span className={`shrink-0 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded whitespace-nowrap ${role === 'admin' ? 'bg-[#7daa8f]/20 text-[#7daa8f] border border-[#7daa8f]/40' : 'bg-gray-800 text-gray-300 border border-gray-700'}`}>
                 {role === 'admin' ? 'ADMIN' : 'STAFF'}

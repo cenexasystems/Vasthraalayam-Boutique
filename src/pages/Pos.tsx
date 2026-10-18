@@ -37,7 +37,7 @@ import {
   formatInvoiceNo,
   roundTo,
 } from '../lib/retail'
-import { computeBillTaxBreakdown, calculateBaseFromInclusive, calculateGstFromFinal, resolveItemTax } from '../lib/taxHelper'
+import { computeBillTaxBreakdown, calculateBaseFromInclusive, calculateGstFromFinal, resolveItemTax, type TaxRateGroup } from '../lib/taxHelper'
 import { buildProfessionalWhatsAppMessage, buildAdvanceDepositWhatsAppMessage, buildPublicInvoiceUrl } from '../lib/whatsappMessage'
 import { normalizePhone, toWhatsAppUrl } from '../lib/phone'
 import { useLangStore } from '../store/langStore'
@@ -82,6 +82,7 @@ type InvoiceSnap = {
   manualDiscountValue: number
   gstAmount: number
   gstRate?: number
+  rateGroups?: TaxRateGroup[]
   total: number
   customerName: string
   phone: string
@@ -1172,6 +1173,7 @@ export default function Pos(props: PosProps = {}) {
         manualDiscountValue: manualDiscountNumeric,
         gstAmount: totalGst,
         gstRate: billGstEnabled && gstType === 'percent' ? Number(gstInput || 0) : undefined,
+        rateGroups: taxBreakdown.rateGroups,
         total: total,
         customerName: customer.name.trim() || 'Walk-in Customer',
         phone: normalizedPhone,
@@ -1240,6 +1242,7 @@ export default function Pos(props: PosProps = {}) {
       gstAmount: inv.gstAmount,
       totalGst: inv.gstAmount,
       gstRate: inv.gstRate,
+      rateGroups: inv.rateGroups,
       changeGiven: inv.changeGiven,
       total: inv.total,
     })
@@ -1265,6 +1268,7 @@ export default function Pos(props: PosProps = {}) {
         gstAmount: inv.gstAmount,
         totalGst: inv.gstAmount,
         gstRate: inv.gstRate,
+        rateGroups: inv.rateGroups,
         couponCode: inv.couponCode,
         couponPercentage: inv.couponPercentage,
         paymentMode: inv.paymentMode,
@@ -1305,6 +1309,7 @@ export default function Pos(props: PosProps = {}) {
       totalGst: inv.gstAmount,
       gstAmount: inv.gstAmount,
       gstRate: inv.gstRate,
+      rateGroups: inv.rateGroups,
       total: inv.total,
       paymentMode: inv.paymentMode,
       payments: inv.payments,
@@ -1389,6 +1394,7 @@ export default function Pos(props: PosProps = {}) {
               couponPercentage: invoice.couponPercentage,
               totalGst: invoice.gstAmount,
               gstRate: invoice.gstRate,
+              rateGroups: invoice.rateGroups,
               deliveryCharge: invoice.shipping,
               shipping: invoice.shipping,
               paymentMode: invoice.paymentMode,
@@ -1520,8 +1526,9 @@ export default function Pos(props: PosProps = {}) {
   }
 
   return (
-    <div data-embedded={embeddedMode} className={`flex flex-col flex-1 bg-[#FAFAFA] print:hidden overflow-x-hidden ${embeddedMode ? 'w-full' : 'min-h-[100dvh] w-full overflow-y-auto hide-scrollbar'}`} style={embeddedMode ? undefined : { WebkitOverflowScrolling: 'touch' }}>
-
+    <div data-embedded={embeddedMode} className={`flex flex-col flex-1 bg-[#FAFAFA] print:hidden overflow-x-hidden ${embeddedMode ? 'w-full' : 'h-[100dvh] max-h-[100dvh] w-full overflow-hidden'}`}>
+      {/* Content scrolls inside this wrapper so the footer below stays fixed in place */}
+      <div className={embeddedMode ? 'flex flex-col flex-1' : 'flex flex-col flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain hide-scrollbar'} style={embeddedMode ? undefined : { WebkitOverflowScrolling: 'touch' }}>
 
       {/* Header */}
       <div className="px-3 pt-3 pb-2.5 sm:px-4 sm:pt-4 md:px-6 md:pt-6 md:pb-4 shrink-0 flex flex-col gap-3 min-[480px]:flex-row min-[480px]:items-start min-[480px]:justify-between">
@@ -2671,9 +2678,10 @@ export default function Pos(props: PosProps = {}) {
           </div>
         </div>
       )}
+      </div>
 
       {!embeddedMode && (
-        <footer className="sticky bottom-0 shrink-0 border-t border-gray-200/80 bg-white/95 backdrop-blur-sm py-2.5 px-3 text-center text-[11px] sm:text-[12px] font-semibold text-[#7A8A78] tracking-wide print:hidden pb-[max(0.6rem,env(safe-area-inset-bottom))] mt-auto z-10 shadow-[0_-2px_8px_rgba(0,0,0,0.03)]">
+        <footer className="shrink-0 border-t border-gray-200/80 bg-white/95 backdrop-blur-sm py-2.5 px-3 text-center text-[11px] sm:text-[12px] font-semibold text-[#7A8A78] tracking-wide print:hidden pb-[max(0.6rem,env(safe-area-inset-bottom))] z-10 shadow-[0_-2px_8px_rgba(0,0,0,0.03)]">
           Powered by Cenexa Systems © 2026
         </footer>
       )}

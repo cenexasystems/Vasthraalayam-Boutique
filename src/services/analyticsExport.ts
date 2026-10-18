@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
-import { BRAND_EN, BRAND_ADDRESS, BRAND_PHONE_DISPLAY } from '../lib/brand'
+import { getShopProfile } from '../lib/shopProfile'
 import { LOGO_BASE64 } from '../lib/logoBase64'
 import { formatCurrency } from '../lib/retail'
 import { getThemeColor } from '../lib/theme'
@@ -76,7 +76,7 @@ export function exportAnalyticsToCSV({ data, activeTab, datePreset, dateFrom, da
   const rows: string[][] = []
 
   // Brand and Metadata Header
-  rows.push([`${BRAND_EN} - POS & Store Analytics Report`])
+  rows.push([`${getShopProfile().name} - POS & Store Analytics Report`])
   rows.push([`Exported on: ${new Date().toLocaleString('en-IN')}`])
   rows.push([`Active View: ${activeTab.toUpperCase()}`])
   rows.push([`Filter Period: ${filterText}`])
@@ -281,11 +281,11 @@ export async function exportAnalyticsToPDF({
               <img src="${LOGO_BASE64}" style="width: 100%; height: 100%; object-fit: contain; display: block;" alt="VASTHRAALAYAM Logo" />
             </div>
             <div>
-              <h1 style="margin: 0; font-size: 20px; font-weight: 900; letter-spacing: 0.5px; color: ${getThemeColor()}; text-transform: uppercase; line-height: 1.15;">${BRAND_EN}</h1>
+              <h1 style="margin: 0; font-size: 20px; font-weight: 900; letter-spacing: 0.5px; color: ${getThemeColor()}; text-transform: uppercase; line-height: 1.15;">${getShopProfile().name}</h1>
               <p style="margin: 3px 0 0 0; font-size: 10px; font-weight: 700; color: #5f6d59;">Executive POS & Store Analytics Intelligence</p>
             </div>
           </div>
-          <p style="margin: 6px 0 0 0; font-size: 9px; color: #666; padding-left: 2px;">${BRAND_ADDRESS} • Tel: ${BRAND_PHONE_DISPLAY}</p>
+          <p style="margin: 6px 0 0 0; font-size: 9px; color: #666; padding-left: 2px;">${getShopProfile().address} • Tel: ${getShopProfile().phoneDisplay}</p>
         </div>
         <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end;">
           <span style="display: inline-block; padding: 4px 10px; background: ${getThemeColor()}; color: #FFFFFF; font-size: 9.5px; font-weight: 800; border-radius: 6px; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 0.5px;">
@@ -505,7 +505,7 @@ export async function exportAnalyticsToPDF({
 
       <!-- Footer Stamp -->
       <div style="border-top: 1px solid #E5E7EB; padding-top: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 7.5px; color: #888;">
-        <div>${BRAND_EN} POS System • Confidential Store Performance Report</div>
+        <div>${getShopProfile().name} POS System • Confidential Store Performance Report</div>
         <div>Page 1 of 1</div>
       </div>
     </div>

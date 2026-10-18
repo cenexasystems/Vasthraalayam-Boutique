@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowLeft, ArrowRight, X, ZoomIn } from 'lucide-react'
 import { galleryImages, type GalleryImage } from '../data/galleryImages'
-import { BRAND_EN } from '../lib/brand'
+import { useShopProfile } from '../lib/shopProfile'
 
 // ── Lightbox ────────────────────────────────────────────────────────────────
 function Lightbox({
@@ -147,6 +147,7 @@ function Lightbox({
 
 // ── Gallery Page ─────────────────────────────────────────────────────────────
 export default function Gallery() {
+  const shop = useShopProfile()
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
 
   return (
@@ -171,7 +172,7 @@ export default function Gallery() {
           transition={{ duration: 0.65, ease: [0.22, 1, 0.36, 1] }}
         >
           <p className="text-[10px] font-black uppercase tracking-[0.26em] text-[#7daa8f] mb-4">
-            {BRAND_EN}
+            {shop.name}
           </p>
           <h1 className="text-[2.8rem] sm:text-[3.6rem] font-black text-[#111111] tracking-tight leading-[1.02] mb-4">
             Inside Our Store
