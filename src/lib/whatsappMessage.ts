@@ -76,13 +76,15 @@ export type AdvanceDepositWhatsAppInput = {
 export const buildPublicInvoiceUrl = (invoiceNumber: string): string => {
   const formatted = formatInvoiceNo(invoiceNumber)
   const baseUrl = getPublicBaseUrl()
-  return `${baseUrl}/invoice/${encodeURIComponent(formatted)}`
+  // A trailing slash keeps WhatsApp from treating the numeric tail of invoice
+  // numbers as a separate phone number and truncating the clickable URL.
+  return `${baseUrl}/invoice/${encodeURIComponent(formatted)}/`
 }
 
 export const buildPublicDepositUrl = (depositId: string): string => {
   const formatted = formatDepositId(depositId)
   const baseUrl = getPublicBaseUrl()
-  return `${baseUrl}/invoice/${encodeURIComponent(formatted)}`
+  return `${baseUrl}/invoice/${encodeURIComponent(formatted)}/`
 }
 
 export const publicInvoiceUrl = buildPublicInvoiceUrl
