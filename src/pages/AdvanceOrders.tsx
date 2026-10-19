@@ -90,10 +90,15 @@ export default function AdvanceOrders({ onOrderCompleted, onOrderDeleted }: Adva
   useScrollLock(Boolean(createOpen || paymentOrder || selected || deleteModalConfig?.isOpen))
 
 
+  const initialLoadDone = useMemo(() => ({ current: false }), [])
+
   const load = useCallback(async () => {
-    setLoading(true); setError('')
-    try { setOrders(await listAdvanceOrders()) } catch (err) { setError(err instanceof Error ? err.message : 'Unable to load advance orders') } finally { setLoading(false) }
-  }, [])
+    // Only show "Loading..." spinner on the very first fetch.
+    // Subsequent background refreshes update data silently to prevent flickering.
+    if (!initialLoadDone.current) setLoading(true)
+    setError('')
+    try { setOrders(await listAdvanceOrders()) } catch (err) { setError(err instanceof Error ? err.message : 'Unable to load advance orders') } finally { setLoading(false); initialLoadDone.current = true }
+  }, [initialLoadDone])
 
   useEffect(() => {
     void load()
