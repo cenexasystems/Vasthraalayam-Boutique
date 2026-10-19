@@ -764,8 +764,9 @@ export const AddEditProductView: React.FC<{
                 barcode: v.customBarcode?.trim() || null,
                 gst_percent: Number(v.gstRate || effectiveGstPercent) || 0,
               })
+              if (vErr) throw new Error(`Variant "${v.variantName.trim()}" was not saved: ${vErr.message}`)
 
-              if (!vErr && createdVar && vStock > 0) {
+              if (createdVar && vStock > 0) {
                 await neonApi.post('/inventory-movements', {
                   product_id: selectedProductId,
                   variant_id: createdVar.id,
@@ -786,7 +787,7 @@ export const AddEditProductView: React.FC<{
               const prevVarStock = curVar?.stock ?? 0
               const varDelta = vStock - prevVarStock
 
-              await neonApi.put(`/variants/${v.id}`, {
+              const { error: vUpdErr } = await neonApi.put(`/variants/${v.id}`, {
                 variant_name: v.variantName.trim(),
                 size_label: v.sizeLabel?.trim() || v.variantName.trim(),
                 price: vPrice,
@@ -796,6 +797,7 @@ export const AddEditProductView: React.FC<{
                 barcode: v.customBarcode?.trim() || null,
                 gst_percent: Number(v.gstRate || effectiveGstPercent) || 0,
               })
+              if (vUpdErr) throw new Error(`Variant "${v.variantName.trim()}" was not saved: ${vUpdErr.message}`)
 
               if (varDelta !== 0) {
                 await neonApi.post('/inventory-movements', {
@@ -937,7 +939,7 @@ export const AddEditProductView: React.FC<{
 
             const vFinal = Number(v.finalPrice) > 0 ? Number(v.finalPrice) : null
 
-            const { data: createdVar } = await neonApi.post<{ id: string }>('/variants', {
+            const { data: createdVar, error: newVarErr } = await neonApi.post<{ id: string }>('/variants', {
               product_id: newProd.id,
               variant_name: v.variantName.trim(),
               size_label: v.sizeLabel?.trim() || v.variantName.trim(),
@@ -948,6 +950,7 @@ export const AddEditProductView: React.FC<{
               barcode: v.customBarcode?.trim() || null,
               gst_percent: Number(v.gstRate || effectiveGstPercent) || 0,
             })
+            if (newVarErr) throw new Error(`Variant "${v.variantName.trim()}" was not saved: ${newVarErr.message}`)
 
             if (createdVar && normalizeBarcode(v.customBarcode)) {
               await neonApi.post('/barcode-registry', {

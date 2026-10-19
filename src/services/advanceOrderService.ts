@@ -150,10 +150,13 @@ export async function deleteAdvanceOrder(orderId: string): Promise<{ localOnly: 
 }
 
 
-export async function listAdvanceOrders(businessId?: string): Promise<AdvanceOrder[]> {
+export async function listAdvanceOrders(businessId?: string, options: { fallbackToCache?: boolean } = {}): Promise<AdvanceOrder[]> {
   const bizId = businessId || getCurrentBusinessId()
   const result = await neonApi.get<AdvanceOrder[]>(`/advance-orders?business_id=${encodeURIComponent(bizId)}`)
   if (result.error || !result.data) {
+    // Background refreshes pass fallbackToCache: false so a failed poll keeps the
+    // rows on screen instead of swapping in an older cached list (visible flicker).
+    if (options.fallbackToCache === false) throw result.error ?? new Error('Unable to load advance orders')
     console.warn('[listAdvanceOrders] Neon error, falling back to local cache:', result.error?.message)
     return loadLocalOrders()
   }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { CalendarDays, Clock3, Download, Eye, FileText, MessageCircle, PackageCheck, Plus, Printer, RefreshCw, Search, X, Trash2 } from 'lucide-react'
 import { formatCurrency } from '../lib/retail'
@@ -90,15 +90,29 @@ export default function AdvanceOrders({ onOrderCompleted, onOrderDeleted }: Adva
   useScrollLock(Boolean(createOpen || paymentOrder || selected || deleteModalConfig?.isOpen))
 
 
-  const initialLoadDone = useMemo(() => ({ current: false }), [])
+  const initialLoadDone = useRef(false)
+  const lastOrdersJson = useRef('')
 
   const load = useCallback(async () => {
-    // Only show "Loading..." spinner on the very first fetch.
-    // Subsequent background refreshes update data silently to prevent flickering.
-    if (!initialLoadDone.current) setLoading(true)
-    setError('')
-    try { setOrders(await listAdvanceOrders()) } catch (err) { setError(err instanceof Error ? err.message : 'Unable to load advance orders') } finally { setLoading(false); initialLoadDone.current = true }
-  }, [initialLoadDone])
+    // Only the first fetch shows the "Loading..." row. Background refreshes
+    // (20s poll, window focus) update silently, and only when data changed.
+    const background = initialLoadDone.current
+    if (!background) { setLoading(true); setError('') }
+    try {
+      const rows = await listAdvanceOrders(undefined, { fallbackToCache: !background })
+      const json = JSON.stringify(rows)
+      if (json !== lastOrdersJson.current) {
+        lastOrdersJson.current = json
+        setOrders(rows)
+      }
+    } catch (err) {
+      // A failed background poll keeps the current rows and stays quiet
+      if (!background) setError(err instanceof Error ? err.message : 'Unable to load advance orders')
+    } finally {
+      setLoading(false)
+      initialLoadDone.current = true
+    }
+  }, [])
 
   useEffect(() => {
     void load()
