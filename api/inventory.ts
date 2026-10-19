@@ -83,6 +83,12 @@ async function createMovement(req: VercelRequest, res: VercelResponse) {
     res.status(400).json({ error: 'movement_type and quantity_delta are required' })
     return
   }
+  // A movement must belong to a product or variant, otherwise deleting the
+  // product can never clean it up and it lingers in the ledger as "Product #null"
+  if (body.product_id == null && !body.variant_id) {
+    res.status(400).json({ error: 'product_id or variant_id is required' })
+    return
+  }
 
   const rows = await sql`
     INSERT INTO public.inventory_movements (
