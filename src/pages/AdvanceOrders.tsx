@@ -765,8 +765,17 @@ export default function AdvanceOrders({ onOrderCompleted, onOrderDeleted }: Adva
                   </td>
                   <td className="px-4 py-3.5 text-xs align-middle whitespace-nowrap">
                     <p className="text-gray-700">Total: <b>{formatCurrency(order.total_amount)}</b></p>
-                    <p className="text-violet-700">Paid: <b>{formatCurrency(order.deposit_amount)}</b></p>
-                    <p className="text-red-600 font-bold">Balance: <b>{formatCurrency(order.remaining_balance)}</b></p>
+                    {order.status === 'completed' ? (
+                      <>
+                        <p className="text-violet-700">Deposit: <b>{formatCurrency(order.deposit_amount)}</b></p>
+                        <p className="text-emerald-700 font-bold">Balance Paid: <b>{formatCurrency(Math.max(0, Number(order.total_amount) - Number(order.deposit_amount)))}</b></p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-violet-700">Paid: <b>{formatCurrency(order.deposit_amount)}</b></p>
+                        <p className="text-red-600 font-bold">Balance: <b>{formatCurrency(order.remaining_balance)}</b></p>
+                      </>
+                    )}
                   </td>
                   <td className="px-4 py-3.5 align-middle whitespace-nowrap">
                     <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-700">
@@ -1031,7 +1040,9 @@ export default function AdvanceOrders({ onOrderCompleted, onOrderDeleted }: Adva
                 ['Category', selected.category || '-'],
                 ['Total', formatCurrency(selected.total_amount)],
                 ['Deposit Paid', formatCurrency(selected.deposit_amount)],
-                ['Remaining Balance', formatCurrency(selected.remaining_balance)],
+                ...(selected.status === 'completed'
+                  ? [['Balance Paid', formatCurrency(Math.max(0, Number(selected.total_amount) - Number(selected.deposit_amount)))], ['Remaining Balance', formatCurrency(0)]]
+                  : [['Remaining Balance', formatCurrency(selected.remaining_balance)]]),
                 ['Delivery Date', safeDeliveryDate(selected.expected_delivery_date)],
                 ['Created Date', new Date(selected.created_at).toLocaleDateString('en-IN')],
                 ['Created Time', new Date(selected.created_at).toLocaleTimeString('en-IN')],
